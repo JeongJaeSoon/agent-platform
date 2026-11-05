@@ -375,6 +375,8 @@ export const GITHUB_MCP_TOOL_REFUSALS: Record<
     "catalog_changed",
     "default_branch",
     "target_refused",
+    "attribution_mismatch",
+    "uncommitted_changes",
     "github_settings_unsupported",
     "github_refused",
     "backend_unavailable",

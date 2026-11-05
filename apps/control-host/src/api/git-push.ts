@@ -11,6 +11,7 @@ import {
   type GitCommandRunner,
   type GitResourceLimits,
   gitRefNameAcceptable,
+  rangeAttribution,
 } from "@werft-ai/storage";
 
 const DEFAULT_GIT_PUSH_TIMEOUT_MS = 5 * 60_000;
@@ -148,8 +149,28 @@ export function createGitPusher(
         throw new Error("the bundle chain does not hold the pinned commit");
       }
 
+      const checking =
+        input.attribution !== undefined &&
+        input.attribution.expectations.length > 0
+          ? input.attribution
+          : undefined;
+      // A base ref the check cannot use must stop the push, not switch the
+      // check off.
+      if (checking !== undefined && !gitRefNameAcceptable(checking.baseRef)) {
+        return refused(
+          "attribution_mismatch",
+          "the repository's base branch is not a usable ref for the attribution check",
+        );
+      }
       const listed = await git(
-        inRepo(["ls-remote", "--symref", input.remoteUrl, "HEAD", input.ref]),
+        inRepo([
+          "ls-remote",
+          "--symref",
+          input.remoteUrl,
+          "HEAD",
+          input.ref,
+          ...(checking === undefined ? [] : [checking.baseRef]),
+        ]),
         true,
       );
       if (listed.exitCode !== 0) {
@@ -209,6 +230,69 @@ export function createGitPusher(
             "unrelated_history",
             "the pinned commit shares no history with the remote's HEAD",
           );
+        }
+      }
+      if (checking !== undefined) {
+        // The tips the session's commits are told apart from, pinned by one
+        // ls-remote so a branch that moves meanwhile changes nothing here:
+        // the PR base, the default branch and the target as the remote has
+        // them. What the bundles already hold is not fetched again.
+        const tips = new Map<string, string>();
+        const base = remote.refs.get(checking.baseRef);
+        if (base !== undefined) tips.set("base", base);
+        const defaultTip = remote.refs.get("HEAD");
+        if (defaultTip !== undefined) tips.set("default", defaultTip);
+        if (previousCommit !== null) tips.set("target", previousCommit);
+        for (const [name, sha] of tips) {
+          const held = await git(inRepo(["cat-file", "-e", `${sha}^{commit}`]));
+          if (held.exitCode === 0) continue;
+          const fetched = await git(
+            inRepo([
+              "-c",
+              "fetch.fsckObjects=true",
+              "-c",
+              "transfer.fsckObjects=true",
+              "fetch",
+              "--quiet",
+              "--no-tags",
+              "--no-write-fetch-head",
+              input.remoteUrl,
+              `${sha}:refs/push/check/${name}`,
+            ]),
+            true,
+          );
+          if (fetched.exitCode !== 0) {
+            return refused(
+              "push_failed",
+              `git fetch of the ${name} tip exited ${fetched.exitCode}`,
+            );
+          }
+        }
+        const judged = await rangeAttribution(
+          async (args) => {
+            const result = await git(inRepo(args));
+            return { exitCode: result.exitCode, stdout: result.stdout };
+          },
+          {
+            tip: input.commit,
+            not: [...tips.values()],
+            expectations: checking.expectations,
+            stripEmails: checking.stripEmails,
+          },
+        );
+        if (judged.status === "unreadable") {
+          return refused(
+            "attribution_mismatch",
+            "the new commits could not be read for the attribution check",
+          );
+        }
+        if (judged.mismatches.length > 0) {
+          return {
+            status: "refused",
+            refusal: "attribution_mismatch",
+            detail: `${judged.mismatches.length} of ${judged.checked} new commits lack the issued attribution`,
+            mismatches: judged.mismatches,
+          };
         }
       }
       const pushed = await git(

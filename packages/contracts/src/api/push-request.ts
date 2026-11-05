@@ -181,6 +181,12 @@ export const PUSH_REFUSAL_VALUES = [
   // A new branch whose commit shares no history with the remote's default
   // branch: most likely another repository's content.
   "unrelated_history",
+  // A commit the session made lacks the author, committer, co-author or
+  // Agent-Session line the platform issued; `mismatches` names them.
+  "attribution_mismatch",
+  // The pinned checkpoint commit is the platform's snapshot of tracked files
+  // the agent left uncommitted, not a commit of the session's.
+  "uncommitted_changes",
   // The deciding key is the key that started the session (GA-8).
   "self_approval",
   // A policy's approval the agent's settings no longer give: it went back to
@@ -197,6 +203,22 @@ export const pushReasonCodeSchema = z.union([
   githubRefusalSchema,
   z.literal("workflows_permission_missing"),
 ]);
+
+/** One commit whose attribution is wrong, and which parts are. */
+export const attributionMismatchSchema = z.object({
+  commit: gitCommitShaSchema,
+  problems: z.array(
+    z.enum([
+      "author",
+      "committer",
+      "co_author",
+      "engine_co_author",
+      "agent_session",
+    ]),
+  ),
+});
+/** A refusal lists at most this many; the first are the oldest. */
+export const MAX_ATTRIBUTION_MISMATCHES = 20;
 
 /**
  * `result` of a `request_push`, `resolve_push` or `push` receipt. Fields the
@@ -220,6 +242,11 @@ export const pushReceiptResultSchema = z.object({
   previous_commit: gitCommitShaSchema.nullable().optional(),
   approved_by: pushDeciderSchema.nullable().optional(),
   reason_code: pushReasonCodeSchema.nullable().optional(),
+  // `attribution_mismatch` only: the commits that fail the check.
+  mismatches: z
+    .array(attributionMismatchSchema)
+    .max(MAX_ATTRIBUTION_MISMATCHES)
+    .optional(),
   // A `resolve_push` receipt only: the API key that decided, or null for a
   // person or the policy.
   decider_key: deciderKeySchema.nullable().optional(),
@@ -244,5 +271,8 @@ export type ListPushRequestsResponse = z.infer<
   typeof listPushRequestsResponseSchema
 >;
 export type PushRefusal = z.infer<typeof pushRefusalSchema>;
+export type AttributionMismatchDetail = z.infer<
+  typeof attributionMismatchSchema
+>;
 export type PushReasonCode = z.infer<typeof pushReasonCodeSchema>;
 export type PushReceiptResult = z.infer<typeof pushReceiptResultSchema>;

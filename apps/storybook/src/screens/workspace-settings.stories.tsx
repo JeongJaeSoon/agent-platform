@@ -332,7 +332,7 @@ function AllowedModels({ models }: { readonly models: Models }) {
       foot={
         <>
           <Text as="div" variant="meta">
-            프로필 화면의 모델 연결에서 관리합니다
+            설정의 모델 연결에서 관리합니다
           </Text>
           <ReadOnlyMark />
         </>

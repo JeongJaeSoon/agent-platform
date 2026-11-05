@@ -55,10 +55,15 @@ import {
   type WorkerGatewayClient,
   WorkerGatewayRequestError,
   type WorkspaceArtifact,
+  workingTreeSnapshotMismatch,
   workspacePathsProblem,
   writeWorkspaceFile,
 } from "@werft-ai/runtime-core";
-
+import {
+  claimExpectation,
+  repairAttribution,
+  workspaceMismatches,
+} from "./attribution-repair.ts";
 import type {
   CheckpointCaptureContext,
   RuntimeResumePlan,
@@ -107,7 +112,14 @@ const UNSETTLED =
   "a transcript batch failed to mirror and has not been written since";
 
 export type SessionCheckpointsOptions = {
-  gateway: Pick<WorkerGatewayClient, "requestCheckpoint" | "restorePlan">;
+  gateway: Pick<WorkerGatewayClient, "requestCheckpoint" | "restorePlan"> &
+    Partial<Pick<WorkerGatewayClient, "protectedCommits">>;
+  /**
+   * The attribution repair tool and the HOME it reads the claim's files
+   * under; absent outside the image, where no repair runs.
+   */
+  repairTool?: string;
+  home?: string;
   logger: WorkerLogger;
   /** Scoped to the session: every key it takes starts with `objectPrefix`. */
   objects: CheckpointObjectStore;
@@ -1053,6 +1065,23 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         "the workspace .git is not a directory",
       );
     }
+    // The lease is held and the engine stopped: the one moment the session's
+    // own commits may be remade before this capture pins the tip.
+    const repaired = await repairAttribution({
+      root: this.#options.workspaceRoot,
+      home: this.#options.home ?? "",
+      tool: this.#options.repairTool,
+      gateway: this.#options.gateway,
+      scope: context.scope,
+      spool,
+      logger: this.#options.logger,
+    });
+    if (repaired.status !== "clean") {
+      this.#options.logger.info("worker.attribution_repair", {
+        status: repaired.status,
+        ...("reason" in repaired ? { reason: repaired.reason } : {}),
+      });
+    }
     const previous = await timer.time("chain", () =>
       this.#checkpointBefore(bound, request.revision),
     );
@@ -1113,6 +1142,21 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       await rm(spool, { force: true, recursive: true });
     }
     const { capture } = captured;
+    // A snapshot of uncommitted tracked files is the platform's own commit:
+    // it is not judged, it is named so request_push can say what to do. The
+    // commits under it are judged once the agent commits and the turn's
+    // repair has run.
+    const mismatches =
+      capture.gitCommit === capture.headCommit
+        ? await workspaceMismatches({
+            root: this.#options.workspaceRoot,
+            tip: capture.gitCommit,
+            expectation: claimExpectation(bound.claim),
+            stripEmails: bound.claim.git_strip ?? [],
+            protectedCommits:
+              repaired.status === "skipped" ? null : repaired.protectedCommits,
+          })
+        : [workingTreeSnapshotMismatch(capture.gitCommit)];
     const bases = capture.bundle.incremental ? (previous?.links ?? []) : [];
     timer.reused(bases.length);
 
@@ -1269,6 +1313,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     const manifestOf = (
       outputs: readonly CheckpointOutput[],
     ): CheckpointManifest => ({
+      ...(mismatches.length === 0 ? {} : { attribution: { mismatches } }),
       createdAt,
       cwd: this.#options.workspaceRoot,
       engine: preparation.checkpoint.engine,

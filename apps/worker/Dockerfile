@@ -155,6 +155,11 @@ COPY --from=gh /tmp/gh/LICENSE /usr/local/share/doc/gh/LICENSE
 # other commit tools source; git runs no file by that name as a hook.
 COPY --chmod=0755 apps/worker/git-hooks/werft-hook /usr/local/share/werft/git-hooks/werft-hook
 COPY --chmod=0644 apps/worker/git-hooks/werft-trailers.sh /usr/local/share/werft/git-hooks/werft-trailers.sh
+# The attribution repair tool the worker runs at a turn's end (plumbing only;
+# it sources werft-trailers.sh from the directory above). Beside the hooks but
+# no hook name, so git never runs it.
+COPY --chmod=0755 apps/worker/git-hooks/werft-repair-attribution /usr/local/share/werft/git-hooks/werft-repair-attribution
+RUN ln -s /usr/local/share/werft/git-hooks/werft-repair-attribution /usr/local/bin/werft-repair-attribution
 RUN cd /usr/local/share/werft/git-hooks \
   && for hook in applypatch-msg pre-applypatch post-applypatch pre-commit \
     pre-merge-commit prepare-commit-msg commit-msg post-commit pre-rebase \

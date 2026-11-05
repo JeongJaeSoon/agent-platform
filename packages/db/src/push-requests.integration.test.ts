@@ -617,6 +617,38 @@ integration("postgres push requests", () => {
     expect(await drain()).toEqual([]);
   });
 
+  test("a push refused for attribution says which commits in its receipt", async () => {
+    const sessionId = await session();
+    const request = written(await create(sessionId));
+    written(await decide(sessionId, request.id));
+    const job = await store.claimNextApproved(LEASE_MS);
+    if (job === null) throw new Error("not claimed");
+    const mismatches = [
+      { commit: "c".repeat(40), problems: ["author" as const] },
+    ];
+    expect(
+      await store.finish(job, {
+        state: "failed",
+        refusal: "attribution_mismatch",
+        mismatches,
+      }),
+    ).toBe(true);
+    const [row] = await db
+      .select()
+      .from(pushRequests)
+      .where(eq(pushRequests.id, request.id));
+    expect(row?.state).toBe("failed");
+    const stored = await receipt(row?.pushReceiptId ?? "");
+    expect(stored).toMatchObject({
+      status: "failed",
+      result: {
+        refusal: "attribution_mismatch",
+        verdict: "refuse",
+        mismatches,
+      },
+    });
+  });
+
   test("a pusher that died loses its row once the lease runs out, and cannot finish it after", async () => {
     const sessionId = await session();
     const request = written(await create(sessionId));

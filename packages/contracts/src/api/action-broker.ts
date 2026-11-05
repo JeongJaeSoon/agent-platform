@@ -80,6 +80,10 @@ export const ACTION_REFUSAL_CODES = {
   checkpoint_moved: byPlatform,
   commit_mismatch: byPlatform,
   unrelated_history: byPlatform,
+  // A commit lacks the attribution the platform issued; the same pinned
+  // commit stays refused until the worker remakes it.
+  attribution_mismatch: byPlatform,
+  uncommitted_changes: byPlatform,
   approval_required: byPlatform,
   pull_request_merged: byPlatform,
   session_closed: byPlatform,

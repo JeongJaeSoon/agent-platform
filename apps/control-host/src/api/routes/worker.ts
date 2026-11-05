@@ -17,6 +17,8 @@ import {
   parkDeclinedResponseSchema,
   pendingControlRequestSchema,
   pendingControlResponseSchema,
+  protectedCommitsRequestSchema,
+  protectedCommitsResponseSchema,
   registerPendingRequestSchema,
   registerPendingResponseSchema,
   releaseRequestSchema,
@@ -134,6 +136,12 @@ export function registerWorkerRoutes(
     checkpointRequestSchema,
     checkpointRequestResponseSchema,
     (principal, body) => gateway.requestCheckpoint(principal, body),
+  );
+  call(
+    "/protected-commits",
+    protectedCommitsRequestSchema,
+    protectedCommitsResponseSchema,
+    (principal, body) => gateway.protectedCommits(principal, body),
   );
   call(
     "/restore-plan",
