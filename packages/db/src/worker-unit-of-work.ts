@@ -3,7 +3,9 @@ import {
   type CheckpointBlockReason,
   type CheckpointRef,
   checkpointBlockReasonSchema,
+  type PendingRememberRule,
   type PermissionGrant,
+  rememberRuleSchema,
   type TerminalTurnStatus,
   TURN_BUDGET_EXCEEDED_REASON,
   TURN_INPUT_WAIT_PARKED_REASON,
@@ -1516,6 +1518,7 @@ async function unspentGrants(
       sequence: turns.sequence,
       tool: pendingRequests.tool,
       payload: pendingRequests.payload,
+      answer: pendingRequests.answer,
       inputHash: pendingRequests.inputHash,
     })
     .from(permissionGrants)
@@ -1544,12 +1547,32 @@ async function unspentGrants(
         ),
       );
   }
-  return rows.map((row) => ({
-    request_id: row.requestId,
-    turn_id: String(row.sequence),
-    tool: (row.payload as { tool?: string }).tool ?? row.tool ?? "",
-    input_hash: row.inputHash,
-  }));
+  return rows.map((row) => {
+    const offer = rememberedOffer(row.payload, row.answer);
+    return {
+      request_id: row.requestId,
+      turn_id: String(row.sequence),
+      tool: (row.payload as { tool?: string }).tool ?? row.tool ?? "",
+      input_hash: row.inputHash,
+      ...(offer === undefined ? {} : { remember_offer: offer }),
+    };
+  });
+}
+
+// The rules a person agreed to keep for the session: the offer the row was
+// registered with, only when the stored answer asked to remember it.
+function rememberedOffer(
+  payload: unknown,
+  answer: unknown,
+): PendingRememberRule[] | undefined {
+  if ((answer as { remember?: unknown } | null)?.remember !== "session") {
+    return undefined;
+  }
+  const offer = rememberRuleSchema
+    .array()
+    .min(1)
+    .safeParse((payload as { remember_offer?: unknown }).remember_offer);
+  return offer.success ? offer.data : undefined;
 }
 
 async function grantMissedBy(

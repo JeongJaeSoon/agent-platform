@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   type PostSessionAnswerInput,
   postSessionAnswerInputSchema,
+  postSessionAnswerRequestSchema,
   storedAnswer,
 } from "./answer.ts";
 
@@ -28,6 +29,39 @@ describe("a permission answer from the API", () => {
     ]) {
       expect(postSessionAnswerInputSchema.safeParse(body).success).toBe(false);
     }
+  });
+
+  test("remember keeps an allow for the session and is stored beside the decision", () => {
+    const body = { ...base, action: "allow", remember: "session" };
+    expect(storedAnswer(postSessionAnswerInputSchema.parse(body))).toEqual({
+      ...base,
+      decision: "allow",
+      remember: "session",
+    });
+  });
+
+  test("remember with a deny, or with another scope, is refused on both schemas", () => {
+    for (const body of [
+      { ...base, action: "deny", remember: "session" },
+      { ...base, action: "allow", remember: "always" },
+    ]) {
+      expect(postSessionAnswerInputSchema.safeParse(body).success).toBe(false);
+    }
+    for (const body of [
+      { ...base, decision: "deny", remember: "session" },
+      { ...base, decision: "allow", remember: "always" },
+    ]) {
+      expect(postSessionAnswerRequestSchema.safeParse(body).success).toBe(
+        false,
+      );
+    }
+  });
+
+  test("an answer without remember still parses on the stored schema", () => {
+    expect(
+      postSessionAnswerRequestSchema.safeParse({ ...base, decision: "allow" })
+        .success,
+    ).toBe(true);
   });
 
   test("a question answer passes through unchanged", () => {

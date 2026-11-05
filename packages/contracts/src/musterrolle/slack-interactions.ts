@@ -12,6 +12,7 @@ export const SLACK_INTERACTIONS_BODY_MAX_BYTES = 256 * 1024;
  */
 export const SLACK_INTERACTION_ACTIONS = {
   permissionAllow: "permission.allow",
+  permissionAllowSession: "permission.allow_session",
   permissionDeny: "permission.deny",
   questionOption: "question.option",
   questionOpen: "question.open",

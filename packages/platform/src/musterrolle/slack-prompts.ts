@@ -22,6 +22,8 @@ export type SlackPrompt =
       tool: string;
       input: unknown;
       context: ToolSummaryContext;
+      /** Present, the card also offers to allow these rules for the session. */
+      rememberOffer?: readonly { toolName: string; ruleContent?: string }[];
       expiresAt: string;
     }
   | {
@@ -45,6 +47,7 @@ export type SlackPrompt =
 /** How a request ended, as its card says once it is settled. */
 export type SlackPromptResult =
   | "allowed"
+  | "allowedSession"
   | "denied"
   | "answered"
   | "approved"
@@ -70,6 +73,10 @@ type PromptCopy = {
   branch: string;
   commit: string;
   allow: string;
+  /** Keeps the engine's proposed rules until the session ends. */
+  allowSession: string;
+  /** The confirm dialog's text; `{rule}` is the rules, in plain words. */
+  allowSessionConfirm: string;
   deny: string;
   approve: string;
   reject: string;
@@ -121,6 +128,9 @@ export const SLACK_PROMPT_MESSAGES: Readonly<Record<UserLocale, PromptCopy>> = {
     branch: "브랜치",
     commit: "커밋",
     allow: "허용",
+    allowSession: "이 세션 동안 허용",
+    allowSessionConfirm:
+      "이 세션이 끝날 때까지 다음을 묻지 않고 허용해요: {rule}",
     deny: "거부",
     approve: "승인",
     reject: "거절",
@@ -144,6 +154,7 @@ export const SLACK_PROMPT_MESSAGES: Readonly<Record<UserLocale, PromptCopy>> = {
     details: "자세히",
     settled: {
       allowed: "허용됨",
+      allowedSession: "이 세션 동안 허용됨",
       denied: "거부됨",
       answered: "답함",
       approved: "push 승인됨",
@@ -153,6 +164,7 @@ export const SLACK_PROMPT_MESSAGES: Readonly<Record<UserLocale, PromptCopy>> = {
     },
     settledOnWeb: {
       allowed: "웹에서 허용됨",
+      allowedSession: "웹에서 이 세션 동안 허용됨",
       denied: "웹에서 거부됨",
       answered: "웹에서 답함",
       approved: "웹에서 push 승인됨",
@@ -166,6 +178,7 @@ export const SLACK_PROMPT_MESSAGES: Readonly<Record<UserLocale, PromptCopy>> = {
     openConsole: "웹 콘솔에서 확인해 주세요",
     already: {
       allowed: "이미 허용된 요청이에요",
+      allowedSession: "이미 이 세션 동안 허용된 요청이에요",
       denied: "이미 거부된 요청이에요",
       answered: "이미 답한 요청이에요",
       approved: "이미 승인된 push 요청이에요",
@@ -183,6 +196,9 @@ export const SLACK_PROMPT_MESSAGES: Readonly<Record<UserLocale, PromptCopy>> = {
     branch: "ブランチ",
     commit: "コミット",
     allow: "許可",
+    allowSession: "このセッション中は許可",
+    allowSessionConfirm:
+      "このセッションが終わるまで、次を確認せずに許可します: {rule}",
     deny: "拒否",
     approve: "承認",
     reject: "却下",
@@ -206,6 +222,7 @@ export const SLACK_PROMPT_MESSAGES: Readonly<Record<UserLocale, PromptCopy>> = {
     details: "詳細",
     settled: {
       allowed: "許可済み",
+      allowedSession: "セッション中は許可",
       denied: "拒否済み",
       answered: "回答済み",
       approved: "push承認済み",
@@ -215,6 +232,7 @@ export const SLACK_PROMPT_MESSAGES: Readonly<Record<UserLocale, PromptCopy>> = {
     },
     settledOnWeb: {
       allowed: "Webで許可済み",
+      allowedSession: "Webでセッション中は許可",
       denied: "Webで拒否済み",
       answered: "Webで回答済み",
       approved: "Webでpush承認済み",
@@ -228,6 +246,7 @@ export const SLACK_PROMPT_MESSAGES: Readonly<Record<UserLocale, PromptCopy>> = {
     openConsole: "Webコンソールで確認してください",
     already: {
       allowed: "すでに許可されたリクエストです",
+      allowedSession: "すでにセッション中は許可されたリクエストです",
       denied: "すでに拒否されたリクエストです",
       answered: "すでに回答したリクエストです",
       approved: "すでに承認されたpushリクエストです",
@@ -245,6 +264,9 @@ export const SLACK_PROMPT_MESSAGES: Readonly<Record<UserLocale, PromptCopy>> = {
     branch: "Branch",
     commit: "Commit",
     allow: "Allow",
+    allowSession: "Allow for session",
+    allowSessionConfirm:
+      "Until this session ends, this is allowed without asking: {rule}",
     deny: "Deny",
     approve: "Approve",
     reject: "Reject",
@@ -268,6 +290,7 @@ export const SLACK_PROMPT_MESSAGES: Readonly<Record<UserLocale, PromptCopy>> = {
     details: "Details",
     settled: {
       allowed: "Allowed",
+      allowedSession: "Allowed for session",
       denied: "Denied",
       answered: "Answered",
       approved: "Push approved",
@@ -277,6 +300,7 @@ export const SLACK_PROMPT_MESSAGES: Readonly<Record<UserLocale, PromptCopy>> = {
     },
     settledOnWeb: {
       allowed: "Allowed on the web",
+      allowedSession: "Allowed for session on the web",
       denied: "Denied on the web",
       answered: "Answered on the web",
       approved: "Push approved on the web",
@@ -290,6 +314,7 @@ export const SLACK_PROMPT_MESSAGES: Readonly<Record<UserLocale, PromptCopy>> = {
     openConsole: "Check it in the web console",
     already: {
       allowed: "This request was already allowed",
+      allowedSession: "This request was already allowed for the session",
       denied: "This request was already denied",
       answered: "This request was already answered",
       approved: "This push request was already approved",
@@ -315,6 +340,8 @@ const FIELD_MAX = 2000;
 const CONTEXT_TEXT_MAX = 3000;
 const BRANCH_MAX = 40;
 const QUESTION_HEAD_MAX = 200;
+// The confirm dialog's 300 characters, less the longest sentence around the rule.
+const RULE_SENTENCE_MAX = 200;
 
 const SLACK_ID = /^[A-Z0-9]{1,64}$/;
 
@@ -574,6 +601,29 @@ export function slackPromptMessage(
           value,
           "primary",
         ),
+        ...(prompt.rememberOffer === undefined ||
+        prompt.rememberOffer.length === 0
+          ? []
+          : [
+              button(
+                copy.allowSession,
+                SLACK_INTERACTION_ACTIONS.permissionAllowSession,
+                value,
+                undefined,
+                {
+                  title: plain(copy.allowSession, 100),
+                  text: plain(
+                    copy.allowSessionConfirm.replace(
+                      "{rule}",
+                      ruleSentence(prompt.rememberOffer),
+                    ),
+                    300,
+                  ),
+                  confirm: plain(copy.allowSession, 30),
+                  deny: plain(copy.cancel, 30),
+                },
+              ),
+            ]),
         button(
           copy.deny,
           SLACK_INTERACTION_ACTIONS.permissionDeny,
@@ -727,8 +777,30 @@ const PROMPT_META_BLOCK = "prompt.meta";
 /** A link button: Slack opens the URL and sends a press nothing acts on. */
 const SLACK_OPEN_WEB_ACTION = "prompt.open_web";
 
+/**
+ * The offered rules in plain words for the confirm dialog, which takes
+ * plain_text only. The rules arrive redacted like the card's input, so
+ * nothing here needs hiding; the text is cut to fit what is left of the
+ * dialog's 300 characters.
+ */
+function ruleSentence(
+  rules: readonly { toolName: string; ruleContent?: string }[],
+): string {
+  return clip(
+    rules
+      .map((rule) =>
+        rule.ruleContent === undefined
+          ? rule.toolName
+          : `${rule.toolName}(${rule.ruleContent})`,
+      )
+      .join(", "),
+    RULE_SENTENCE_MAX,
+  );
+}
+
 const SETTLED_MARK: Record<SlackPromptResult, string> = {
   allowed: ":white_check_mark:",
+  allowedSession: ":white_check_mark:",
   denied: ":no_entry_sign:",
   answered: ":speech_balloon:",
   approved: ":white_check_mark:",
@@ -750,7 +822,8 @@ export function slackSettledResult(
     return display.closedReason === "expired" ? "expired" : "closed";
   }
   if (display.kind === "question") return "answered";
-  return display.decision === "allow" ? "allowed" : "denied";
+  if (display.decision !== "allow") return "denied";
+  return display.remember === "session" ? "allowedSession" : "allowed";
 }
 
 /** A permission or push in one line, as a settled card keeps it. */

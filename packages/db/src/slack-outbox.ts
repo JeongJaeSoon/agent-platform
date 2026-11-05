@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   DEFAULT_USER_LOCALE,
   pendingQuestionSchema,
+  rememberRuleSchema,
   type SessionEventPayload,
   type UserLocale,
   withStoredNeutralFields,
@@ -165,6 +166,23 @@ const requestWaits = (db: Database, row: SQL) => sql`(
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** A question request's card, or none when its stored questions are bad. */
+// A stored offer that does not parse is no offer: the card then has no
+// session button rather than one the answer path would refuse.
+function rememberOfferOf(
+  stored: unknown,
+): { rememberOffer: { toolName: string; ruleContent?: string }[] } | object {
+  const parsed = rememberRuleSchema.array().min(1).safeParse(stored);
+  if (!parsed.success) return {};
+  return {
+    rememberOffer: parsed.data.map((rule) => ({
+      toolName: rule.tool_name,
+      ...(rule.rule_content === undefined
+        ? {}
+        : { ruleContent: rule.rule_content }),
+    })),
+  };
+}
+
 function questionPrompt({
   requestId,
   stored,
@@ -1042,6 +1060,7 @@ export function createPostgresSlackOutboxStore(
           tool?: string;
           input?: unknown;
           questions?: unknown;
+          remember_offer?: unknown;
         };
         if (stored.kind !== "permission" || typeof stored.tool !== "string") {
           prompts.push(
@@ -1064,6 +1083,7 @@ export function createPostgresSlackOutboxStore(
                 stored.tool,
                 input,
               ),
+              ...rememberOfferOf(stored.remember_offer),
               expiresAt: expiresAt.toISOString(),
             },
           },

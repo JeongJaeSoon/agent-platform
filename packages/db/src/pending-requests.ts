@@ -5,6 +5,7 @@ import {
   type InputWait,
   PENDING_REQUEST_KIND_VALUES,
   type PendingQuestion,
+  type PendingRememberRule,
   type PendingRequest,
   pendingQuestionSchema,
   questionAnswerMismatch,
@@ -75,7 +76,13 @@ export const IN_FLIGHT_STATUSES: ("running" | "needs_input")[] = [
 type SessionRow = typeof sessions.$inferSelect;
 
 type StoredPayload =
-  | { kind: "permission"; tool: string; input: NonNullable<unknown> | null }
+  | {
+      kind: "permission";
+      tool: string;
+      input: NonNullable<unknown> | null;
+      /** The rules the run offered to keep for the session; never listed by the API. */
+      remember_offer?: PendingRememberRule[];
+    }
   | { kind: "question"; questions: PendingQuestion[] };
 
 /**
@@ -596,7 +603,14 @@ function answerMismatch(
   if (payload.kind !== answer.kind) {
     return `A ${answer.kind} answer cannot settle a ${payload.kind} request`;
   }
-  if (answer.kind === "permission") return null;
+  if (answer.kind === "permission") {
+    // Nothing offered, nothing to keep: the worker would drop it, and the
+    // person would believe a rule exists that does not.
+    return answer.remember !== undefined &&
+      (payload as { remember_offer?: unknown[] }).remember_offer === undefined
+      ? "This request offered nothing to allow for the session"
+      : null;
+  }
   const questions = pendingQuestionSchema
     .array()
     .parse((payload as { questions: unknown }).questions);
@@ -642,11 +656,14 @@ export function createPostgresPendingRequests(
       if (row.open) return { state: "open", kind };
       if (row.answer === null) return { state: "closed", kind };
       if (kind === "question") return { state: "answered", kind };
-      const decision = (row.answer as { decision?: unknown }).decision;
+      const stored = row.answer as { decision?: unknown; remember?: unknown };
       return {
         state: "answered",
         kind,
-        decision: decision === "allow" ? "allow" : "deny",
+        decision: stored.decision === "allow" ? "allow" : "deny",
+        ...(stored.decision === "allow" && stored.remember === "session"
+          ? { remember: "session" as const }
+          : {}),
       };
     },
 
@@ -686,6 +703,7 @@ export function createPostgresPendingRequests(
       };
       const answer = row.answer as {
         decision?: unknown;
+        remember?: unknown;
         answers?: {
           question_id?: unknown;
           selected_option_ids?: unknown;
@@ -706,6 +724,13 @@ export function createPostgresPendingRequests(
             ? answer?.decision === "allow"
               ? ("allow" as const)
               : ("deny" as const)
+            : null,
+        remember:
+          state === "answered" &&
+          payload.kind === "permission" &&
+          answer?.decision === "allow" &&
+          answer.remember === "session"
+            ? ("session" as const)
             : null,
         decidedByUserId:
           state === "answered" && typeof decider === "string" ? decider : null,

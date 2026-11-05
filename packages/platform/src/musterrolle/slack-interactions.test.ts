@@ -465,6 +465,42 @@ describe("Slack interactions", () => {
     expect(settledText()).toContain("許可済み");
   });
 
+  test("allow for the session answers allow with remember, through the same approval path", async () => {
+    const outcome = await send(
+      press(SLACK_INTERACTION_ACTIONS.permissionAllowSession, {
+        s: SESSION,
+        r: "toolu_1",
+      }),
+    );
+    expect(outcome).toMatchObject({ kind: "ok", result: "answered" });
+    const [answer] = called("answer");
+    expect(answer?.args[1]).toBe(SESSION);
+    expect(answer?.args[2]).toEqual({
+      idempotencyKey: `slack:toolu_1:${LINKED}`,
+      body: {
+        request_id: "toolu_1",
+        kind: "permission",
+        decision: "allow",
+        remember: "session",
+      },
+    });
+  });
+
+  test("a plain deny never carries remember", async () => {
+    await send(
+      press(SLACK_INTERACTION_ACTIONS.permissionDeny, {
+        s: SESSION,
+        r: "toolu_1",
+      }),
+    );
+    expect(called("answer")[0]?.args[2]).toMatchObject({
+      body: { decision: "deny" },
+    });
+    expect(JSON.stringify(called("answer")[0]?.args[2])).not.toContain(
+      "remember",
+    );
+  });
+
   test("a card no outbox row posted is left as it is", async () => {
     posted = undefined;
     const outcome = await send(

@@ -620,6 +620,46 @@ describe("WorkerHost over a run that implements the contract itself", () => {
     ]);
   });
 
+  test("a grant the person also allowed for the session hands the run the rules to keep, and an older grant none", async () => {
+    const run = new ScriptedRun();
+    run.onSend = (sent) => {
+      call(run, sent, "c1");
+      call(run, sent, "c2");
+      setTimeout(() => finish(run, sent), 20);
+    };
+    const { gateway, worker } = host(run);
+    gateway.grants = [
+      {
+        request_id: "req_parked_c1",
+        turn_id: "1",
+        tool: "shell",
+        input_hash: approvalInputHash("shell", { command: "run c1" }),
+        remember_offer: [{ tool_name: "shell", rule_content: "run:*" }],
+      },
+      {
+        request_id: "req_parked_c2",
+        turn_id: "1",
+        tool: "shell",
+        input_hash: approvalInputHash("shell", { command: "run c2" }),
+      },
+    ];
+    gateway.enqueue("hello");
+
+    await worker.runLoop();
+
+    const [first, second] = run.answers;
+    expect(first).toMatchObject({
+      kind: "selected",
+      optionKind: "allow_once",
+      remember: {
+        scope: "session",
+        rules: [{ toolName: "shell", ruleContent: "run:*" }],
+      },
+    });
+    expect(second).toMatchObject({ kind: "selected" });
+    expect(second).not.toHaveProperty("remember");
+  });
+
   test("still takes the lease when the run takes checkpoints", async () => {
     const run = new ScriptedRun();
     run.capabilities = {

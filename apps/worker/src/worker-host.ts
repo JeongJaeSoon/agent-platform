@@ -45,6 +45,7 @@ import {
   WorkerGatewayRequestError,
 } from "@werft-ai/runtime-core";
 
+import { WORKER_CAPABILITIES } from "./capabilities.ts";
 import type { RuntimeResumePlan, WorkerCheckpointPort } from "./checkpoint.ts";
 import { LEASE_SAFETY_MARGIN_MS, type WorkerTimeouts } from "./config.ts";
 import { consoleLogger } from "./console-logger.ts";
@@ -957,6 +958,7 @@ export class WorkerHost {
       try {
         const claimed = await this.untilStopGraceSpent(
           this.options.gateway.bootstrapClaim({
+            capabilities: WORKER_CAPABILITIES,
             execution_id: this.options.execution.id,
             execution_generation: this.options.execution.generation,
             credential: {
@@ -2429,7 +2431,23 @@ export class WorkerHost {
     }
     const grant = this.takeGrant(request);
     if (grant !== undefined) {
-      void answer({ kind: "selected", optionKind: "allow_once" }).then(
+      void answer({
+        kind: "selected",
+        optionKind: "allow_once",
+        ...(grant.remember_offer === undefined
+          ? {}
+          : {
+              remember: {
+                scope: "session" as const,
+                rules: grant.remember_offer.map((rule) => ({
+                  toolName: rule.tool_name,
+                  ...(rule.rule_content === undefined
+                    ? {}
+                    : { ruleContent: rule.rule_content }),
+                })),
+              },
+            }),
+      }).then(
         (result) => this.grantAnswered(grant, result),
         () => this.grantAnswered(grant, "stale"),
       );

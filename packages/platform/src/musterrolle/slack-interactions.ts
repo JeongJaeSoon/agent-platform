@@ -349,14 +349,19 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     if (outcome === null) return "closed";
     if (outcome.state !== "answered") return outcome.state;
     if (outcome.kind === "question") return "answered";
-    return outcome.decision === "allow" ? "allowed" : "denied";
+    if (outcome.decision !== "allow") return "denied";
+    return outcome.remember === "session" ? "allowedSession" : "allowed";
   }
 
   async function answer(
     { caller, pressed }: Allowed,
     value: SlackInteractionValue,
     body:
-      | { kind: "permission"; decision: "allow" | "deny" }
+      | {
+          kind: "permission";
+          decision: "allow" | "deny";
+          remember?: "session";
+        }
       | { kind: "question"; answers: QuestionAnswer[] },
     card: SettleCard,
   ): Promise<string> {
@@ -676,6 +681,7 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
         : actionId;
       switch (kind) {
         case SLACK_INTERACTION_ACTIONS.permissionAllow:
+        case SLACK_INTERACTION_ACTIONS.permissionAllowSession:
         case SLACK_INTERACTION_ACTIONS.permissionDeny:
           return ok(
             await answer(
@@ -684,9 +690,12 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
               {
                 kind: "permission",
                 decision:
-                  kind === SLACK_INTERACTION_ACTIONS.permissionAllow
-                    ? "allow"
-                    : "deny",
+                  kind === SLACK_INTERACTION_ACTIONS.permissionDeny
+                    ? "deny"
+                    : "allow",
+                ...(kind === SLACK_INTERACTION_ACTIONS.permissionAllowSession
+                  ? { remember: "session" as const }
+                  : {}),
               },
               card,
             ),

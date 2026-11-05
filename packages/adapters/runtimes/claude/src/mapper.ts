@@ -6,7 +6,12 @@ import {
 } from "@werft-ai/contracts";
 
 import { CLAUDE_AGENT_SDK_VERSION } from "./config.ts";
-import type { AgentFrame, NativeEnvelope, NativeSdkMessage } from "./driver.ts";
+import type {
+  AgentFrame,
+  EngineRule,
+  NativeEnvelope,
+  NativeSdkMessage,
+} from "./driver.ts";
 
 const REDACTED = "[REDACTED]";
 // Paths are not secrets: an approval has to say which file it touches.
@@ -179,6 +184,15 @@ export function approvalView(
         kind: "question",
         questions: sanitizeValue(questions) as PendingQuestion[],
       };
+}
+
+/**
+ * The rules a person is asked to keep allowing, as they are shown: the same
+ * redaction as the tool input. What the engine gets back is built from the
+ * run's own copy, never from this one.
+ */
+export function rememberView(rules: readonly EngineRule[]): EngineRule[] {
+  return sanitizeValue(rules.map((rule) => ({ ...rule }))) as EngineRule[];
 }
 
 /** The SDK takes answers on the tool input, keyed by each question as asked. */

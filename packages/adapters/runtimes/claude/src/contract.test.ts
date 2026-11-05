@@ -69,6 +69,7 @@ function scriptedDriver() {
       signal = new AbortController().signal,
       tool = "Bash",
       input: Record<string, unknown> = { command: "ls" },
+      suggestedRules?: { toolName: string; ruleContent?: string }[],
     ) {
       if (hooks === undefined) throw new Error("not started");
       return hooks.onPermission({
@@ -77,6 +78,7 @@ function scriptedDriver() {
         signal,
         tool,
         toolUseId,
+        ...(suggestedRules === undefined ? {} : { suggestedRules }),
       });
     },
   };
@@ -220,6 +222,91 @@ describe("claudeContractRun", () => {
     expect(await decision).toEqual({
       behavior: "deny",
       message: "This worker is shutting down",
+    });
+  });
+
+  describe("allowing for the session", () => {
+    const offered = [{ toolName: "Bash", ruleContent: "git status:*" }];
+
+    async function asked(
+      rules: { toolName: string; ruleContent?: string }[] | undefined,
+    ) {
+      const script = scriptedDriver();
+      const run = claudeContractRun((hooks) => script.start(hooks));
+      const events = run.events()[Symbol.asyncIterator]();
+      script.push(toolUseFrame("toolu_1"));
+      await collect(events, 2);
+      const decision = script.ask(
+        "toolu_1",
+        new AbortController().signal,
+        "Bash",
+        { command: "git status" },
+        rules,
+      );
+      const request = requestOf((await collect(events, 1))[0]);
+      return { script, run, decision, request };
+    }
+
+    test("offers the proposed rules, redacted, and none when there are none", async () => {
+      const withRules = await asked(offered);
+      expect(withRules.request).toMatchObject({
+        kind: "permission",
+        rememberOffer: [{ toolName: "Bash", ruleContent: "git status:*" }],
+      });
+      withRules.script.end();
+
+      const without = await asked(undefined);
+      expect(without.request).not.toHaveProperty("rememberOffer");
+      without.script.end();
+    });
+
+    test("hands the engine the session rule only for the rules that were offered", async () => {
+      const { script, run, decision, request } = await asked(offered);
+      await run.answer({
+        localId: request.localId,
+        inputHash: request.inputHash,
+        kind: "selected",
+        optionKind: "allow_once",
+        remember: { scope: "session", rules: offered },
+      });
+      expect(await decision).toEqual({
+        behavior: "allow",
+        updatedPermissions: [
+          {
+            type: "addRules",
+            behavior: "allow",
+            destination: "session",
+            rules: offered,
+          },
+        ],
+      });
+      script.end();
+    });
+
+    test("allows this one call only when the answer names other rules than were offered", async () => {
+      const { script, run, decision, request } = await asked(offered);
+      await run.answer({
+        localId: request.localId,
+        inputHash: request.inputHash,
+        kind: "selected",
+        optionKind: "allow_once",
+        remember: { scope: "session", rules: [{ toolName: "Bash" }] },
+      });
+      expect(await decision).toEqual({ behavior: "allow" });
+      script.end();
+    });
+
+    test("allows this one call only when nothing was offered", async () => {
+      const { script, run, decision, request } = await asked(undefined);
+      await run.answer({
+        localId: request.localId,
+        inputHash: request.inputHash,
+        kind: "selected",
+        optionKind: "allow_once",
+        remember: { scope: "session", rules: offered },
+      });
+      expect(await decision).toEqual({ behavior: "allow" });
+      script.end();
     });
   });
 

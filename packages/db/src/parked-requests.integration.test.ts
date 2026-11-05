@@ -193,9 +193,14 @@ integration("parked pending requests on PostgreSQL", () => {
   }
 
   // A new worker for the session, handed its next input.
-  async function claim(sessionId: string) {
-    const { principal, scope, executionId, claimed } =
-      await claimOnly(sessionId);
+  async function claim(
+    sessionId: string,
+    capabilities?: { approval_remember: true },
+  ) {
+    const { principal, scope, executionId, claimed } = await claimOnly(
+      sessionId,
+      capabilities,
+    );
     const next = await gateway.nextInput(principal, scope);
     if (!next.input) throw new Error("no input delivered");
     const worker: Worker = {
@@ -207,11 +212,15 @@ integration("parked pending requests on PostgreSQL", () => {
   }
 
   // A worker for the session that has claimed it and asked for nothing yet.
-  async function claimOnly(sessionId: string) {
+  async function claimOnly(
+    sessionId: string,
+    capabilities?: { approval_remember: true },
+  ) {
     const { executionId, generation, nonce } = await launchSession(db, {
       sessionId,
     });
     const claimed = await gateway.bootstrapClaim(bootstrap, {
+      ...(capabilities === undefined ? {} : { capabilities }),
       execution_id: executionId,
       execution_generation: generation,
       credential: { kind: "launch_nonce", nonce },
@@ -1602,6 +1611,44 @@ integration("parked pending requests on PostgreSQL", () => {
       await failure(answer(held.owner, held.sessionId, held.requestId)),
     ).toBe("RECOVERY_REQUIRED");
     expect((await request(held.requestId)).answeredAt).toBeNull();
+  });
+
+  test("a parked allow kept for the session reaches the resumed worker as grant rules, only if it announces approval_remember", async () => {
+    const offer = [{ tool_name: "Bash", rule_content: "git status:*" }];
+    const kept = async () => {
+      const running = await parked();
+      await db
+        .update(pendingRequests)
+        .set({
+          payload: sql`${pendingRequests.payload} || ${JSON.stringify({ remember_offer: offer })}::jsonb`,
+        })
+        .where(eq(pendingRequests.requestId, running.requestId));
+      await answerWith(running.owner, running.sessionId, {
+        request_id: running.requestId,
+        kind: "permission",
+        decision: "allow",
+        remember: "session",
+      });
+      return running;
+    };
+
+    const capable = await kept();
+    const withRules = await claim(capable.sessionId, {
+      approval_remember: true,
+    });
+    expect(withRules.claimed.grants).toEqual([
+      expect.objectContaining({
+        request_id: capable.requestId,
+        remember_offer: offer,
+      }),
+    ]);
+
+    const older = await kept();
+    const plain = await claim(older.sessionId);
+    expect(plain.claimed.grants).toEqual([
+      expect.objectContaining({ request_id: older.requestId }),
+    ]);
+    expect(plain.claimed.grants?.[0]).not.toHaveProperty("remember_offer");
   });
 
   test("answers that would not fit the turn carrying them on are refused", async () => {

@@ -673,6 +673,92 @@ integration("pending requests and answers on PostgreSQL", () => {
     expect(good.receipt_status).toBe("accepted");
   });
 
+  describe("allowing for the session", () => {
+    const offer = [{ tool_name: "Bash", rule_content: "git status:*" }];
+    const remembering = (requestId: string): PostSessionAnswerRequest => ({
+      request_id: requestId,
+      kind: "permission",
+      decision: "allow",
+      remember: "session",
+    });
+
+    test("an answer that remembers is refused for a request that offered nothing, and takes nothing", async () => {
+      const { owner, sessionId, worker } = await runningSession();
+      const { requestId } = await register(worker, permission("ls"));
+      expect(
+        await failure(answer(owner, sessionId, remembering(requestId))),
+      ).toBe("BAD_REQUEST");
+      // The request is still open: a plain allow is taken.
+      const plain = await answer(owner, sessionId, {
+        request_id: requestId,
+        kind: "permission",
+        decision: "allow",
+      });
+      expect(plain.receipt_status).toBe("accepted");
+    });
+
+    test("a request that offered rules takes the answer, hands it to the worker as stored, and never lists the offer", async () => {
+      const { owner, sessionId, worker } = await runningSession();
+      const { requestId } = await register(worker, {
+        ...permission("git status"),
+        remember_offer: offer,
+      } as RegisterPendingRequest["request"]);
+
+      const listed = await service.listPendingRequests(owner, sessionId);
+      expect(JSON.stringify(listed)).not.toContain("remember_offer");
+      expect(JSON.stringify(listed)).not.toContain("git status:*");
+
+      await answer(owner, sessionId, remembering(requestId));
+      const capable = await gateway.pendingControl(worker.principal, {
+        ...worker.scope,
+        capabilities: { approval_remember: true },
+        answers_after: 0,
+        settled: [],
+      });
+      expect(capable.answers.map((item) => item.answer)).toEqual([
+        { ...remembering(requestId) },
+      ]);
+    });
+
+    test("a poll that does not announce the capability gets the plain allow", async () => {
+      const { owner, sessionId, worker } = await runningSession();
+      const { requestId } = await register(worker, {
+        ...permission("git status"),
+        remember_offer: offer,
+      } as RegisterPendingRequest["request"]);
+      await answer(owner, sessionId, remembering(requestId));
+      const old = await poll(worker);
+      expect(old.answers.map((item) => item.answer)).toEqual([
+        { request_id: requestId, kind: "permission", decision: "allow" },
+      ]);
+    });
+
+    test("displayOf says the allow was kept for the session, and a plain allow was not", async () => {
+      const { owner, sessionId, worker } = await runningSession();
+      const store = createPostgresPendingRequests(db);
+      const kept = await register(worker, {
+        ...permission("git status"),
+        remember_offer: offer,
+      } as RegisterPendingRequest["request"]);
+      const once = await register(worker, permission("ls"), HASH_B);
+      await answer(owner, sessionId, remembering(kept.requestId));
+      await answer(owner, sessionId, {
+        request_id: once.requestId,
+        kind: "permission",
+        decision: "allow",
+      });
+      expect(
+        await store.displayOf(owner.ownerId, sessionId, kept.requestId),
+      ).toMatchObject({ decision: "allow", remember: "session" });
+      expect(
+        await store.displayOf(owner.ownerId, sessionId, once.requestId),
+      ).toMatchObject({ decision: "allow", remember: null });
+      expect(
+        await store.requestOutcome(owner.ownerId, sessionId, kept.requestId),
+      ).toMatchObject({ decision: "allow", remember: "session" });
+    });
+  });
+
   test("a request past its expiry, or one the worker gave up on, is REQUEST_EXPIRED", async () => {
     const { owner, sessionId, worker } = await runningSession();
     const brief = gatewayWith(1);

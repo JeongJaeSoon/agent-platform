@@ -328,6 +328,74 @@ describe("PendingRequestRegistry", () => {
     });
   });
 
+  describe("allowing for the session", () => {
+    const offer = [{ toolName: "Bash", ruleContent: "git status:*" }];
+    const offered = (requestId: string): ApprovalRequested => {
+      const base = permission(requestId, "git status");
+      return base.kind === "permission"
+        ? { ...base, rememberOffer: offer }
+        : base;
+    };
+
+    test("registers the offer in the wire's names, only when there is one", async () => {
+      const harness = registry();
+      void harness.ask(offered("req-offer"));
+      void harness.ask(permission("req-plain"));
+      await harness.idFor("req-offer");
+      await harness.idFor("req-plain");
+
+      const [withOffer, without] = harness.gateway.registered();
+      expect(withOffer?.request).toMatchObject({
+        remember_offer: [{ tool_name: "Bash", rule_content: "git status:*" }],
+      });
+      expect(without?.request).not.toHaveProperty("remember_offer");
+    });
+
+    test("hands the run the registered rules with an allow that asked to remember", async () => {
+      const harness = registry();
+      const decision = harness.ask(offered("req-session"));
+      await harness.answer({
+        request_id: "req-session",
+        kind: "permission",
+        decision: "allow",
+        remember: "session",
+      });
+      expect(await decision).toEqual({
+        kind: "selected",
+        optionKind: "allow_once",
+        remember: { scope: "session", rules: offer },
+      });
+    });
+
+    test("allows only this call when the request registered nothing to remember", async () => {
+      const harness = registry();
+      const decision = harness.ask(permission("req-nothing"));
+      await harness.answer({
+        request_id: "req-nothing",
+        kind: "permission",
+        decision: "allow",
+        remember: "session",
+      });
+      expect(await decision).toEqual({
+        kind: "selected",
+        optionKind: "allow_once",
+      });
+    });
+
+    test("tells the gateway on every poll that it can take a remembered answer", async () => {
+      const harness = registry();
+      void harness.ask(offered("req-poll"));
+      await harness.idFor("req-poll");
+      await waitFor(
+        () => harness.gateway.pollRequests.length > 0,
+        "the first pending-control poll",
+      );
+      for (const poll of harness.gateway.pollRequests) {
+        expect(poll.capabilities).toEqual({ approval_remember: true });
+      }
+    });
+  });
+
   test("leaves a denial with no reason for the runtime to word", async () => {
     const harness = registry();
     const decision = harness.ask(permission("req-bare"));

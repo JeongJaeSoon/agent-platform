@@ -375,6 +375,43 @@ describe("Claude SDK adapter options", () => {
     expect(callbackCount).toBe(1);
   });
 
+  test("canUseTool hands the host only the allow rules it may offer, and none when the engine proposed none", async () => {
+    const seen: (readonly unknown[] | undefined)[] = [];
+    const options = buildSdkOptions(config, {
+      onPermission: async (request) => {
+        seen.push(request.suggestedRules);
+        return { behavior: "allow" };
+      },
+    });
+    const canUseTool = options.canUseTool;
+    if (canUseTool === undefined) throw new Error("canUseTool is required");
+    const ask = (suggestions: unknown) =>
+      canUseTool("Read", { file_path: "a" }, {
+        requestId: "request-1",
+        signal: new AbortController().signal,
+        toolUseID: "tool-1",
+        suggestions,
+      } as Parameters<typeof canUseTool>[2]);
+
+    await ask([
+      {
+        type: "addRules",
+        behavior: "allow",
+        destination: "projectSettings",
+        rules: [{ toolName: "Read" }],
+      },
+      { type: "setMode", mode: "bypassPermissions", destination: "session" },
+      {
+        type: "replaceRules",
+        behavior: "allow",
+        destination: "session",
+        rules: [{ toolName: "Read" }],
+      },
+    ]);
+    await ask(undefined);
+    expect(seen).toEqual([[{ toolName: "Read" }], undefined]);
+  });
+
   test("the PreToolUse gate admits tools into the ledger and refuses them under a checkpoint lease", async () => {
     const ledger = new TurnLedger("s1");
     const options = buildSdkOptions(

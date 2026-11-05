@@ -40,12 +40,13 @@ import {
 import type {
   AgentFrame,
   DriverRun,
+  EngineRule,
   NativeSdkMessage,
   PermissionDecision,
   PermissionRequest,
   RuntimeHooks,
 } from "./driver.ts";
-import { approvalView, sdkAnswers } from "./mapper.ts";
+import { approvalView, rememberView, sdkAnswers } from "./mapper.ts";
 import {
   CLAUDE_PROFILE_DIGEST_SCHEME,
   claudeProfileFingerprint,
@@ -53,6 +54,7 @@ import {
 import { remoteMcpRelay } from "./remote-mcp.ts";
 import { instructionText } from "./repository-instructions.ts";
 import { ClaudeSdkRuntime } from "./runtime.ts";
+import { sameRules, sessionRuleUpdate } from "./session-rules.ts";
 import { ClaudeSessionStore } from "./session-store.ts";
 import { TurnAccounting } from "./turn-accounting.ts";
 import { namedInputs, turnEndedOf } from "./turn-ended.ts";
@@ -392,13 +394,23 @@ class ClaudeContractRun implements AgentRun {
         message: "The tool arguments cannot be identified for an approval",
       };
     }
+    const view = approvalView(request.tool, request.input);
+    // What the person is offered is the redacted copy; what the engine is
+    // given back is built from the rules it proposed, and only if the answer
+    // names exactly the copy that was shown.
+    const offered =
+      view.kind === "permission" ? (request.suggestedRules ?? []) : [];
+    const shown = rememberView(offered);
     const approval: ApprovalRequested = {
       localId: randomUUID(),
       toolCallId: request.toolUseId,
       tool: { name: request.tool, input: request.input },
       inputHash,
       askedAt,
-      ...approvalView(request.tool, request.input),
+      ...view,
+      ...(view.kind === "permission" && shown.length > 0
+        ? { rememberOffer: shown }
+        : {}),
     };
     const answered = this.channel.request(approval, request.signal);
     this.offer(approval);
@@ -411,7 +423,7 @@ class ClaudeContractRun implements AgentRun {
         outcome: "withdrawn",
       });
     }
-    return decisionOf(answer, request.input);
+    return decisionOf(answer, request.input, { offered, shown });
   }
 
   private offer(request: ApprovalRequested): void {
@@ -564,11 +576,12 @@ function unsupported(point: CheckpointPoint): RejectedCheckpoint {
 function decisionOf(
   answer: ApprovalAnswer,
   input: Record<string, unknown>,
+  offer: { offered: readonly EngineRule[]; shown: readonly EngineRule[] },
 ): PermissionDecision {
   switch (answer.kind) {
     case "selected":
       return answer.optionKind === "allow_once"
-        ? { behavior: "allow" }
+        ? { behavior: "allow", ...rememberedBy(answer.remember, offer) }
         : { behavior: "deny", message: personDenial(answer.message) };
     case "answered":
       return {
@@ -582,6 +595,21 @@ function decisionOf(
         ...(answer.reason === "park" ? { interrupt: true } : {}),
       };
   }
+}
+
+/**
+ * The engine keeps rules only when the answer names the very rules this
+ * request offered: a resumed turn asks again and the engine may propose
+ * something broader than what the person agreed to. Otherwise the allow
+ * stands for this one call.
+ */
+function rememberedBy(
+  remember: { scope: "session"; rules: readonly EngineRule[] } | undefined,
+  offer: { offered: readonly EngineRule[]; shown: readonly EngineRule[] },
+): Pick<PermissionDecision & { behavior: "allow" }, "updatedPermissions"> {
+  if (remember === undefined || offer.offered.length === 0) return {};
+  if (!sameRules(remember.rules, offer.shown)) return {};
+  return { updatedPermissions: sessionRuleUpdate(offer.offered) };
 }
 
 // A bare reason reaches the model as a tool error, which real models took for
