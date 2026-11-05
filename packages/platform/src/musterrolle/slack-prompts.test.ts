@@ -197,6 +197,43 @@ describe("Slack prompt cards", () => {
       expect(confirm?.text.text.length).toBeLessThanOrEqual(300);
     });
 
+    test("the rule line on the card is plain_text, so a hostile rule cannot mention or link", () => {
+      const hostile = [
+        "<@U123>",
+        "<!channel>",
+        "<https://x|y>",
+        "*bold* `code` :tada:",
+      ];
+      for (const content of hostile) {
+        const { blocks } = slackPromptMessage(
+          permission(
+            { command: "x" },
+            { rememberOffer: [{ toolName: "Bash", ruleContent: content }] },
+          ),
+          { locale: "en", requesterSlackUserId: null },
+        );
+        const lines = (
+          blocks as {
+            type: string;
+            elements?: { type: string; text: string }[];
+          }[]
+        )
+          .filter((block) => block.type === "context")
+          .flatMap((block) => block.elements ?? [])
+          .filter((element) => element.text.includes(`Bash(${content})`));
+        expect(lines).toHaveLength(1);
+        // plain_text is never parsed for mentions, links or formatting.
+        expect(lines[0]?.type).toBe("plain_text");
+        expect(lines[0]).toMatchObject({ emoji: false });
+        // No mrkdwn element carries the rule anywhere in the card.
+        const mrkdwnWithRule = JSON.stringify(blocks)
+          .split('"type":"mrkdwn"')
+          .slice(1)
+          .some((part) => part.slice(0, 400).includes(content));
+        expect(mrkdwnWithRule).toBe(false);
+      }
+    });
+
     test("replacement patterns in a rule are shown as written", () => {
       for (const content of ["printf $'hello'", "echo $$", "echo $`x"]) {
         const { blocks } = slackPromptMessage(
