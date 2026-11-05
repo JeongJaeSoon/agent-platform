@@ -166,7 +166,6 @@ export function setCredential(
   }
 }
 
-/** A connection whose key came from the deployment, now typed and stored. */
 export function convertConnection(
   client: ApiClient,
   id: string,
