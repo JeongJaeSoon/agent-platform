@@ -139,21 +139,31 @@ describe("platformPromptText (revision 2, action flows on)", () => {
     const text = platformPromptText(flows);
     expect(text).toContain("It pushes the commit this turn ends with");
     expect(text).toContain("no follow-up turn starts");
-    expect(text).not.toContain("previous turn");
+    expect(text).not.toContain("It pushes the checkpoint saved");
     expect(text).not.toContain("and call it in a later turn");
     expect(text).not.toContain("in the follow-up turn the platform starts");
   });
 
-  test("differs from revision 1 only in the two push sentences", () => {
-    const pushSentences = [
-      /Push with mcp__github__request_push\. [^.]*\.[^.]*\. /,
-      /(Call it before|It answers deferred)[^.]*\. /,
-    ];
-    const rest = (text: string) =>
-      pushSentences.reduce((acc, pattern) => acc.replace(pattern, ""), text);
-    expect(rest(platformPromptText(flows))).toBe(
-      rest(platformPromptText(withRepository)),
+  test("differs from revision 1 only in the push sentences", () => {
+    // From the first push sentence up to the approval sentence that follows.
+    const withoutPush = (text: string) => {
+      const start = text.indexOf("Push with mcp__github__request_push");
+      const end = text.indexOf("If push approval is on");
+      return text.slice(0, start) + text.slice(end);
+    };
+    expect(withoutPush(platformPromptText(flows))).toBe(
+      withoutPush(platformPromptText(withRepository)),
     );
+    expect(withoutPush(platformPromptText(flows))).not.toContain(
+      "request_push",
+    );
+  });
+
+  test("tells the model what to do when a rolled-back install answers with a request instead of deferred", () => {
+    const text = platformPromptText(flows);
+    expect(text).toContain("waits_for turn_end");
+    expect(text).toContain("If it answers with a push request instead");
+    expect(platformPromptText(withRepository)).not.toContain("waits_for");
   });
 
   test("keeps every rule that does not depend on the flow", () => {

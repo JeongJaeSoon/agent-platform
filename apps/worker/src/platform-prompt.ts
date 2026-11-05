@@ -50,7 +50,8 @@ const PUSH_NEXT_TURN = [
 // with, and no turn follows it.
 const PUSH_THIS_TURN = [
   "Push with mcp__github__request_push. It pushes the commit this turn ends with: commit, keep the branch to push checked out when the turn ends, and call it in this turn.",
-  "It answers deferred, which is not a refusal: the platform makes the push request after the turn ends, and no follow-up turn starts, so do not call it again in a later turn.",
+  "It answers deferred with waits_for turn_end, which is not a refusal: the platform makes the push request after the turn ends, and no follow-up turn starts, so do not call it again in a later turn.",
+  "If it answers with a push request instead, that request is for the checkpoint saved at the end of the previous turn, not this turn's commit: call it again in a later turn for this turn's commit.",
 ];
 
 const GITHUB_REST = [
