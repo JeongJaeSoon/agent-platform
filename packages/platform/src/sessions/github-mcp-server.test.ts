@@ -1082,7 +1082,7 @@ describe("attach_repository", () => {
     const answer = payload(
       await h.call("attach_repository", {
         repository_id: "docs",
-        wait_seconds: 8,
+        wait_seconds: 7,
       }),
     );
     expect(answer.body.result).toMatchObject({
@@ -1112,7 +1112,7 @@ describe("attach_repository", () => {
   });
 
   test("a wait over the cap, or not a whole number, is refused before the service", async () => {
-    for (const wait_seconds of [9, -1, 1.5, "3"]) {
+    for (const wait_seconds of [8, -1, 1.5, "3"]) {
       const h = harness();
       const answer = payload(
         await h.call("attach_repository", {
@@ -1232,7 +1232,7 @@ describe("get_workflow_run", () => {
   test("a wait over the cap is refused, and concurrent waits answer alike", async () => {
     const h = actionsOn();
     expect(
-      payload(await h.call("get_workflow_run", { run_id: 7, wait_seconds: 9 })),
+      payload(await h.call("get_workflow_run", { run_id: 7, wait_seconds: 8 })),
     ).toMatchObject({
       isError: true,
       body: { refusal: { code: "validation_error" } },

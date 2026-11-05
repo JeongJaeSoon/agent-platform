@@ -45,13 +45,15 @@ const runIdSchema = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 /**
  * The longest a waiting read may hold its answer. The built-in server is
  * served by the control host's authorizer listener, which keeps Bun's default
- * 10 second idle timeout; a call that has sent nothing by then gets a cut
- * connection instead of an answer. The wait is counted from the start of the
- * call; the waiting itself and the GitHub calls inside it are cut at that
- * deadline. The database reads around it keep their own pool timeouts, so the
- * cap leaves two seconds for them, the proxy and the answer.
+ * 10 second idle timeout. Bun checks it on a coarse timer, so a silent call is
+ * cut anywhere from 8.0 to 12.0 seconds after it starts (32 of 32 probes on
+ * Bun 1.3.14, earliest 8.01s); the cut is not at 10. The wait is counted from
+ * the start of the call; the waiting itself and the GitHub calls inside it are
+ * cut at that deadline. The database reads around it keep their own pool
+ * timeouts, so the cap leaves about a second below the earliest cut for them,
+ * the proxy and the answer.
  */
-export const GITHUB_MCP_WAIT_SECONDS_MAX = 8;
+export const GITHUB_MCP_WAIT_SECONDS_MAX = 7;
 
 const waitSecondsSchema = z
   .number()
@@ -287,8 +289,7 @@ export const GITHUB_MCP_TOOL_DESCRIPTIONS: Record<GitHubMcpTool, string> = {
     "Submit a review of a pull request as the reviewer App, on the commit named by `commit_id`.",
   list_repositories:
     "List the repositories the session can work on. `status` is `primary` (the session's own), `attached`, `pending` or `failed` (fetch in progress or failed), `available` (attach_repository would add it) or `allowed_in_newer_release` (only the agent's current release allows it).",
-  attach_repository:
-    "Attach a repository the release allows to the session as a git remote named `repository_id`, with its default branch fetched to `<repository_id>/<branch>`. `status` is `pending` while the fetch runs. `wait_seconds` (0 to 8, default 0) holds the answer until the fetch ends or the seconds have passed; `final` is false when the fetch was still running at the end of the wait. Attaching an attached repository changes nothing.",
+  attach_repository: `Attach a repository the release allows to the session as a git remote named \`repository_id\`, with its default branch fetched to \`<repository_id>/<branch>\`. \`status\` is \`pending\` while the fetch runs. \`wait_seconds\` (0 to ${GITHUB_MCP_WAIT_SECONDS_MAX}, default 0) holds the answer until the fetch ends or the seconds have passed; \`final\` is false when the fetch was still running at the end of the wait. Attaching an attached repository changes nothing.`,
 };
 
 const requestPushResultSchema = z.union([
