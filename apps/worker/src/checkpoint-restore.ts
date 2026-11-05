@@ -39,7 +39,7 @@ export type StagedCheckpoint = CheckpointBundleRefs & {
  * Where, inside the restored workspace's new `.git`, the directory a restore
  * staged into (`restoreCheckpointTree`'s `keep`) ends up.
  */
-export const RESTORED_CHECKPOINT_DIRECTORY = "agent-platform-checkpoint";
+export const RESTORED_CHECKPOINT_DIRECTORY = "werft-checkpoint";
 
 const STAGED = "refs/bundle/";
 const RESTORING = "refs/restore/";

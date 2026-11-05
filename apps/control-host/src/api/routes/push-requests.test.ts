@@ -126,10 +126,12 @@ const CATALOG = {
       url: "https://git.example/acme/sample-app.git",
       branch: "main",
       profiles: ["default"],
+      auth: { kind: "github_app", registered: true } as const,
     },
     docs: {
       url: "https://git.example/acme/docs.git",
       branch: "main",
+      auth: { kind: "github_app", registered: true } as const,
       profiles: ["default"],
     },
   },

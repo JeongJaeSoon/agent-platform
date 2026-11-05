@@ -7,7 +7,7 @@ Werft does three things with GitHub. It clones the repository when a session sta
 
 ## What the operator does
 
-The credential is one of two kinds. The default is a GitHub App, which an owner or admin handles in the console under **Settings → Workspace → GitHub connection**.
+The credential is a GitHub App, which an owner or admin handles in the console under **Settings → Workspace → GitHub connection**.
 
 - **Add App**: create a new App on GitHub (the console receives and stores its App ID and key), or connect an existing one with its App ID and private key (the PEM file). A workspace can hold several author Apps and reviewer Apps; a role badge tells them apart in the list. The key is stored encrypted and never shown again on the screen or in an API response. To change a key, use **Register a new key** in the App row's ⋯ menu.
 - **Add organization**: install an App on an organization or a personal account. The installation table shows, for each account, its type, repository scope, App, who connected it and its status; **Manage on GitHub** in the row's ⋯ menu opens that installation's settings.
@@ -16,8 +16,7 @@ The credential is one of two kinds. The default is a GitHub App, which an owner 
 
 | Method | Required permissions |
 | --- | --- |
-| GitHub App (default) | Repository permissions: Contents Read and write, Pull requests Read and write |
-| fine-grained PAT | The same two permissions |
+| GitHub App | Repository permissions: Contents Read and write, Pull requests Read and write |
 
 Add the `Workflows` permission to the App only when the "Change workflow files" feature is on. The commits that get pushed are written by the agent, so with this permission a `.github/workflows/` file the agent edited would also be pushed and run in CI. Also protect the default branch with a repository ruleset. The operations docs describe how to set this up.
 
@@ -114,7 +113,7 @@ A GitHub account links to one person only. Linking an account someone else alrea
 
 ## On the local stack
 
-The local `sample-app` is a repository on the stack's read-only Git server, not GitHub, and it has no push credential. So an approved push ends as `failed` with `no_push_credential`, and a PR request returns 409 because the request was never pushed. Check this with a request that ended as `failed` in [Approve](/approvals/approve).
+The local `sample-app` is registered with a GitHub App on the stack's own Git server, so an approved push becomes `pushed` and a PR can be opened. A PR request on a request that was never pushed, such as a rejected one, returns 409 `PUSH_NOT_PUSHED`. Check this with a request that ended as `rejected` in [Approve](/approvals/approve).
 
 <Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
 <Tab>
@@ -123,10 +122,10 @@ The local `sample-app` is a repository on the stack's read-only Git server, not 
 import { isApiError } from "@werft-ai/sdk";
 
 const requests = await werft.sessions.pushRequests.list(sessionId);
-const failed = requests.find((request) => request.state === "failed");
-if (failed) {
+const rejected = requests.find((request) => request.state === "rejected");
+if (rejected) {
   try {
-    await werft.sessions.pushRequests.openPullRequest(sessionId, failed.id, {
+    await werft.sessions.pushRequests.openPullRequest(sessionId, rejected.id, {
       title: "Add release notes",
     });
   } catch (error) {
@@ -144,9 +143,9 @@ if (failed) {
 <Tab>
 
 ```bash
-FAILED=$(curl -sS "$API/v1/sessions/$SID/push-requests" -H "Authorization: Bearer $KEY" \
-  | jq -r '[.items[] | select(.state == "failed")][0].id')
-curl -sS "$API/v1/sessions/$SID/push-requests/$FAILED/pull-request" \
+REJECTED=$(curl -sS "$API/v1/sessions/$SID/push-requests" -H "Authorization: Bearer $KEY" \
+  | jq -r '[.items[] | select(.state == "rejected")][0].id')
+curl -sS "$API/v1/sessions/$SID/push-requests/$REJECTED/pull-request" \
   -H "Authorization: Bearer $KEY" \
   -H 'Content-Type: application/json' \
   -d '{"title": "Add release notes"}' | jq '{code: .error.code}'

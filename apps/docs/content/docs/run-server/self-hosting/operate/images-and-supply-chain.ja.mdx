@@ -23,7 +23,7 @@ digest pinは、Bunのバージョンと一緒にbaseのDebianパッケージも
 ```bash
 docker compose -f infra/compose.yml --profile worker build          # WORKER_IMAGE(werft-worker:dev)
 docker compose -f infra/compose.yml --profile worker run --rm worker claude --version
-docker compose -f infra/compose.yml --profile apps up -d --build      # migrate → api(/readyz) → worker 이미지 smoke → scheduler 루프, reconciler 루프
+docker compose -f infra/compose.yml --profile apps up -d --build      # migrate → api(/readyz) → worker image smoke → scheduler loop, reconciler loop
 curl -s http://127.0.0.1:3000/readyz
 ```
 
@@ -44,7 +44,7 @@ composeのエントリファイルは`infra/compose.yml`、復元用のlayerは`
 - **digestを読む。** 公開パッケージは、GitHubにログインせずにタグから読めます。3つのタグはリポジトリごとに順に書かれるので、3つの照会がすべて成功して初めて1セットです。
 
 ```bash
-TAG="main-$(git rev-parse HEAD | cut -c1-12)"   # 배포할 commit의 checkout에서
+TAG="main-$(git rev-parse HEAD | cut -c1-12)"   # from a checkout of the commit to deploy
 for app in control-host worker egress-proxy; do
   digest="$(docker buildx imagetools inspect "ghcr.io/jeongjaesoon/werft-${app}:${TAG}" --format '{{.Manifest.Digest}}')"
   echo "werft-${app}@${digest}"
@@ -60,12 +60,12 @@ done
 - **取得。** indexのdigestで取得すると、Dockerがホストのアーキテクチャを選びます。パッケージが非公開なら、先に`docker login ghcr.io`が必要です。
 
 ```bash
-docker pull "ghcr.io/jeongjaesoon/werft-worker@<위에서 읽은 digest>"
+docker pull "ghcr.io/jeongjaesoon/werft-worker@<digest read above>"
 ```
 
 ### リポジトリ管理者: `v*`タグで公開
 
-この節は、リポジトリにタグをpushする権限のある管理者の手順です。インストールする運用者はタグを付けず、[単一サーバーの設置](https://jeongjaesoon.github.io/werft/ja/run-server/self-hosting/single-server/)や[Kubernetesの設置](https://jeongjaesoon.github.io/werft/ja/run-server/self-hosting/kubernetes/)で公開済みのイメージを使います。
+この節は、リポジトリにタグをpushする権限のある管理者の手順です。インストールする運用者はタグを付けず、[単一サーバーの設置](/run-server/self-hosting/single-server)や[Kubernetesの設置](/run-server/self-hosting/kubernetes)で公開済みのイメージを使います。
 
 これまで`v*`タグを付けたことがないため、この経路は一度も実行されていません。
 
@@ -81,11 +81,11 @@ docker pull "ghcr.io/jeongjaesoon/werft-worker@<위에서 읽은 digest>"
 `v*`タグごとにGitHub Releaseが1つでき、ファイル`release-manifest.json`が添付されます。運用者はrunやartifactを探しません。リポジトリのcheckoutも不要で、`gh`と`jq`があれば足ります。まだ`v*`タグを付けたことがないため、Releaseはありません。下の`TAG`は、Releaseができた後のタグです。
 
 ```bash
-TAG=v0.1.0   # 읽을 릴리스 태그
-gh release download "$TAG" -R JeongJaeSoon/werft -p release-manifest.json -D "$TAG"   # 태그마다 디렉터리 하나
-jq -r '.images[] | "\(.image)@\(.digest)"' "$TAG/release-manifest.json"   # 배포에 쓰는 세 digest
+TAG=v0.1.0   # the release tag to read
+gh release download "$TAG" -R JeongJaeSoon/werft -p release-manifest.json -D "$TAG"   # one directory per tag
+jq -r '.images[] | "\(.image)@\(.digest)"' "$TAG/release-manifest.json"   # the three digests used for deployment
 jq -c .workerRuntime "$TAG/release-manifest.json"                          # worker runtime
-jq -r '"\(.chart.ref) \(.chart.version)"' "$TAG/release-manifest.json"     # chart 위치와 버전
+jq -r '"\(.chart.ref) \(.chart.version)"' "$TAG/release-manifest.json"     # chart location and version
 helm show chart "$(jq -r .chart.ref "$TAG/release-manifest.json")" --version "$(jq -r .chart.version "$TAG/release-manifest.json")"
 ```
 
@@ -103,7 +103,7 @@ helm show chart "$(jq -r .chart.ref "$TAG/release-manifest.json")" --version "$(
 
 値は、`promote`がレジストリから読み直して確認したdigestと、`chart-publish`がログインなしで読んで確認したchartから来ます。manifestを作るとき、chartパッケージの`Chart.yaml`・`values.yaml`が同じdigestとバージョンを含んでいるかも照合します。一度添付されたmanifestは変わりません。同じタグを再実行して別の内容が出ると、jobが失敗します。
 
-インストールする運用者は、このmanifestから[単一サーバーの設置](https://jeongjaesoon.github.io/werft/ja/run-server/self-hosting/single-server/)に入れるイメージの行を得ます。
+インストールする運用者は、このmanifestから[単一サーバーの設置](/run-server/self-hosting/single-server)に入れるイメージの行を得ます。
 
 ### Helm chartの公開
 
@@ -146,9 +146,9 @@ workerが書くnpm設定はuserレベルなので、リポジトリの`.npmrc`�
 Goは、公式リリースのtarballをchecksumで固定して派生イメージの`/usr/local/go`に展開し、`PATH`に加えます。`GOTOOLCHAIN=local`も一緒に置きます。そうしないと、`go.mod`の`go`行がイメージより新しいとき、Goが新しいツールチェーンを取りに行きます。ユーザーは、イメージの元のユーザー(`USER 1000:1000`)に戻します。local-docker実行基盤のworkerの`/tmp`は、tmpfsのオプションに`exec`がないため、Dockerが`noexec`でマウントします。そのため、`go run`と`go test`は`/tmp`に作った実行ファイルを起動できず、`fork/exec /tmp/go-build…: permission denied`で失敗します(2026-11-02実測)。HOMEも同じtmpfsなので、`go install`が`~/go/bin`に置いたファイルも実行されません。`go test`は、`GOTMPDIR`をworkspace内の既存のディレクトリに指定すれば通ります。`go run`は実行ファイルを`GOCACHE`(既定値はHOMEの下)から起動するので、`GOCACHE`もworkspaceに移す必要があります(例: `mkdir -p .gotmp && export GOTMPDIR=$PWD/.gotmp GOCACHE=$PWD/.gotmp/cache`、同じ日に実測)。実行ファイルは`go build -o`でworkspaceに作ります。
 
 ```dockerfile
-FROM <출하 worker 이미지>
+FROM <shipped worker image>
 USER root
-ADD --checksum=sha256:<릴리스의 sha256> https://go.dev/dl/go<버전>.linux-<arch>.tar.gz /tmp/go.tar.gz
+ADD --checksum=sha256:<release sha256> https://go.dev/dl/go<version>.linux-<arch>.tar.gz /tmp/go.tar.gz
 RUN tar -xzf /tmp/go.tar.gz -C /usr/local && rm /tmp/go.tar.gz
 ENV PATH=/usr/local/go/bin:$PATH GOTOOLCHAIN=local
 USER 1000:1000
@@ -160,11 +160,11 @@ USER 1000:1000
 
 ### workerイメージのアップグレードとcheckpointの互換性
 
-単一サーバー(compose)インストールの[アップグレード](https://jeongjaesoon.github.io/werft/ja/run-server/self-hosting/upgrade/)でworkerイメージが変わると、新しいイメージのengine・SDK・CLI・profile digestで、現在の各checkpointのrestore planを計算します。4つの値がすべて同じで互換性のあるセッションは承認なしで続き、`INCOMPATIBLE_CHECKPOINT`のセッションだけをユーザーに知らせて、正確な一覧の承認を受けます。検査を最後まで実行できないか、ほかの検証失敗が混ざれば、未回収のcheckpointがあるセッションすべてを影響一覧とするfail-closedの動作をして、ログに残します。writerを止めた後にも、同じ検査をもう一度行います。互換性のないセッションで`start_fresh`を選ぶと、以前のcheckpointのcontextを捨てます。Kubernetes(helm)インストールでは、pre-upgrade hookが同じ判定を、イメージを実行せずにポインタの組み合わせで行います([kubernetes-deployment.md § アップグレード前の検査](https://jeongjaesoon.github.io/werft/ja/run-server/self-hosting/operate/kubernetes-deployment/#アップグレード前の検査))。
+単一サーバー(compose)インストールの[アップグレード](/run-server/self-hosting/upgrade)でworkerイメージが変わると、新しいイメージのengine・SDK・CLI・profile digestで、現在の各checkpointのrestore planを計算します。4つの値がすべて同じで互換性のあるセッションは承認なしで続き、`INCOMPATIBLE_CHECKPOINT`のセッションだけをユーザーに知らせて、正確な一覧の承認を受けます。検査を最後まで実行できないか、ほかの検証失敗が混ざれば、未回収のcheckpointがあるセッションすべてを影響一覧とするfail-closedの動作をして、ログに残します。writerを止めた後にも、同じ検査をもう一度行います。互換性のないセッションで`start_fresh`を選ぶと、以前のcheckpointのcontextを捨てます。Kubernetes(helm)インストールでは、pre-upgrade hookが同じ判定を、イメージを実行せずにポインタの組み合わせで行います([kubernetes-deployment.md § アップグレード前の検査](/run-server/self-hosting/operate/kubernetes-deployment#アップグレード前の検査))。
 
-workerイメージが変わると、upgradeは変わる前のイメージを直前のイメージとして残します(upgradeスクリプトの状態ディレクトリに`previous-worker`ファイルとして置きます)。schedulerはセッションごとに、checkpointポインタの組み合わせ(engine・SDK・CLI・profile digest scheme)と同じイメージを現在・直前の中から選び、両方が合えば現在のイメージを使います([configuration.md § scheduler・workerコンテナ・egressの設定](https://jeongjaesoon.github.io/werft/ja/run-server/self-hosting/operate/configuration/#schedulerworkerコンテナegressの設定))。そのため、ゲートは、新しいイメージで復元できないセッションのうち、直前のイメージでも復元できないセッションだけを影響一覧に載せます。新しいイメージと直前のイメージのどちらか一方の検査でもfail-closedで終われば、新しいイメージ基準の一覧をそのまま使います。同じ組み合わせで再ビルドしたイメージなら、schedulerは新しいイメージで起動するので、新しいイメージで復元できると確認できなかったセッションは、直前のイメージが復元できるとしても一覧から外しません。どちらか一方が自分の組み合わせを出力できない古いイメージなら(`apps/worker/src/image-runtime.ts`がないビルド)、直前のイメージを使わず、ゲートも新しいイメージ基準の一覧をそのまま使います。サポート期間は1リリースです。もう一度アップグレードすると、その前のイメージに残ったセッションが再び影響一覧に載ります。
+workerイメージが変わると、upgradeは変わる前のイメージを直前のイメージとして残します(upgradeスクリプトの状態ディレクトリに`previous-worker`ファイルとして置きます)。schedulerはセッションごとに、checkpointポインタの組み合わせ(engine・SDK・CLI・profile digest scheme)と同じイメージを現在・直前の中から選び、両方が合えば現在のイメージを使います([configuration.md § scheduler・workerコンテナ・egressの設定](/run-server/self-hosting/operate/configuration#schedulerworkerコンテナegressの設定))。そのため、ゲートは、新しいイメージで復元できないセッションのうち、直前のイメージでも復元できないセッションだけを影響一覧に載せます。新しいイメージと直前のイメージのどちらか一方の検査でもfail-closedで終われば、新しいイメージ基準の一覧をそのまま使います。同じ組み合わせで再ビルドしたイメージなら、schedulerは新しいイメージで起動するので、新しいイメージで復元できると確認できなかったセッションは、直前のイメージが復元できるとしても一覧から外しません。どちらか一方が自分の組み合わせを出力できない古いイメージなら(`apps/worker/src/image-runtime.ts`がないビルド)、直前のイメージを使わず、ゲートも新しいイメージ基準の一覧をそのまま使います。サポート期間は1リリースです。もう一度アップグレードすると、その前のイメージに残ったセッションが再び影響一覧に載ります。
 
-SDKを上げるリリースは、サンプル設定ドキュメント(`tests/fixtures/settings/`)の`runtime_version`も一緒に上げ、運用インストールの上限は新しいバージョンで保存します。現在のイメージが載せていない`runtime_version`のprofileは、新しいセッションを受け付けません。同じリリースに、新しいエンジン組み合わせの内蔵ツール対応一覧(`packages/adapters/runtimes/claude-codec/src/tool-catalog.ts`)も入れます。一覧のないバージョンの上限は、`deny`で作れません。新しい一覧に加わったツールは各上限の新しいバージョンでブロックされたまま続き、`accept_added_tools`で受け入れると開きます([api-server.md](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md#운영자-카탈로그-agent-profile--repository))。Kubernetes(helm)インストールのデプロイ順序と、変更ごとのセッションの動作は、[kubernetes-deployment.md § アップグレードとロールバック](https://jeongjaesoon.github.io/werft/ja/run-server/self-hosting/operate/kubernetes-deployment/#アップグレードとロールバック)にあります。
+SDKを上げるリリースは、サンプル設定ドキュメント(`tests/fixtures/settings/`)の`runtime_version`も一緒に上げ、運用インストールの上限は新しいバージョンで保存します。現在のイメージが載せていない`runtime_version`のprofileは、新しいセッションを受け付けません。同じリリースに、新しいエンジン組み合わせの内蔵ツール対応一覧(`packages/adapters/runtimes/claude-codec/src/tool-catalog.ts`)も入れます。一覧のないバージョンの上限は、`deny`で作れません。新しい一覧に加わったツールは各上限の新しいバージョンでブロックされたまま続き、`accept_added_tools`で受け入れると開きます([api-server.md](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md#운영자-카탈로그-agent-profile--repository))。Kubernetes(helm)インストールのデプロイ順序と、変更ごとのセッションの動作は、[kubernetes-deployment.md § アップグレードとロールバック](/run-server/self-hosting/operate/kubernetes-deployment#アップグレードとロールバック)にあります。
 
 ### worker・control-hostのロールバックとincremental checkpoint
 
@@ -252,8 +252,8 @@ migrationはrolloutの前に実行されます。そのため、新しいスキ�
 - **例外。** 上げられない修正(例: `upgrade`が保留したDebianパッケージ、コードパスが届かないadvisory)は、`.github/vulnerability-exceptions.json`に`{"id", "package", "reason", "expires"}`として書きます。`id`は検査結果の`id`(CVE-…またはGHSA-…)、`package`はパッケージ名です。`reason`と`expires`(YYYY-MM-DD、その日まで適用)がなければ、npm検査が`error`になります。期限が切れると、再びブロックします。例外はPRレビューを経ます。
 
 ```bash
-bun .github/scripts/npm-audit.ts /tmp/sc && cat /tmp/sc/npm.txt   # npm 판정을 로컬에서
-.github/scripts/supply-chain-verdict.sh /tmp/sc warn              # 결과 파일 넷(control-host·worker·egress-proxy·npm)의 판정
+bun .github/scripts/npm-audit.ts /tmp/sc && cat /tmp/sc/npm.txt   # the npm verdict, locally
+.github/scripts/supply-chain-verdict.sh /tmp/sc warn              # verdict over the four result files (control-host, worker, egress-proxy, npm)
 ```
 
 第三者への告知(`THIRD_PARTY_NOTICES.md`とイメージごとの`/app/DEBIAN_SOURCES.md`)を作る方法は、[ci.md](https://github.com/JeongJaeSoon/werft/blob/main/docs/contributing/ci.md)にあります。

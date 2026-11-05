@@ -2,7 +2,6 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { generateKeyPairSync } from "node:crypto";
 import { sanitizeFields } from "@werft-ai/observability";
 import { ForgeCredentialError, GitHubCallError } from "@werft-ai/platform";
-import { fakeGitHubClientSecret } from "@werft-ai/platform/testing/github";
 import { type FakeGitHub, startFakeGitHub } from "@werft-ai/testkit";
 import { createGitHubConnection, RATE_LIMIT_RETRIES } from "./forge-github.ts";
 
@@ -43,15 +42,16 @@ async function appForge() {
   return { forge: connection.api(repo, credential), connection, warnings };
 }
 
-/** A PAT connection's API against a stub server on `port`. */
-async function patForge(port: number | undefined) {
+/** An App connection's API against a stub server on `port`. */
+async function appForgeAt(port: number | undefined) {
+  const { connection: issuer } = await appForge();
+  const { credential } = await issuer.credential(repo, PULLS);
   const connection = createGitHubConnection({
     apiBase: `http://127.0.0.1:${port}`,
-    credentials: { kind: "token", username: "x", password: "pat-test" },
+    credentials: { kind: "app", appId: 101, installationId: 202, privateKey },
     retryAfterBaseMs: 1,
     paced: false,
   });
-  const { credential } = await connection.credential(repo, PULLS);
   return connection.api(repo, credential);
 }
 
@@ -280,7 +280,7 @@ describe("GitHub pull requests", () => {
       },
     });
     try {
-      const forge = await patForge(stub.port);
+      const forge = await appForgeAt(stub.port);
       await expect(
         forge.upsertComment(1, "<!-- werft:s:x -->", "Hi"),
       ).rejects.toBeInstanceOf(ForgeCredentialError);
@@ -302,46 +302,11 @@ describe("GitHub pull requests", () => {
       },
     });
     try {
-      const forge = await patForge(stub.port);
+      const forge = await appForgeAt(stub.port);
       await expect(
         forge.upsertComment(1, "<!-- werft:s:y -->", "Hi"),
       ).rejects.toBeInstanceOf(ForgeCredentialError);
       expect(seen).toEqual(["GET", "POST"]);
-    } finally {
-      await stub.stop(true);
-    }
-  });
-
-  test("with a PAT, the platform's comment is the token owner's", async () => {
-    const marker = "<!-- werft:s:status -->";
-    const thread = [
-      { id: 1, body: `Mine? ${marker}`, html_url: "h/1", user: { id: 7 } },
-      { id: 2, body: `Ours ${marker}`, html_url: "h/2", user: { id: 42 } },
-    ];
-    const seen: string[] = [];
-    const stub = Bun.serve({
-      port: 0,
-      async fetch(request) {
-        const { pathname } = new URL(request.url);
-        seen.push(`${request.method} ${pathname}`);
-        if (pathname === "/user") return Response.json({ id: 42 });
-        if (request.method === "GET") return Response.json(thread);
-        const { body } = (await request.json()) as { body: string };
-        return Response.json({ id: 2, body, html_url: "h/2" });
-      },
-    });
-    try {
-      const forge = await patForge(stub.port);
-      expect(await forge.upsertComment(1, marker, "Done.")).toEqual({
-        id: 2,
-        url: "h/2",
-        created: false,
-      });
-      expect(seen).toEqual([
-        "GET /repos/acme/app/issues/1/comments",
-        "GET /user",
-        "PATCH /repos/acme/app/issues/comments/2",
-      ]);
     } finally {
       await stub.stop(true);
     }
@@ -529,66 +494,8 @@ describe("reading a pull request for the outcome refresher", () => {
 });
 
 describe("the rate-limit unit of a connection", () => {
-  const patConnection = (pat: string, now?: () => Date) =>
-    createGitHubConnection({
-      apiBase: github.origin,
-      credentials: { kind: "token", username: "x", password: pat },
-      ...(now === undefined ? {} : { now }),
-      retryAfterBaseMs: 1,
-      paced: false,
-    });
-  const userCalls = () =>
-    github.apiRequests.filter((request) => request.path === "/user").length;
-
   test("an App's unit is its installation", async () => {
     const { connection } = await appForge();
     expect(await connection.quotaKey(repo)).toBe(`app:${github.origin}:202`);
-  });
-
-  test("two PATs of one user share a unit; another user's PAT has its own, and each user is asked once", async () => {
-    const [first, second, other] = [
-      fakeGitHubClientSecret(),
-      fakeGitHubClientSecret(),
-      fakeGitHubClientSecret(),
-    ];
-    github.addUser(first, 42);
-    github.addUser(second, 42);
-    github.addUser(other, 43);
-    const before = userCalls();
-    const key = await patConnection(first).quotaKey(repo);
-    expect(key).toBe(`pat:${github.origin}:42`);
-    expect(await patConnection(second).quotaKey(repo)).toBe(key);
-    // The repository's PAT switched to another user's: a new unit.
-    expect(await patConnection(other).quotaKey(repo)).toBe(
-      `pat:${github.origin}:43`,
-    );
-    // A second connection for a PAT already told asks nothing.
-    expect(await patConnection(first).quotaKey(repo)).toBe(key);
-    expect(userCalls() - before).toBe(3);
-  });
-
-  test("after GET /user fails, that PAT is not asked again for an hour", async () => {
-    const pat = fakeGitHubClientSecret();
-    github.addUser(pat, 44);
-    let offset = 0;
-    const connection = patConnection(pat, () => new Date(Date.now() + offset));
-    const before = userCalls();
-    github.failUser(true);
-    try {
-      await expect(connection.quotaKey(repo)).rejects.toBeInstanceOf(
-        ForgeCredentialError,
-      );
-      github.failUser(false);
-      offset = 59 * 60_000;
-      await expect(connection.quotaKey(repo)).rejects.toBeInstanceOf(
-        ForgeCredentialError,
-      );
-      expect(userCalls() - before).toBe(1);
-      offset = 61 * 60_000;
-      expect(await connection.quotaKey(repo)).toBe(`pat:${github.origin}:44`);
-      expect(userCalls() - before).toBe(2);
-    } finally {
-      github.failUser(false);
-    }
   });
 });

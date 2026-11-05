@@ -67,8 +67,8 @@ if (done.push_receipt_id) {
 ```
 
 ```text
-failed
-push failed no_push_credential
+pushed
+push succeeded null
 ```
 
 `waitForPushRequest`는 요청이 `pushed`·`failed`·`rejected`가 될 때까지 기다린다.
@@ -89,12 +89,12 @@ curl -sS "$API/v1/receipts/$(echo "$pushed" | jq -r .push_receipt_id)" -H "Autho
 
 ```text
 {
-  "state": "failed"
+  "state": "pushed"
 }
 {
   "operation": "push",
-  "status": "failed",
-  "refusal": "no_push_credential"
+  "status": "succeeded",
+  "refusal": null
 }
 ```
 
@@ -103,7 +103,7 @@ curl -sS "$API/v1/receipts/$(echo "$pushed" | jq -r .push_receipt_id)" -H "Autho
 </Tab>
 </Tabs>
 
-개발용 서버의 `sample-app` 저장소에는 push 자격 증명이 없어서 `no_push_credential`로 끝난다. 운영자가 저장소에 GitHub App이나 PAT를 설정하면([GitHub](/integrations/github)) `pushed`가 되고, receipt의 `result`에 `remote_ref`(`refs/heads/agent/<session-id>`)와 `previous_commit`이 남는다.
+로컬 스택의 `sample-app`은 스택 안의 Git 서버에 GitHub App으로 등록돼 있어 `pushed`가 된다. receipt의 `result`에 `remote_ref`(`refs/heads/agent/<session-id>`)와 `previous_commit`이 남는다. 저장소에 쓸 수 있는 GitHub App 자격이 없으면 `no_push_credential`로 끝난다.
 
 플랫폼은 그 commit 하나만 그 브랜치에 보낸다. force push는 하지 않는다. 기본 브랜치에는 보내지 않는다.
 

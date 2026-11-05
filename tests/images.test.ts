@@ -588,10 +588,16 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     expect(gitHost?.command?.slice(0, 3)).toEqual([
       "bun",
       "run",
-      "packages/testkit/src/fake-git-main.ts",
+      "packages/testkit/src/local-github-main.ts",
     ]);
-    // FAKE_GIT_PORT and FAKE_GIT_OWNER default to the URLs' 3000 and agent.
-    expect(gitHost?.environment).toBeUndefined();
+    expect(gitHost?.environment).toMatchObject({
+      AWS_ENDPOINT_URL_SECRETS_MANAGER: "http://secrets:4566",
+      AWS_ACCESS_KEY_ID: "test",
+      AWS_SECRET_ACCESS_KEY: "test",
+    });
+    expect(gitHost?.depends_on).toEqual({
+      secrets: { condition: "service_healthy" },
+    });
     const served = gitHost?.command?.slice(3) ?? [];
 
     const documents: Record<string, string> = {
@@ -666,7 +672,7 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     expect(gitHost?.args).toEqual([
       "bun",
       "run",
-      "packages/testkit/src/fake-git-main.ts",
+      "packages/testkit/src/local-github-main.ts",
       "sample-app",
       "gate-app",
     ]);
@@ -2848,7 +2854,7 @@ describe("compose layers", () => {
         "/settings/real-model.json",
       );
       expect(services["fake-messages"]).toBeUndefined();
-      expect(services.secrets).toBeUndefined();
+      expect(services.secrets).toBeDefined();
       expect(Object.keys(api?.depends_on ?? {})).not.toContain("secrets");
       for (const [name, service] of Object.entries(services)) {
         if (name !== "api")
@@ -2998,9 +3004,8 @@ describe("compose layers", () => {
 
   // where scripts/local.sh reads the ports to check and the worker
   // label to delete, also under the CI quickstart job's COMPOSE_FILE.
-  const PORTS = ["3000", "3001", "4566", "5432"];
-  // 4567 is the secrets service's, on only with the fake catalog.
-  const FAKE_PORTS = [...PORTS, "4567"].sort();
+  const PORTS = ["3000", "3001", "4566", "4567", "5432"];
+  const FAKE_PORTS = PORTS;
   test.each([
     [LOCAL_LAYERS, {}, "local", PORTS],
     [

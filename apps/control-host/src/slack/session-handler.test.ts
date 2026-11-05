@@ -159,6 +159,7 @@ const SETTINGS = settingsDocument(
     url: https://github.com/acme/notes
     branch: main
     profiles: [coding]
+    auth: {kind: github_app}
 `,
 );
 

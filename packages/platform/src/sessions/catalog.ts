@@ -269,32 +269,6 @@ export const catalogProfileConfigSchema = z
     path: ["provider", "billing"],
   });
 
-// How the egress proxy logs in to the repository host for this
-// repository's read-only route. `basic` carries a login (git hosts take a
-// token as the password; a GitHub PAT goes under the username
-// `x-access-token`); `bearer` carries none. The value is
-// never handed to a worker: what a worker holds is an attempt-scoped token
-// for the proxy's route. Give it a read-only, non-admin account.
-const staticRepositoryAuthSchema = z
-  .object({
-    kind: z.enum(["basic", "bearer"]),
-    // Joined as `username:value` for basic auth, so no colon of its own.
-    username: z
-      .string()
-      .min(1)
-      .refine((name) => !name.includes(":") && !hasControlCharacter(name), {
-        message: "must not hold a colon or a control character",
-      })
-      .optional(),
-    ...credentialRefFields,
-  })
-  .strict()
-  .refine(namesOneRef, { message: ONE_REF_MESSAGE })
-  .refine((auth) => (auth.kind === "basic") === (auth.username !== undefined), {
-    message: "basic needs a username and bearer takes none",
-    path: ["username"],
-  });
-
 // A GitHub App installation: the API signs a JWT with the App's private key
 // (the referenced value, a PEM) and trades it for an installation token
 // scoped to this one repository and the access a route needs. Written as
@@ -355,11 +329,6 @@ export function isRegisteredGitHubApp(auth: {
   );
 }
 
-const catalogRepositoryAuthSchema = z.discriminatedUnion("kind", [
-  staticRepositoryAuthSchema,
-  githubAppAuthSchema,
-]);
-
 // The pair of profile and repository is the unit of trust: a profile that
 // lets the repository's CLAUDE.md into the system prompt must not carry
 // that trust to a repository whose authors it was never granted for.
@@ -370,8 +339,7 @@ export const catalogRepositorySchema = z
     url: webUrl,
     branch: z.string().min(1),
     profiles: z.array(z.string().min(1)).min(1).optional(),
-    // Absent for a repository anyone may read.
-    auth: catalogRepositoryAuthSchema.optional(),
+    auth: githubAppAuthSchema,
   })
   .strict()
   .refine(
@@ -478,11 +446,37 @@ export const sessionCatalogConfigSchema = z
   });
 
 export type SessionCatalogConfig = z.infer<typeof sessionCatalogConfigSchema>;
+
+/**
+ * `sessionCatalogConfigSchema.safeParse`, except that with
+ * `tolerateNoRepositories` a catalog left without any repository (every
+ * entry was an old one the import skipped) is not refused for that alone.
+ * Every other rule still applies.
+ */
+export function safeParseCatalogConfig(
+  input: { repositories: Record<string, unknown> } & Record<string, unknown>,
+  tolerateNoRepositories: boolean,
+) {
+  if (!tolerateNoRepositories || Object.keys(input.repositories).length > 0) {
+    return sessionCatalogConfigSchema.safeParse(input);
+  }
+  const placeholder = "placeholder";
+  const parsed = sessionCatalogConfigSchema.safeParse({
+    ...input,
+    repositories: {
+      [placeholder]: {
+        url: "https://github.com/placeholder/placeholder",
+        branch: "main",
+        auth: { kind: "github_app" },
+      },
+    },
+  });
+  if (parsed.success) delete parsed.data.repositories[placeholder];
+  return parsed;
+}
 export type CatalogProfileConfig = z.infer<typeof catalogProfileConfigSchema>;
 export type CatalogRepositoryConfig = z.infer<typeof catalogRepositorySchema>;
 export type RepositoryCredential =
-  | { kind: "basic"; username: string; value: string; ref: CredentialRef }
-  | { kind: "bearer"; value: string; ref: CredentialRef }
   | {
       kind: "github_app";
       app_id: number;
@@ -495,7 +489,7 @@ export type RepositoryCredential =
   // Resolved per request from the App registered in the console.
   | { kind: "github_app"; registered: true };
 export type CatalogRepository = Omit<CatalogRepositoryConfig, "auth"> & {
-  auth?: RepositoryCredential | undefined;
+  auth: RepositoryCredential;
 };
 export type CredentialRef =
   | { value_env: string }
@@ -1188,35 +1182,17 @@ export function providerUpstreamOf(profile: CatalogProfile): EgressUpstream {
 
 /**
  * Where a repository route goes and how it authenticates there. A forge
- * repository's credential is issued per request (`GitHubGate.grant`)
- * and passed in; the others are the catalog's own.
+ * repository's credential is issued per request (`GitHubGate.grant`).
  */
 export function repositoryUpstreamOf(
   repository: CatalogRepository,
   issued?: GitCredential,
 ): EgressUpstream {
-  const { auth, url } = repository;
+  const { url } = repository;
   if (issued !== undefined) {
     return { url, headers: [["authorization", basicAuthorization(issued)]] };
   }
-  if (auth === undefined) return { url, headers: [] };
-  if (auth.kind === "github_app") {
-    throw new Error("a github_app repository needs an issued credential");
-  }
-  return {
-    url,
-    headers: [
-      [
-        "authorization",
-        auth.kind === "basic"
-          ? basicAuthorization({
-              username: auth.username,
-              password: auth.value,
-            })
-          : `Bearer ${auth.value}`,
-      ],
-    ],
-  };
+  throw new Error("a github_app repository needs an issued credential");
 }
 
 function basicAuthorization(login: { username: string; password: string }) {
@@ -1720,10 +1696,6 @@ export function resolveSessionCatalog(
   const repositories: Record<string, CatalogRepository> = {};
   for (const [id, repository] of Object.entries(config.repositories)) {
     const { auth, ...rest } = repository;
-    if (auth === undefined) {
-      repositories[id] = rest;
-      continue;
-    }
     if (isRegisteredGitHubApp(auth)) {
       repositories[id] = {
         ...rest,
@@ -1746,16 +1718,7 @@ export function resolveSessionCatalog(
           ref,
         },
       };
-      continue;
     }
-    const value = resolved(path, ref);
-    repositories[id] = {
-      ...rest,
-      auth:
-        auth.kind === "basic"
-          ? { kind: "basic", username: auth.username ?? "", value, ref }
-          : { kind: "bearer", value, ref },
-    };
   }
   if (config.mcp_servers === undefined) return { profiles, repositories };
   const mcp_servers: Record<string, CatalogMcpServer> = {};

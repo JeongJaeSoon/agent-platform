@@ -9,6 +9,7 @@ const OPERATE = [
   "configuration",
   "database",
   "images-and-supply-chain",
+  "kubernetes-deployment",
   "kubernetes-backend",
   "metrics",
   "monitoring-datadog",

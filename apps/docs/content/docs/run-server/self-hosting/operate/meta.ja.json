@@ -4,6 +4,7 @@
     "configuration",
     "capacity",
     "database",
+    "kubernetes-deployment",
     "kubernetes-backend",
     "metrics",
     "session-data-flow",

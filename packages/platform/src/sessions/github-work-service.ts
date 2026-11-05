@@ -126,10 +126,7 @@ export function createGitHubWorkService(deps: {
       throw error;
     }
     if (grant === null) {
-      throw new SessionServiceError(
-        "UNSUPPORTED_CAPABILITY",
-        "The session's repository is not on GitHub",
-      );
+      throw unavailable(null);
     }
     return grant;
   }

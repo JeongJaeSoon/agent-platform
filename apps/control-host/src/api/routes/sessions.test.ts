@@ -47,12 +47,14 @@ const catalog: SessionCatalog = {
       url: "https://example.invalid/app.git",
       branch: "main",
       profiles: ["claude-coding-v1"],
+      auth: { kind: "github_app", registered: true } as const,
     },
     // Registered, but only claude-review-v1 may run against it.
     "other-app": {
       url: "https://example.invalid/other.git",
       branch: "main",
       profiles: ["claude-review-v1"],
+      auth: { kind: "github_app", registered: true } as const,
     },
   },
 };

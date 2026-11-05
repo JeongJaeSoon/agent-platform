@@ -2,7 +2,7 @@
 
 test-ops는 여러 사람이 함께 쓰는 상시 설치다. Linux 호스트 한 대에서 compose로 돈다. checkpoint object는 기본으로 같은 호스트의 LocalStack에 두고, 설정 하나로 AWS S3(도쿄)로 바꾼다(아래 "object store"). 배포·업그레이드·키 발급·백업·복원 훈련·재시작 복구는 모두 `scripts/test-ops.sh` 하나로 한다. 이 문서는 운영자용 절차다. 각 구성 요소가 어떻게 동작하는지는 [docs 색인의 운영자 문서](../README.md#운영자), 백업 번들의 형식과 검사는 [backup-restore.md](backup-restore.md)를 본다.
 
-Kubernetes 설치는 `scripts/test-ops.sh`를 쓰지 않는다. 같은 일을 하는 명령은 [kubernetes-deployment.md](kubernetes-deployment.md)에 있다.
+Kubernetes 설치는 `scripts/test-ops.sh`를 쓰지 않는다. 같은 일을 하는 명령은 [kubernetes-deployment.md](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/kubernetes-deployment/)에 있다.
 
 | test-ops | Kubernetes 설치 |
 |---|---|
@@ -12,7 +12,7 @@ Kubernetes 설치는 `scripts/test-ops.sh`를 쓰지 않는다. 같은 일을 �
 | `deploy`·`upgrade` | `helm upgrade --install`. migrate는 hook이 먼저 돌린다 |
 | `key create`·`key revoke`, `grants.ts` | `bun run keys:k8s`·`grants:k8s` |
 | `backup`·`restore-drill` | RDS 백업·스냅샷과 S3 version([backup-restore.md § Kubernetes 설치](backup-restore.md#kubernetes-설치)) |
-| 재시작 복구 | Deployment가 다시 띄운다. 확인은 [health 확인](kubernetes-deployment.md#health-확인) |
+| 재시작 복구 | Deployment가 다시 띄운다. 확인은 [health 확인](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/kubernetes-deployment/#health-확인) |
 
 지키는 규칙은 다음과 같다.
 
@@ -193,6 +193,7 @@ sudo install -d -m 700 -o "$USER" /var/lib/agent-platform/test-ops   # TEST_OPS_
     "sample-app": {
       "url": "https://github.com/<owner>/<repo>.git",
       "branch": "main",
+      "auth": { "kind": "github_app" },
       "profiles": ["claude-coding"]
     }
   },
@@ -215,7 +216,7 @@ sudo install -d -m 700 -o "$USER" /var/lib/agent-platform/test-ops   # TEST_OPS_
 }
 ```
 
-test-ops에는 git 호스트가 없다. 저장소는 GitHub에 둔다. 위 예시는 공개 저장소이고, 비공개 저장소의 인증은 [api-server.md](api-server.md)를 따른다.
+test-ops에는 git 호스트가 없다. 저장소는 GitHub에 둔다. 저장소 항목에는 `"auth": {"kind": "github_app"}`가 꼭 있어야 한다. 없으면 가져오기가 그 저장소를 빼고 `note: repository <id> is not imported`만 남기며, 상한의 허용 저장소도 비어 세션을 만들 수 없다. `preflight`가 문서를 JSON으로 읽어 `auth`가 없거나 `basic`·`bearer`인 저장소를 이미지를 올리기 전에 거부하므로(`preflight`·`deploy`·`upgrade` 모두), 컨테이너도 `pending.json`도 생기지 않고 기존 상태가 그대로다. 문서에 `"auth": {"kind": "github_app"}`를 넣고 다시 부른다. 문서가 바뀌면 digest가 바뀌므로 manifest의 `settings_digest`도 새 값으로 고친다. 이미 DB에 같은 id의 행이 있으면(이전 가져오기가 `auth` 없이 넣은 행) `auth`를 더해도 내용이 달라 `conflicts`로 거부된다. 그때는 문서에서 그 항목을 지우거나 새 id로 바꾼다. 지우려는 항목이 유일한 저장소이고 최상위 `profiles`가 모두 저장소를 필수(`required`)로 요구하면 `profiles`도 함께 지워야 한다. 그대로 두면 `preflight`는 통과하지만 migrate가 `at least one repository is required`로 실패하고 `pending.json`이 남는다. 이 경우에는 항목을 지우지 말고 새 id를 쓰는 편이 간단하다. `pending.json`이 남아 멈추는 경로는 둘이다. 하나는 위처럼 `profiles`가 남아 migrate가 실패한 경우이고, 다른 하나는 DB에 `auth` 없는 행이 있는데 `auth`를 더해 `conflicts`가 `pending.json` 뒤에 터진 경우다. 두 경로, 그리고 이 검사 전의 `upgrade`가 `settings_applied`에서 멈춘 이전 릴리스의 경우 모두 고친 manifest를 `pending.json`에 복사한 뒤 `upgrade <고친 manifest>`를 부른다(`cp <고친 manifest> <상태 디렉터리>/pending.json`). `current.json`이 없는 채로 첫 `deploy`가 앱을 띄운 뒤 멈춘 경우는 `deploy`·`upgrade`·`reset`이 모두 거부하므로, 이 설치에 세션이 없음을 확인하고 `docker compose --project-name <project> down -v`로 그 project를 지운 뒤 `deploy`를 다시 부른다. 첫 `deploy`가 빈 허용 저장소로 상한을 시드한 뒤에는 문서를 고쳐도 상한이 바뀌지 않으므로, 그 상한의 허용 저장소는 콘솔에서 새 버전으로 고친다. 저장소의 GitHub App 접근은 설치한 뒤 콘솔에서 등록하는 App으로 정해진다([api-server.md](api-server.md)).
 
 release manifest에 적을 digest는 문서 파일 바이트의 sha256이다. 다음으로 구한다.
 

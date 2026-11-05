@@ -33,6 +33,7 @@ export function SettingsLayout({ children }: { readonly children: ReactNode }) {
     .find((item) => isCurrent(item, pathname));
   return (
     <SideNavLayout
+      className="[--werft-row-padding-x:0px]"
       nav={
         <SideNav
           aria-label={t("nav.settings")}

@@ -18,6 +18,7 @@ import {
 } from "@werft-ai/platform";
 import { and, asc, eq, ne, sql } from "drizzle-orm";
 import { lockPeople, receiptActorOf } from "./control-shared.ts";
+import { rowsOf } from "./control-unit-of-work.ts";
 import { lockSettingsGeneration } from "./installation-settings.ts";
 import type { Database } from "./queries.ts";
 import {
@@ -143,7 +144,7 @@ async function insertRow(
     case "repository": {
       const authKind = repositoryAuthKindOf(add.entry);
       const { owner, name } = repositoryNameOf(add.entry);
-      const own = authKind !== "github_app" && authKind !== "none";
+      const own = authKind !== "github_app";
       await tx.insert(catalogRepositories).values({
         id: add.id,
         owner,
@@ -254,6 +255,52 @@ export function createPostgresSettingsDocumentStore(
         },
         { isolationLevel: "repeatable read", accessMode: "read only" },
       );
+    },
+
+    async sessionsOnRepositories(ids) {
+      if (ids.length === 0) return [];
+      // The pre-deploy check of docs/operator/api-server.md, keyed by id
+      // alone: a repository only the old file knew has no catalog row.
+      const result = await db.execute<{
+        session_id: string;
+        repository_id: string;
+        via: "primary" | "attached" | "policy";
+      }>(sql`
+        SELECT s.id AS session_id, x.repository_id, x.via
+        FROM sessions s
+        LEFT JOIN agent_releases r ON r.id = s.agent_release_id
+        LEFT JOIN agent_github_settings g ON g.agent_id = r.agent_id
+        CROSS JOIN LATERAL (
+          SELECT s.repository_id, 'primary'
+          UNION ALL
+          SELECT id, 'attached' FROM unnest(s.attached_repository_ids) AS id
+          UNION ALL
+          SELECT e, 'policy'
+          FROM (SELECT CASE s.github_policy_source
+                         WHEN 'release' THEN r.policy_pins #> '{github,repositories}'
+                         WHEN 'agent' THEN g.repositories
+                       END AS list) p,
+               jsonb_array_elements_text(
+                 CASE WHEN jsonb_typeof(p.list) = 'array' THEN p.list ELSE '[]' END
+               ) AS e
+          WHERE s.attached_repository_ids IS NULL
+        ) AS x(repository_id, via)
+        WHERE s.status NOT IN ('failed', 'stopped')
+          -- A row, even an invalid one, is the claim gate's to judge.
+          AND NOT EXISTS (
+            SELECT 1 FROM catalog_repositories c
+            WHERE c.id = x.repository_id AND c.removed_at IS NULL
+          )
+          AND x.repository_id IN (${sql.join(
+            ids.map((id) => sql`${id}`),
+            sql`, `,
+          )})
+        ORDER BY s.id, x.repository_id, x.via`);
+      return rowsOf<{
+        session_id: string;
+        repository_id: string;
+        via: "primary" | "attached" | "policy";
+      }>(result);
     },
 
     importEntries(entries, options) {
@@ -461,7 +508,7 @@ function consoleWrites(
   key: SecretKey | null,
 ): Pick<
   SettingsDocumentStore,
-  "create" | "setValue" | "disable" | "setMcpWorkspaces" | "setRepositoryBranch"
+  "create" | "setValue" | "disable" | "setMcpWorkspaces"
 > {
   const sealIn = async (
     tx: Database,
@@ -629,60 +676,6 @@ function consoleWrites(
           actor,
           "set_mcp_server_workspaces",
           { mcp_server_id: id, before, workspaces: [...workspaces] },
-        );
-        return { outcome: "done" as const, receiptId };
-      });
-    },
-
-    setRepositoryBranch(id, branch, actor) {
-      return asWriter("repository", actor, async (tx) => {
-        const [held] = await tx
-          .select()
-          .from(catalogRepositories)
-          .where(
-            and(
-              eq(catalogRepositories.id, id),
-              ne(catalogRepositories.authKind, "github_app"),
-            ),
-          )
-          .for("update");
-        if (!held) return { outcome: "not_found" as const };
-        if (held.removedAt !== null) {
-          return { outcome: "conflict" as const, reason: "disabled" };
-        }
-        // §2: an operator's reference is shown and disabled, nothing more.
-        if (
-          held.credentialSource !== null &&
-          !ownStoredOf("repository", id, {
-            entry: repositoryEntryOf(held),
-            credentialSource: held.credentialSource,
-            disabled: false,
-          })
-        ) {
-          return { outcome: "conflict" as const, reason: "not_stored" };
-        }
-        const [row] = await tx
-          .update(catalogRepositories)
-          .set({
-            branch,
-            version: held.version + 1,
-            updatedBy: actor.userId,
-            updatedAt: sql`now()`,
-          })
-          .where(eq(catalogRepositories.id, id))
-          .returning();
-        if (!row) throw new Error("catalog repository update returned no row");
-        const receiptId = await consoleReceipt(
-          tx,
-          actor,
-          "set_repository_branch",
-          {
-            repository_id: id,
-            url: row.url,
-            branch,
-            before: held.branch,
-            version: row.version,
-          },
         );
         return { outcome: "done" as const, receiptId };
       });

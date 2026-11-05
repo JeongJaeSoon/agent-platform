@@ -29,6 +29,7 @@ const repo = (name: string, branch = "main") => ({
   url: `https://github.com/acme/${name}.git`,
   branch,
   profiles: ["p"],
+  auth: { kind: "github_app" },
 });
 
 /**

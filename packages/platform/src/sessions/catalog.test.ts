@@ -45,9 +45,14 @@ const configured = {
   },
 };
 const repository = {
-  url: "https://git.example.invalid/team/app.git",
+  url: "https://github.com/team/app.git",
   branch: "main",
   profiles: ["p"],
+  auth: { kind: "github_app" as const },
+};
+const resolvedRepository = {
+  ...repository,
+  auth: { kind: "github_app" as const, registered: true as const },
 };
 const env = { ANTHROPIC_KEY_MAIN: "resolved-key" };
 
@@ -88,7 +93,7 @@ describe("catalog config schema", () => {
       project_settings: { claude_md: false },
     };
     expect(catalog.profiles.p).toEqual(expected);
-    expect(catalog.repositories.app).toEqual(repository);
+    expect(catalog.repositories.app).toEqual(resolvedRepository);
     // What the worker protocol carries is neither the value nor where it
     // came from: only the upstream and the proxy's token.
     expect(runtimeProviderOf(expected, "wep_t")).toEqual({
@@ -147,119 +152,18 @@ describe("catalog config schema", () => {
     );
   });
 
-  test("a repository credential is a reference too, resolved at load and kept out of the revision", () => {
-    const withAuth = {
-      ...repository,
-      auth: { kind: "basic", username: "reader", value_env: "REPO_TOKEN" },
-    };
-    const lookup = (value: string) =>
-      environmentCredentials({
-        ANTHROPIC_KEY_MAIN: "resolved-key",
-        REPO_TOKEN: value,
-      });
-    const catalog = load(
-      config(configured, { app: withAuth }),
-      lookup("repo-secret"),
-    );
-    expect(catalog.repositories.app?.auth).toEqual({
-      kind: "basic",
-      username: "reader",
-      value: "repo-secret",
-      ref: { value_env: "REPO_TOKEN" },
-    });
-    const app = catalog.repositories.app;
-    if (!app) throw new Error("no repository");
-    expect(repositoryUpstreamOf(app)).toEqual({
-      url: repository.url,
-      headers: [
-        [
-          "authorization",
-          `Basic ${Buffer.from("reader:repo-secret").toString("base64")}`,
-        ],
-      ],
-    });
-    const rotated = load(
-      config(configured, { app: withAuth }),
-      lookup("rotated-value"),
-    );
-    const rotatedApp = rotated.repositories.app;
-    if (!rotatedApp) throw new Error("no repository");
-    expect(repositoryBinding("app", rotatedApp)).toBe(
-      repositoryBinding("app", app),
-    );
-    expect(repositoryBinding("app", app)).not.toContain("repo-secret");
-    // A missing value names where the reference sits.
-    expect(() => load(config(configured, { app: withAuth }))).toThrow(
-      /^repositories\.app\.auth\.value_env: REPO_TOKEN is not set$/,
-    );
-    // Shorter than the proxy's response check covers: refused at load.
-    expect(() =>
-      load(config(configured, { app: withAuth }), lookup("seven77")),
-    ).toThrow(
-      /^repositories\.app\.auth\.value_env: REPO_TOKEN is shorter than 8 bytes$/,
-    );
-    // Nor one the proxy would refuse to put in a header.
-    for (const bad of [
-      "resolved-value\n",
-      " resolved-value",
-      "resolved\tvalue",
-    ]) {
-      expect(() =>
-        load(config(configured, { app: withAuth }), lookup(bad)),
-      ).toThrow(
-        /^repositories\.app\.auth\.value_env: REPO_TOKEN has a control character or surrounding whitespace$/,
-      );
-    }
-    // basic needs a login, bearer takes none, and there is exactly one ref.
+  test("a repository takes only a GitHub App: no auth, none, basic and bearer are refused", () => {
     for (const auth of [
-      { kind: "basic", value_env: "REPO_TOKEN" },
-      { kind: "bearer", username: "reader", value_env: "REPO_TOKEN" },
-      { kind: "bearer" },
-      { kind: "bearer", value_env: "A", secret_id: "B" },
-      { kind: "bearer", value: "inline" },
-      { kind: "basic", username: "a:b", value_env: "REPO_TOKEN" },
+      undefined,
+      { kind: "none" },
+      { kind: "basic", username: "reader", value_env: "REPO_TOKEN" },
+      { kind: "bearer", value_env: "REPO_TOKEN" },
     ]) {
       expect(
         sessionCatalogConfigSchema.safeParse(
           config(configured, { app: { ...repository, auth } }),
         ).success,
       ).toBe(false);
-    }
-  });
-
-  test("a GitHub repository, on github.com or GHES, takes a PAT as basic x-access-token", () => {
-    const pat = "github_pat_fixture_not_a_real_token";
-    for (const [url, ref] of [
-      ["https://github.com/acme/app.git", { value_env: "GITHUB_PAT" }],
-      [
-        "https://ghes.example.invalid/acme/app.git",
-        { secret_id: "agent-platform/ghes-pat" },
-      ],
-    ] as const) {
-      const catalog = load(
-        config(configured, {
-          app: {
-            ...repository,
-            url,
-            auth: { kind: "basic", username: "x-access-token", ...ref },
-          },
-        }),
-        (lookup) =>
-          "value_env" in lookup && lookup.value_env === "ANTHROPIC_KEY_MAIN"
-            ? "resolved-key"
-            : pat,
-      );
-      const app = catalog.repositories.app;
-      if (!app) throw new Error("no repository");
-      expect(repositoryUpstreamOf(app)).toEqual({
-        url,
-        headers: [
-          [
-            "authorization",
-            `Basic ${Buffer.from(`x-access-token:${pat}`).toString("base64")}`,
-          ],
-        ],
-      });
     }
   });
 
@@ -577,9 +481,21 @@ describe("catalog config schema", () => {
       "http://fake-git:3000/agent/sample.git",
     ]) {
       expect(
-        load(config(configured, { app: { ...repository, url } })).repositories
-          .app?.url,
-      ).toBe(url);
+        sessionCatalogConfigSchema.safeParse(
+          config(configured, {
+            app: {
+              ...repository,
+              url,
+              auth: {
+                kind: "github_app",
+                app_id: 101,
+                installation_id: 202,
+                value_env: "GITHUB_APP_KEY",
+              },
+            },
+          }),
+        ).success,
+      ).toBe(true);
     }
   });
 });
@@ -758,14 +674,7 @@ describe("repository mode", () => {
 
 describe("the catalog view (94S-791)", () => {
   test("holds where each credential comes from, never a value, and pins the same profiles", () => {
-    const parsed = sessionCatalogConfigSchema.parse(
-      config(configured, {
-        app: {
-          ...repository,
-          auth: { kind: "bearer", value_env: "GIT_TOKEN" },
-        },
-      }),
-    );
+    const parsed = sessionCatalogConfigSchema.parse(config());
     const asked: string[] = [];
     const view = sessionCatalogView(parsed);
     expect(asked).toEqual([]);
@@ -878,7 +787,7 @@ describe("profile fingerprint", () => {
       config({ ...configured, models: ["claude-opus-5-5"] }),
     );
     expect(repositoryBinding("app", catalog.repositories.app as never)).toBe(
-      "sha256:c8954e2d28652f1630adf031f84b8446160fc6fc9712c7d5fe153d8998feacce",
+      "sha256:7a4b42bbd44080fb8be864feee0526426cede9b6de453ed5537ce4de4123358e",
     );
   });
 });
@@ -910,7 +819,9 @@ describe("allowedPair", () => {
         other: { ...repository, profiles: ["q"] },
       },
     });
-    expect(allowedPair(catalog, "p", "app")?.repository).toEqual(repository);
+    expect(allowedPair(catalog, "p", "app")?.repository).toEqual(
+      resolvedRepository,
+    );
     expect(allowedPair(catalog, "p", "other")).toBeNull();
     expect(allowedPair(catalog, "q", "other")).not.toBeNull();
     expect(allowedPair(catalog, "missing", "app")).toBeNull();

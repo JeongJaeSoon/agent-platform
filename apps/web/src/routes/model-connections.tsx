@@ -81,6 +81,7 @@ export function ModelConnections({
 
   return (
     <Section
+      className="[&>div:first-child]:mb-4"
       title={t("settings.connections.title")}
       description={t("settings.connections.description")}
       actions={
@@ -116,11 +117,12 @@ export function ModelConnections({
           <EmptyState title={t("settings.connections.empty")} />
         ) : (
           <GridTable
+            className="[--werft-row-padding-x:0px]"
             aria-label={t("settings.connections.title")}
             columns={COLUMNS[0]}
             narrowAt={860}
             narrowColumns={COLUMNS[1]}
-            framed={true}
+            framed={false}
           >
             <GridTableHeader>
               <GridTableColumnHeader>

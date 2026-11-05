@@ -30,7 +30,11 @@ const DOCUMENT = {
       branch: "main",
       auth: { kind: "github_app" },
     },
-    open: { url: "http://fake-git:3000/agent/sample-app.git", branch: "main" },
+    open: {
+      url: "https://github.com/acme/open.git",
+      branch: "main",
+      auth: { kind: "github_app" },
+    },
   },
   mcp_servers: {
     docs: {
@@ -91,11 +95,27 @@ describe("parseSettingsDocument", () => {
         ...DOCUMENT,
         repositories: {
           leaky: {
-            url: "https://u:p@git.example.invalid/a/b.git",
+            url: "https://u:p@github.com/a/b.git",
             branch: "main",
+            auth: { kind: "github_app" },
           },
         },
       },
+      ...[
+        undefined,
+        { kind: "none" },
+        { kind: "basic", username: "bot", value_env: "GIT_PASSWORD" },
+        { kind: "bearer", value_env: "GIT_TOKEN" },
+      ].map((auth) => ({
+        ...DOCUMENT,
+        repositories: {
+          removed: {
+            url: "https://git.example.invalid/a/b.git",
+            branch: "main",
+            auth,
+          },
+        },
+      })),
       {
         ...DOCUMENT,
         connections: {
@@ -322,17 +342,6 @@ describe("planSettingsImport", () => {
       expect(plan.add).toEqual([]);
     });
 
-    test("so does a public one", () => {
-      const { auth: _auth, ...open } = app("main");
-      const plan = planSettingsImport(
-        { ...incoming, repositories: { app: open } },
-        row({ ...open, branch: "develop" }),
-        { allowExternal: true, databaseOwnsRepositories: true },
-      );
-      expect(plan.conflicts).toEqual([]);
-      expect(plan.kept).toEqual(["repository:app"]);
-    });
-
     test("an old directory's second name for it is dropped, as the seed dropped it", () => {
       const plan = planSettingsImport(
         { ...incoming, repositories: { alias: app("main") } },
@@ -354,14 +363,19 @@ describe("planSettingsImport", () => {
       expect(plan.kept).toBeUndefined();
     });
 
-    test("a repository of another auth kind is still a conflict", () => {
-      const { auth: _auth, ...bare } = app("main");
-      const plan = planSettingsImport(
-        { ...incoming, repositories: { app: bare } },
-        row(app("develop")),
-        { allowExternal: true, databaseOwnsRepositories: true },
-      );
-      expect(plan.conflicts).toEqual(["repository:app"]);
+    test("a legacy row of another auth kind is still a conflict, never replaced", () => {
+      for (const auth of [
+        undefined,
+        { kind: "bearer", value_env: "GIT_TOKEN" },
+      ]) {
+        const plan = planSettingsImport(
+          { ...incoming, repositories: { app: app("main") } },
+          row({ ...app("develop"), auth }),
+          { allowExternal: true, databaseOwnsRepositories: true },
+        );
+        expect(plan.conflicts).toEqual(["repository:app"]);
+        expect(plan.add).toEqual([]);
+      }
     });
   });
 
@@ -409,19 +423,7 @@ describe("planSettingsImport", () => {
   });
 });
 
-test("repositoryNameOf labels other hosts by the URL's last two segments", () => {
-  expect(
-    repositoryNameOf({
-      url: "https://git.example.invalid/group/sub/repo.git",
-      branch: "main",
-    }),
-  ).toEqual({ owner: "sub", name: "repo" });
-  expect(
-    repositoryNameOf({
-      url: "https://git.example.invalid/repo",
-      branch: "main",
-    }),
-  ).toEqual({ owner: "", name: "" });
+test("repositoryNameOf reads an App repository's owner and name from its URL", () => {
   expect(
     repositoryNameOf({
       url: "https://github.com/acme/app.git",

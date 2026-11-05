@@ -74,7 +74,7 @@ describe("placeInstructionFiles", () => {
     // No scratch left in .git for the next attempt to sweep.
     expect(
       (await readdir(join(root, ".git"))).filter((name) =>
-        name.startsWith("agent-platform-"),
+        name.startsWith("werft-"),
       ),
     ).toEqual([]);
   });
@@ -209,7 +209,7 @@ describe("placeInstructionFiles", () => {
       removeEventListener() {},
       throwIfAborted() {
         const text = readFileSync(excludePath, "utf8");
-        if (text.includes("agent-platform: instruction files")) {
+        if (text.includes("werft: instruction files")) {
           throw new Error("stopped");
         }
       },

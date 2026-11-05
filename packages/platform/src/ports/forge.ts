@@ -1,7 +1,6 @@
 // The repository host behind a catalog repository, as the API talks to it:
 // the credential the egress proxy logs in with, and the host's own API.
-// Only GitHub has an adapter; a repository without one (another host, a
-// bearer token, a public repository) keeps the catalog's static credential.
+// Repositories authenticate through a GitHub App installation.
 
 export type ForgeKind = "github";
 
@@ -15,7 +14,7 @@ export type ForgeAccess = "read" | "write";
 export type GitCredential = {
   username: string;
   password: string;
-  /** Absent for a credential that does not expire (a PAT). */
+  /** Expiration reported by the GitHub App installation. */
   expiresAt?: Date;
 };
 

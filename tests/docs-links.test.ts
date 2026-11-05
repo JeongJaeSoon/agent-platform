@@ -368,6 +368,7 @@ const NOT_SETTINGS: Record<string, string> = {
   DOCKER_BACKEND_TEST_HELPER_IMAGE: "tests only",
   K8S_BACKEND_TEST: "tests only (docs/contributing/development.md)",
   K8S_BACKEND_TEST_IMAGE: "tests only (docs/contributing/development.md)",
+  K8S_BACKEND_TEST_KEEP: "tests only (docs/contributing/development.md)",
   GIT_ALLOW_PROTOCOL: "written into git's environment, not read",
   GIT_CONFIG_COUNT: "written into git's environment, not read",
   NODE_EXTRA_CA_CERTS: "written into the engine's environment, not read",
