@@ -147,6 +147,15 @@ function oneLine(item: string): string {
 // Slack for the closing text a cut may add.
 const CLOSING_ROOM = 16;
 
+/**
+ * What starts HTML in Markdown: a tag, a closing tag, a processing instruction,
+ * a declaration, CDATA. An HTML block runs on past the next section and the
+ * tail, and each kind ends differently, so fields carry none: a zero-width
+ * space after the `<` leaves the text as it reads. (Comments are already
+ * broken by the cleaning.)
+ */
+const HTML_START = new RegExp(`<(?=[A-Za-z/?]|!(?!${ZWSP}))`, "g");
+
 /** Each text cleaned in order (a private key block carries over). */
 function cleanAll(
   values: readonly string[],
@@ -159,14 +168,7 @@ function cleanAll(
     ),
     Number.MAX_SAFE_INTEGER,
     redact,
-  ).map((text) =>
-    text
-      .trim()
-      // A processing instruction, CDATA section or declaration at the start of
-      // a line is an HTML block that runs to `?>`, `]]>` or `>`, past the next
-      // section and the tail.
-      .replace(/^( {0,3})<(?=\?|!\[CDATA\[|![A-Za-z])/gm, `$1<${ZWSP}`),
-  );
+  ).map((text) => text.trim().replace(HTML_START, `<${ZWSP}`));
 }
 
 /**

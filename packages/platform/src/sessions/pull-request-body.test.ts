@@ -169,8 +169,21 @@ describe("the default template", () => {
     expect(lone).toContain("<hr />");
   });
 
-  test("a field that opens with a processing instruction, CDATA or declaration cannot swallow the rest", () => {
-    for (const summary of ["<?example", "<![CDATA[example", "<!DOCTYPE x"]) {
+  test("a field that carries HTML of any block kind cannot swallow the rest", () => {
+    for (const summary of [
+      "<?example",
+      "<![CDATA[example",
+      "<!DOCTYPE x",
+      "text\n\t<?example",
+      "text\n    <![CDATA[x",
+      "<script",
+      "<pre\n>",
+      "<style",
+      "<textarea",
+      "<script>\n```\n</script>\n```",
+      "<div>\n```\n\ntext",
+      "<details>",
+    ]) {
       const { body } = render({ summary, changes: ["SECOND"] });
       const html = Bun.markdown.html(body);
       expect(html).toContain("<li>");
