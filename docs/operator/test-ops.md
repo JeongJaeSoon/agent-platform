@@ -74,7 +74,7 @@ Object Lock을 켜면 versioning도 함께 켜진다.
 
 ### API용 IAM 사용자
 
-자격 증명은 API 컨테이너에만 간다. worker는 egress proxy의 object store route를 지나며, 그 요청은 API가 세션 prefix 범위로 서명한다. 복원 훈련도 같은 자격 증명으로 훈련용 bucket에 쓰므로 `<bucket>-drill-*`까지 허용한다.
+자격 증명은 API와 maintenance 컨테이너에만 간다. worker는 egress proxy의 object store route를 지나며, 그 요청은 API가 세션 prefix 범위로 서명한다. 복원 훈련도 같은 자격 증명으로 훈련용 bucket에 쓰므로 `<bucket>-drill-*`까지 허용한다.
 
 ```json
 {
@@ -429,7 +429,7 @@ scripts/test-ops.sh deploy /var/lib/agent-platform/test-ops/reset-<시각>.json
 
 ### `s3`
 
-AWS S3의 object는 재시작에 사라지지 않는다. 재시작 뒤에는 `scripts/test-ops.sh start`로 `current.json`의 release를 다시 띄운다. 내려간 설치에서 `upgrade`는 postgres가 없어 실패한다.
+AWS S3의 object는 재시작에 사라지지 않는다. 재시작 뒤에는 `scripts/test-ops.sh start`로 `current.json`의 release를 다시 띄운다. 내려간 설치에서 `upgrade`는 postgres가 실행 중이지 않아 실패한다.
 
 ## 복원 훈련
 
