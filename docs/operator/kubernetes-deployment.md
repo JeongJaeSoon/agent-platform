@@ -278,7 +278,7 @@ fi
 
 `--revision`을 빼면 실패한 upgrade가 있을 때 그 revision의 값, 즉 올리려던 이미지가 나온다. worker digest가 다르면 지금 이미지를 후보 파일에 쓰고, upgrade가 성공한 뒤에만 `worker-previous.json`을 그 파일로 바꾼다. 실패한 upgrade는 보존 파일을 건드리지 않는다. digest가 같으면 있던 파일을 그대로 넘긴다. 처음 설치한 뒤 worker가 그대로인 upgrade에는 아직 넘길 파일이 없고, 그래도 된다.
 
-- `worker-previous.json`은 설치 옆에 보관하고 다음 upgrade에도 넘긴다. worker digest가 같은 upgrade에서 이 파일을 빠뜨리면 배포된 직전 이미지가 빠진다. 업그레이드 전 검사는 그때 세션을 비교해, 대상의 두 이미지 어느 쪽과도 조합이 맞지 않거나 조합이 기록되지 않은 세션이 있으면 `refused`로 멈춘다(승인할 수 있다). 실수로 빠뜨렸다면 승인하지 말고 파일을 넣어 다시 돌린다. 고른 세션이 없으면 통과한다. 검사가 보지 못하는 세션은 아래 "검사가 보지 않는 것"을 본다. 같은 날 머지된 `main` chart는 worker digest가 같을 수 있다.
+- `worker-previous.json`은 설치 옆에 보관하고 다음 upgrade에도 넘긴다. worker digest가 같은 upgrade에서 이 파일을 빠뜨리면 배포된 직전 이미지가 빠진다. 업그레이드 전 검사는 그때 세션을 비교해, 대상의 두 이미지 어느 쪽과도 조합이 맞지 않거나 조합이 기록되지 않은 세션이 있으면 `refused`로 멈춘다(승인할 수 있다). 실수로 빠뜨렸다면 승인하지 말고 파일을 넣어 다시 돌린다. 고른 세션이 없고 `upgrade.approvedSessions`가 비어 있으면 통과한다(지난 upgrade의 승인이 남아 있으면 `refused`다). 검사가 보지 못하는 세션은 아래 "검사가 보지 않는 것"을 본다. 같은 날 머지된 `main` chart는 worker digest가 같을 수 있다.
 - `--reuse-values`를 쓰지 않는다. 옛 chart의 값을 기본값으로 쓰므로 새 chart 버전인데 이미지는 그대로 남는다.
 - `helm get values --all` 전체를 values 파일로 넘기지 않는다. 옛 digest가 새 chart의 값을 덮는다. `.images.worker`만 꺼낸다.
 - `v*` 태그에서 게시한 chart도 같은 절차를 따른다.
@@ -334,7 +334,7 @@ kubectl -n werft logs job/werft-upgrade-check
 
 runtime 값을 얻는 방법은 [configuration.md의 API 설정](configuration.md)에 있다. 최소 values 설치는 runtime 없이 시작하고, worker 이미지를 처음 바꾸는 upgrade에서 두 이미지의 runtime을 함께 넣는다.
 
-`images.worker`를 그대로 두고 배포된 `images.workerPrevious`를 빼거나 바꾸는 upgrade는 세션을 비교한다. 대상의 두 이미지 어느 쪽과도 조합이 맞지 않거나 조합이 기록되지 않은 세션이 있으면 `refused`이고, 그 목록을 승인하면 통과한다. 조합이 기록되지 않은 세션은 이미지를 바꾸는 upgrade와 같게 어느 경우든 고른다. 배포된 직전 이미지가 없었거나 그대로면 세션을 비교하지 않고 `proceed`다. 이미지만 다르고 조합이 같은 재빌드는 직전 이미지를 빼도 세션이 현재 이미지에서 재개되므로 목록에 오르지 않는다.
+`images.worker`를 그대로 두고 배포된 `images.workerPrevious`를 빼거나 바꾸는 upgrade는 세션을 비교한다. 대상의 두 이미지 어느 쪽과도 조합이 맞지 않거나 조합이 기록되지 않은 세션이 있으면 `refused`이고, 그 목록을 승인하면 통과한다. 조합이 기록되지 않은 세션은 이미지를 바꾸는 upgrade와 같게 어느 경우든 고른다. 배포된 직전 이미지가 없었거나 그대로면 세션을 비교하지 않고, 승인 목록이 비어 있을 때 `proceed`다(남은 승인은 `refused`다). 이미지만 다르고 조합이 같은 재빌드는 직전 이미지를 빼도 세션이 현재 이미지에서 재개되므로 목록에 오르지 않는다.
 
 고른 세션이 재개하지 못해도 되면 그 목록을 그대로 values에 넣고 같은 upgrade를 다시 돌린다. 승인은 세션 상태를 바꾸지 않는다. `no_image`로 고른 세션은 재개할 때 `recovery_required`로 멈춘다. `unrecorded`로 고른 세션은 새 이미지로 뜨고, 복원이 판정해 이어지거나 `recovery_required`로 멈춘다.
 
