@@ -433,6 +433,8 @@ describe("the default secret ids", () => {
       "packages/testkit/src/local-github-main.ts",
       "tests/e2e/run.sh",
       "tests/e2e/settings-fixture.ts",
+      "apps/control-host/src/api/settings.test.ts",
+      "apps/control-host/src/api/settings-seed.integration.test.ts",
     ];
     for (const path of files) {
       expect([
