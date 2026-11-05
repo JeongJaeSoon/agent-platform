@@ -75,6 +75,9 @@ const pushRequest: PushRequest = {
   origin: "direct",
   flow: "legacy",
   pr_state: null,
+  pr_error: null,
+  pr_number: null,
+  pr_url: null,
 };
 
 const run = {
