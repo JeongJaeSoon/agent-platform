@@ -107,6 +107,7 @@ export function createPostgresPullRequestSettingsStore(
           and(
             eq(sessions.id, sessionId.toLowerCase()),
             eq(sessions.ownerId, workspaceId),
+            eq(agentPullRequestSettings.workspaceId, workspaceId),
           ),
         )
         .limit(1);
@@ -130,7 +131,10 @@ export function createPostgresPullRequestSettingsStore(
         const before = held === undefined ? null : agentSettingsOf(held);
         if (
           held !== undefined &&
-          JSON.stringify(before) === JSON.stringify(input.settings)
+          before !== null &&
+          before.formatting === input.settings.formatting &&
+          before.template === input.settings.template &&
+          before.template_name === input.settings.template_name
         ) {
           return {
             outcome: "stored" as const,
