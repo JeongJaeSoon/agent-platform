@@ -39,7 +39,7 @@ GRANT USAGE ON SCHEMA public TO datadog;
 GRANT SELECT ON TABLE queue_messages, sessions, turns, attempts, provider_usage TO datadog;
 ```
 
-既存のデプロイコマンドのlayerはそのままにして、最後の`-f`でこのoverlayだけを加え、`--env-file`に上のファイルをもう1つ渡します。エントリーファイル`infra/compose.yml`の上に加える形は次のとおりです。
+既存のデプロイコマンドのlayerはそのままにして、最後の`-f`でこのoverlayだけを加え、`--env-file`に上のファイルをもう1つ渡します。次は、ローカルstackのエントリーファイル`infra/compose.yml`の上に加えた例です。サーバーへのインストールでは、`infra/compose.yml`の代わりにそのインストールのlayerをそのまま書きます。
 
 ```bash
 docker compose \
@@ -49,7 +49,7 @@ docker compose \
   --profile apps up -d
 ```
 
-この形を、リポジトリのcomposeファイルで`docker compose config`まで確認しました。overlayを加えると、サービス一覧に`datadog-agent`が1つ増えるだけで、既存のサービスは変わりません。`DD_ENV`や`DD_VERSION`がないと、レンダリングが拒否されます。実際のサーバーで`up`まで実行し、AgentがDatadogに報告することは確認していません(NOT VERIFIED)。
+この形を、リポジトリのcomposeファイルで`docker compose config`まで確認しました。overlayを加えると、サービス一覧に`datadog-agent`が1つ増え、`api`、`scheduler`、`reconciler`、`egress-proxy`、`postgres`にDatadogのlabelが付きます。サービス一覧はレンダリングで確認しましたが、labelは`infra/compose.datadog.yml`の内容を読んだもので、レンダリング結果では確認していません。`DD_ENV`や`DD_VERSION`がないと、レンダリングが拒否されます。実際のサーバーで`up`まで実行し、AgentがDatadogに報告することは確認していません(NOT VERIFIED)。
 
 Agentは、Docker socketとcontainer log directoryをread-onlyでmountし、hostのPID・cgroup namespaceを読みます。`DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL=true`で動的なworkerも収集します。compose serviceは`service`・`env`・`version` labelを受け取ります。動的なworkerの`service`はcontainerのshort-imageから導かれ、`env`はAgentのグローバルな`DD_ENV`から、`version`はグローバルな`DD_TAGS`から受け取ります。`session_id`・`turn_id`は調査用のログattributeとしてだけ残し、metric tagやfacetにはしません。
 

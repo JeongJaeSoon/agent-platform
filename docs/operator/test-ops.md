@@ -475,4 +475,17 @@ scripts/test-ops.sh status
 - scheduler: `Workspace quota preflight failed; …`, `Network isolation preflight failed; …`, `Database connection lost; …`, `Worker workspaces have no disk or inode quota`(quota가 꺼진 채 떴다는 뜻이다)
 - checkpoint GC: `Checkpoint GC failed for a session`
 
-OpenTelemetry 지표는 아직 없다. 관측은 위 상태 파일, DB 쿼리, 구조화 로그이며, 선택형 Datadog Agent·초기 monitor·계측 공백의 정본은 [Datadog 감시 기준](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/monitoring-datadog/)다.
+OpenTelemetry 지표는 아직 없다. 관측은 위 상태 파일, DB 쿼리, 구조화 로그이며, 선택형 Datadog Agent·초기 monitor·계측 공백의 정본은 [Datadog 감시 기준](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/monitoring-datadog/)이다.
+
+선택형 Datadog Agent를 test-ops S3 설치에 얹는 예시는 다음과 같다. 기존 배포 명령의 layer는 그대로 두고 마지막에 overlay만 더한다. Datadog용 변수 파일에는 `DD_ENV`와 `DD_VERSION`이 필요하다([Datadog 감시 기준](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/monitoring-datadog/)).
+
+```bash
+docker compose \
+  --env-file /etc/agent-platform/test-ops.env \
+  --env-file /etc/agent-platform/datadog.env \
+  -f infra/compose.core.yml \
+  -f infra/compose.test-ops.yml \
+  -f infra/compose.test-ops.s3.yml \
+  -f infra/compose.datadog.yml \
+  --profile apps up -d
+```
