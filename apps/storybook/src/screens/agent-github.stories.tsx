@@ -157,6 +157,7 @@ const DATA: AgentGitHubResponse = {
   start_repository_id: null,
   legacy_defaults: null,
   options: {
+    repository_ceiling_unset: false,
     repositories: [
       {
         id: "werft-sandbox",

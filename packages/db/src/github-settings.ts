@@ -191,6 +191,32 @@ export async function ensureInstalledRepositoryCeiling(
 }
 
 /**
+ * First use of a workspace that has no repository ceiling yet (a null or
+ * unreadable one allows nothing): writes the default one and returns it.
+ * A ceiling that reads is returned as it is, never widened.
+ */
+export async function ensureRepositoryCeilingWhenUnset(
+  db: Database,
+  workspaceId: string,
+): Promise<RepositoryCeiling> {
+  const [read] = await db
+    .select({ repositoryCeiling: githubWorkspaceSettings.repositoryCeiling })
+    .from(githubWorkspaceSettings)
+    .where(eq(githubWorkspaceSettings.workspaceId, workspaceId))
+    .limit(1);
+  const unlocked = repositoryCeilingOf(read?.repositoryCeiling);
+  if (unlocked !== null) return unlocked;
+  await ensureInstalledRepositoryCeiling(db, workspaceId);
+  // Read back what is stored, so the caller judges against the real value.
+  return (
+    (await workspaceRepositoryCeiling(db, workspaceId)) ?? {
+      repository_ids: [],
+      github_app_repositories: "installed",
+    }
+  );
+}
+
+/**
  * The snapshot an `agent` session starts with, read inside the transaction
  * that creates it. The settings row is locked FOR SHARE, so a save waits for
  * the session to exist instead of landing between the read and the insert.

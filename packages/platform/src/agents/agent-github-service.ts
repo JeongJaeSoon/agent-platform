@@ -13,6 +13,7 @@ import {
   type PutAgentGitHubEnabledResponse,
   type PutAgentGitHubSettingsRequest,
   type PutAgentGitHubSettingsResponse,
+  type RepositoryCeiling,
 } from "@werft-ai/contracts";
 import {
   type AuthorizationPolicy,
@@ -57,6 +58,12 @@ const FEATURES: readonly (keyof GitHubFeatures)[] = [
   "issues",
   "review",
 ];
+
+/** What the first save writes for a workspace with no repository ceiling. */
+const DEFAULT_REPOSITORY_CEILING: RepositoryCeiling = {
+  repository_ids: [],
+  github_app_repositories: "installed",
+};
 
 /** Where a PAT works: github.com. Elsewhere a `basic` login is not GitHub's. */
 function onGitHub(repository: Repository): boolean {
@@ -225,7 +232,12 @@ export function createAgentGitHubService(deps: {
       const repositories = onGitHubRepositories
         .map(([id, repository]) => {
           const reason: AgentGitHubRepositoryUnavailable | null =
-            !repositoryInCeiling(catalog, repositoryCeiling, id)
+            !repositoryInCeiling(
+              catalog,
+              // Display only: the first save writes this default.
+              repositoryCeiling ?? DEFAULT_REPOSITORY_CEILING,
+              id,
+            )
               ? "repository_not_allowed"
               : repository.auth?.kind !== "github_app"
                 ? "app_required"
@@ -312,6 +324,7 @@ export function createAgentGitHubService(deps: {
         legacy_defaults: legacyDefaults,
         options: {
           repositories,
+          repository_ceiling_unset: repositoryCeiling === null,
           features: Object.fromEntries(
             FEATURES.map((feature) => [feature, featureOption(feature)]),
           ) as AgentGitHubResponse["options"]["features"],
@@ -402,10 +415,7 @@ export function createAgentGitHubService(deps: {
         throw refused("start_repository_id", "start_repository_outside");
       }
       const workspaceId = caller.ownerId;
-      const [workspace, repositoryCeiling] = await Promise.all([
-        deps.githubSettings.get(workspaceId),
-        store.repositoryCeiling(workspaceId),
-      ]);
+      const workspace = await deps.githubSettings.get(workspaceId);
       const result = await store.putSettings({
         workspaceId,
         agentId,
@@ -415,7 +425,7 @@ export function createAgentGitHubService(deps: {
         userId,
         principal: caller,
         managerRoles: MANAGEMENT_ROLES["agent.manage"] ?? [],
-        check: (current) => {
+        check: (current, repositoryCeiling) => {
           const held = new Set<unknown>(
             Array.isArray(current?.repositories) ? current.repositories : [],
           );

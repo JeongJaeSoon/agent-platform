@@ -485,9 +485,10 @@ describe("the workspace's page of App installations", () => {
       github_app_repositories: "listed",
     };
     expect((await agentPage()).unavailable).toBe("ceiling_listed");
-    ceilingHeld = null;
-    expect((await agentPage()).unavailable).toBe("ceiling_listed");
     expect(await reasonOf(pick(5))).toBe("repository_not_allowed");
+    // No ceiling yet: shown as the default the first save writes.
+    ceilingHeld = null;
+    expect((await agentPage()).unavailable).toBeNull();
   });
 });
 

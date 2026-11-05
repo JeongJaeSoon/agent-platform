@@ -27,6 +27,7 @@ import {
   sql,
 } from "drizzle-orm";
 import { DB_NOW } from "./db-clock.ts";
+import { ensureRepositoryCeilingWhenUnset } from "./github-settings.ts";
 import type { Database } from "./queries.ts";
 import {
   agentReleases,
@@ -436,6 +437,9 @@ export function createPostgresGitHubAppStore(
         if (manifest !== undefined && linked) {
           await writeOAuthSecret(tx, key, row, manifest.clientSecret, audit);
         }
+        // Registering the console App is a workspace's first use of GitHub:
+        // write the default repository ceiling if none is there (design 3.2).
+        await ensureRepositoryCeilingWhenUnset(tx, workspaceId);
         await tx.insert(receipts).values(
           receiptRow(audit, workspaceId, "set_github_app", {
             ...appResult(row, role, app.permissions),
