@@ -612,7 +612,9 @@ export function createPullRequestService(deps: {
         };
       }
       const marked = candidates.filter(
-        (found) => pushRequestMarkerOf(found.body) === job.id,
+        (found) =>
+          pushRequestMarkerOf(found.body) === job.id &&
+          found.headSha === job.gitCommit,
       );
       if (marked.length > 0) {
         return stop("closed_unrecorded", "closed_unrecorded", {
@@ -646,6 +648,15 @@ export function createPullRequestService(deps: {
         if (!isForgeFailure(error)) throw error;
         // Unknown whether GitHub took it; the next claim looks first.
         return unclear("forge_failed");
+      }
+      // A create the forge answered with an existing pull request (422) was
+      // found by head alone; it is held to the same repository, head and
+      // base as a listed candidate.
+      if (made.head !== head || made.base !== entry.branch) {
+        return stop("uncertain", "duplicate_pull_request", {
+          numbers: [made.number],
+          urls: [made.url],
+        });
       }
       if (made.headSha !== job.gitCommit) {
         return stop("failed", "head_moved", {

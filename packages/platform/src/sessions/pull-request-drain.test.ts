@@ -75,6 +75,8 @@ function harness(
     existing?: ForgePullRequestWithBody[];
     /** The commit a created pull request reports as its head. */
     createdHeadSha?: string;
+    /** The base a created pull request reports, when it is not the asked one. */
+    createdBase?: string;
     lookupFails?: boolean;
     createFails?: boolean;
     refuse?: boolean;
@@ -112,7 +114,7 @@ function harness(
         state: "open",
         head: input.head,
         headSha: options.createdHeadSha ?? COMMIT,
-        base: input.base,
+        base: options.createdBase ?? input.base,
         mergedAt: null,
         closedAt: null,
         created: true,
@@ -265,6 +267,34 @@ describe("opening a pull request for a pushed request", () => {
       await service.openForPushRequest(job(), { deadline: deadline() }),
     ).toMatchObject({ kind: "opened", pullRequest: { number: 8 } });
     expect(created).toHaveLength(1);
+  });
+
+  test("a closed pull request with this request's marker but another commit does not end the stage", async () => {
+    const { service, created } = harness({
+      existing: [
+        listed({
+          state: "closed",
+          body: `${pushRequestMarker(PUSH)}\n`,
+          headSha: "e".repeat(40),
+        }),
+      ],
+    });
+    expect(
+      await service.openForPushRequest(job(), { deadline: deadline() }),
+    ).toMatchObject({ kind: "opened", pullRequest: { number: 8 } });
+    expect(created).toHaveLength(1);
+  });
+
+  test("a created pull request that the forge answered with another base is not adopted", async () => {
+    const { service } = harness({ createdBase: "main" });
+    expect(
+      await service.openForPushRequest(job(), { deadline: deadline() }),
+    ).toMatchObject({
+      kind: "stop",
+      stage: "uncertain",
+      error: "duplicate_pull_request",
+      details: { numbers: [8] },
+    });
   });
 
   test("two open candidates are never guessed between", async () => {

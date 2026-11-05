@@ -21,6 +21,60 @@ const cleared = {
   prLeaseExpiresAt: null,
 } as const;
 
+/** A claim that used the last attempt and died: claiming again would loop. */
+const exhausted = sql`${pushRequests.prState} = 'opening' AND ${pushRequests.prAttempts} >= ${PULL_REQUEST_MAX_ATTEMPTS} AND (${pushRequests.prLeaseExpiresAt} IS NULL OR ${pushRequests.prLeaseExpiresAt} < now())`;
+const notExhausted = sql`NOT (${exhausted})`;
+
+/**
+ * Ends stages whose last attempt died with its lease: failed, and the thread
+ * is told. Each row takes the session lock before the request lock, the order
+ * `settle` takes, because the notice insert needs the session row too.
+ */
+async function endExhausted(db: Database): Promise<void> {
+  const stale = await db
+    .select({ id: pushRequests.id, sessionId: pushRequests.sessionId })
+    .from(pushRequests)
+    .where(and(eq(pushRequests.state, "pushed"), exhausted))
+    .limit(20);
+  for (const { id, sessionId } of stale) {
+    await db.transaction(async (tx) => {
+      await tx
+        .select({ id: sessions.id })
+        .from(sessions)
+        .where(eq(sessions.id, sessionId))
+        .for("update");
+      const [row] = await tx
+        .select()
+        .from(pushRequests)
+        .where(and(eq(pushRequests.id, id), exhausted))
+        .limit(1)
+        .for("update");
+      if (!row) return;
+      await tx
+        .update(pushRequests)
+        .set({
+          prState: "failed",
+          prError: "lease_expired",
+          prNextAttemptAt: null,
+          ...cleared,
+        })
+        .where(eq(pushRequests.id, id));
+      if (row.flow !== "actions") return;
+      await enqueueActionNotice(tx, {
+        sessionId,
+        pushRequestId: id,
+        notice: {
+          result: "pr_failed",
+          repository: row.repositoryId,
+          branch: row.targetBranch,
+          commit: row.gitCommit,
+          reason: "lease_expired",
+        },
+      });
+    });
+  }
+}
+
 /**
  * The pull request drain's claim and settle. A claim is a token written with
  * the lease; every settle is conditioned on the token while the row is
@@ -30,15 +84,16 @@ export function createPostgresPullRequestDrain(
   db: Database,
 ): PullRequestDrainStore {
   return {
-    claimNextDue(leaseMs): Promise<PullRequestJob | null> {
-      return db.transaction(async (tx) => {
+    async claimNextDue(leaseMs): Promise<PullRequestJob | null> {
+      await endExhausted(db);
+      return await db.transaction(async (tx) => {
         // A row whose intent no longer parses leaves the candidates, so
         // this ends.
         for (;;) {
           const [candidate] = await tx
             .select()
             .from(pushRequests)
-            .where(and(eq(pushRequests.state, "pushed"), due))
+            .where(and(eq(pushRequests.state, "pushed"), due, notExhausted))
             .orderBy(pushRequests.createdAt)
             .limit(1)
             .for("update", { skipLocked: true });
@@ -59,37 +114,6 @@ export function createPostgresPullRequestDrain(
                 ...cleared,
               })
               .where(eq(pushRequests.id, candidate.id));
-            continue;
-          }
-          // A claim that used the last attempt and died left its lease to
-          // lapse; claiming again would run the stage forever, so it ends
-          // here, failed, and the thread is told.
-          if (
-            candidate.prState === "opening" &&
-            candidate.prAttempts >= PULL_REQUEST_MAX_ATTEMPTS
-          ) {
-            await tx
-              .update(pushRequests)
-              .set({
-                prState: "failed",
-                prError: "lease_expired",
-                prNextAttemptAt: null,
-                ...cleared,
-              })
-              .where(eq(pushRequests.id, candidate.id));
-            if (candidate.flow === "actions") {
-              await enqueueActionNotice(tx, {
-                sessionId: candidate.sessionId,
-                pushRequestId: candidate.id,
-                notice: {
-                  result: "pr_failed",
-                  repository: candidate.repositoryId,
-                  branch: candidate.targetBranch,
-                  commit: candidate.gitCommit,
-                  reason: "lease_expired",
-                },
-              });
-            }
             continue;
           }
           const claimToken = randomUUID();
