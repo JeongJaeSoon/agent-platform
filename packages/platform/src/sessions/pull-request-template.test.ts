@@ -667,6 +667,9 @@ describe("markup the scan and a renderer could read differently", () => {
       "<details>\n\n## Summary",
       "```html\n<div>\n```\n## Summary",
       "## Summary\nuse `</details>` to close",
+      // An opener in a tag's attribute is not a comment, and hides a real tag.
+      '<span title="<!--"> <details> -->">\n\n## Summary',
+      "<a href=x <!-- >\n</a>\n## Summary",
       // A closer that is code, escaped, or swallowed by a comment is not a closer.
       "<details>\n\n    </details>\n\n## Summary",
       "<details>\n\\<details>\n</details>\n\n## Summary",

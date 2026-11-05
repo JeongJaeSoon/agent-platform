@@ -426,6 +426,9 @@ function scan(text: string): Scanned {
           at = found.index + 4;
           continue;
         }
+        // Inside a tag's attribute it is not a comment, and what the scan
+        // would hide as one a renderer shows.
+        if (endsInsideTag(line.slice(0, found.index))) unbalanced = true;
         if (found.index > at) {
           row.parts.push({ text: line.slice(at, found.index), comment: false });
         }
