@@ -16,8 +16,10 @@ import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import {
   agentGitHubSettingsOf,
+  captureGitHubPolicyStart,
   createPostgresGitHubGateStore,
   createPostgresGitHubSettingsStore,
+  ensureInstalledRepositoryCeiling,
   workspaceRepositoryCeiling,
 } from "./github-settings.ts";
 import { createPostgresGitHubMcpStore } from "./mcp-egress.ts";
@@ -61,7 +63,12 @@ integration("the readers of an agent's GitHub settings", () => {
 
   /** A workspace, its agent and a session of the agent's active release. */
   async function fixture(
-    options: { source?: "release" | "agent"; pins?: object } = {},
+    options: {
+      source?: "release" | "agent";
+      pins?: object;
+      start?: object;
+      githubEnabled?: boolean;
+    } = {},
   ) {
     const workspaceId = randomUUID();
     const userId = randomUUID();
@@ -78,8 +85,13 @@ integration("the readers of an agent's GitHub settings", () => {
       [userId, `${userId}@example.invalid`],
     );
     await pool.query(
-      "INSERT INTO agents (id, workspace_id, slug, name, github_enabled) VALUES ($1, $2, $3, 'a', true)",
-      [agentId, workspaceId, `a-${agentId.slice(0, 8)}`],
+      "INSERT INTO agents (id, workspace_id, slug, name, github_enabled) VALUES ($1, $2, $3, 'a', $4)",
+      [
+        agentId,
+        workspaceId,
+        `a-${agentId.slice(0, 8)}`,
+        options.githubEnabled ?? true,
+      ],
     );
     await pool.query(
       `INSERT INTO agent_versions (id, agent_id, version_no, card, content_sha256)
@@ -107,9 +119,9 @@ integration("the readers of an agent's GitHub settings", () => {
     await pool.query(
       `INSERT INTO sessions (id, owner_id, repo_url, branch, repository_id,
          workspace_id, agent_release_id, created_by_user_id,
-         github_policy_source, checkpoint_revision)
+         github_policy_source, checkpoint_revision, github_policy_start)
        VALUES ($1, $2, 'https://github.com/acme/app.git', 'main', 'sample-app',
-         $3, $4, $5, $6, 1)`,
+         $3, $4, $5, $6, 1, $7)`,
       [
         sessionId,
         workspaceId,
@@ -117,6 +129,7 @@ integration("the readers of an agent's GitHub settings", () => {
         releaseId,
         userId,
         options.source ?? "release",
+        options.start === undefined ? null : JSON.stringify(options.start),
       ],
     );
     return { workspaceId, agentId, releaseId, sessionId };
@@ -129,25 +142,32 @@ integration("the readers of an agent's GitHub settings", () => {
       repositories?: unknown[];
       pushApproval?: boolean;
       features?: object;
+      actionsAllow?: object[];
       revision?: number;
+      /** A person's id for a row a person saved; absent for a migration's. */
+      updatedBy?: string;
     },
   ) {
     await pool.query(
       `INSERT INTO agent_github_settings (agent_id, workspace_id, repositories,
-         push_approval, features, actions_allow, revision)
-       VALUES ($1, $2, $3, $4, $5, '[]', $6)
+         push_approval, features, actions_allow, revision, updated_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        ON CONFLICT (agent_id) DO UPDATE SET
          repositories = EXCLUDED.repositories,
          push_approval = EXCLUDED.push_approval,
          features = EXCLUDED.features,
-         revision = EXCLUDED.revision`,
+         actions_allow = EXCLUDED.actions_allow,
+         revision = EXCLUDED.revision,
+         updated_by = EXCLUDED.updated_by`,
       [
         agentId,
         workspaceId,
         JSON.stringify(row.repositories ?? ["sample-app"]),
         row.pushApproval ?? true,
         JSON.stringify(row.features ?? GITHUB_CEILING_NONE),
+        JSON.stringify(row.actionsAllow ?? []),
         row.revision ?? 1,
+        row.updatedBy ?? null,
       ],
     );
   }
@@ -209,6 +229,9 @@ integration("the readers of an agent's GitHub settings", () => {
       settings: GITHUB_POLICY_CLOSED,
       startRepositoryId: null,
       agentSettingsRevision: null,
+      currentRepositories: null,
+      startActionsAllow: null,
+      enabledAtStart: true,
     });
     await settingsRow(workspaceId, agentId, {
       repositories: ["sample-app", "docs"],
@@ -235,6 +258,9 @@ integration("the readers of an agent's GitHub settings", () => {
       settings: PIN_OFF,
       startRepositoryId: null,
       agentSettingsRevision: null,
+      currentRepositories: null,
+      startActionsAllow: null,
+      enabledAtStart: true,
     });
   });
 
@@ -426,6 +452,468 @@ integration("the readers of an agent's GitHub settings", () => {
     expect(
       (await pushes.findSession(workspaceId, sessionId))?.policyApproval,
     ).toBeNull();
+  });
+
+  describe("a session started under a snapshot of the agent's settings", () => {
+    const PERSON = randomUUID();
+    const REVIEW_ON = { ...GITHUB_CEILING_NONE, review: true };
+    const snapshot = (
+      repositories: string[],
+      overrides: { enabled?: boolean } = {},
+    ) => ({
+      enabled: overrides.enabled ?? true,
+      revision: 1,
+      settings: {
+        repositories,
+        push_approval: false,
+        features: REVIEW_ON,
+        actions_allow: [{ workflow: "ci.yml" }],
+      },
+    });
+    const paths = (sessionId: string, workspaceId: string) => ({
+      gate: async () =>
+        (await createPostgresGitHubGateStore(db).context(sessionId))?.policy,
+      mcp: async () =>
+        (await createPostgresGitHubMcpStore(db).sessionState(sessionId))
+          ?.github,
+      push: async () =>
+        (await pushes.findSession(workspaceId, sessionId))?.github,
+    });
+
+    test("the gate, the built-in server and push all read the meet", async () => {
+      const { workspaceId, agentId, sessionId } = await fixture({
+        source: "agent",
+        start: snapshot(["sample-app", "docs"]),
+      });
+      await settingsRow(workspaceId, agentId, {
+        repositories: ["docs", "later"],
+        pushApproval: false,
+        features: REVIEW_ON,
+        actionsAllow: [{ workflow: "release.yml" }],
+        revision: 3,
+        updatedBy: PERSON,
+      });
+      const read = paths(sessionId, workspaceId);
+      const expected = {
+        repositories: ["docs"],
+        push_approval: false,
+        features: REVIEW_ON,
+        actions_allow: [{ workflow: "release.yml" }],
+      };
+      expect(await read.gate()).toMatchObject({
+        source: "agent",
+        settings: expected,
+        startActionsAllow: [{ workflow: "ci.yml" }],
+        agentSettingsRevision: 3,
+      });
+      expect(await read.mcp()).toEqual(expected);
+      expect(await read.push()).toEqual(expected);
+
+      await settingsRow(workspaceId, agentId, {
+        repositories: ["docs", "later"],
+        pushApproval: true,
+        features: REVIEW_ON,
+        revision: 4,
+        updatedBy: PERSON,
+      });
+      expect(await read.push()).toMatchObject({ push_approval: true });
+      expect(
+        (await pushes.findSession(workspaceId, sessionId))?.policyApproval,
+      ).toBeNull();
+    });
+
+    test("a repository added after the start does not open", async () => {
+      const { workspaceId, agentId, sessionId } = await fixture({
+        source: "agent",
+        start: snapshot(["sample-app"]),
+      });
+      await settingsRow(workspaceId, agentId, {
+        repositories: ["sample-app", "added-later"],
+        features: REVIEW_ON,
+        updatedBy: PERSON,
+      });
+      expect(await paths(sessionId, workspaceId).mcp()).toMatchObject({
+        repositories: ["sample-app"],
+      });
+    });
+
+    test("GitHub off now, or off at the start, closes the session on every path", async () => {
+      const off = await fixture({
+        source: "agent",
+        start: snapshot(["sample-app"], { enabled: false }),
+      });
+      await settingsRow(off.workspaceId, off.agentId, {
+        features: REVIEW_ON,
+        updatedBy: PERSON,
+      });
+      const enabledOf = async (sessionId: string, workspaceId: string) => ({
+        gate: (await createPostgresGitHubGateStore(db).context(sessionId))
+          ?.agent?.githubEnabled,
+        mcp: (await createPostgresGitHubMcpStore(db).sessionState(sessionId))
+          ?.enabled,
+        push: (await pushes.findSession(workspaceId, sessionId))?.githubEnabled,
+      });
+      // The agent's switch is on again; the session started with it off.
+      expect(await enabledOf(off.sessionId, off.workspaceId)).toEqual({
+        gate: false,
+        mcp: false,
+        push: false,
+      });
+
+      const on = await fixture({
+        source: "agent",
+        start: snapshot(["sample-app"]),
+      });
+      await settingsRow(on.workspaceId, on.agentId, {
+        features: REVIEW_ON,
+        updatedBy: PERSON,
+      });
+      expect(await enabledOf(on.sessionId, on.workspaceId)).toEqual({
+        gate: true,
+        mcp: true,
+        push: true,
+      });
+      await pool.query(
+        "UPDATE agents SET github_enabled = false WHERE id = $1",
+        [on.agentId],
+      );
+      expect(await enabledOf(on.sessionId, on.workspaceId)).toEqual({
+        gate: false,
+        mcp: false,
+        push: false,
+      });
+    });
+
+    test("a snapshot this image cannot read closes the session", async () => {
+      const { workspaceId, agentId, sessionId } = await fixture({
+        source: "agent",
+        start: { enabled: true },
+      });
+      await settingsRow(workspaceId, agentId, { updatedBy: PERSON });
+      const read = paths(sessionId, workspaceId);
+      expect((await read.gate())?.settings).toBe("invalid");
+      expect(await read.mcp()).toBeNull();
+      expect(await read.push()).toBe("invalid");
+    });
+
+    test("a session with no snapshot reads the row alone", async () => {
+      const { workspaceId, agentId, sessionId } = await fixture({
+        source: "agent",
+      });
+      await settingsRow(workspaceId, agentId, {
+        repositories: ["docs"],
+        updatedBy: PERSON,
+      });
+      expect(await paths(sessionId, workspaceId).mcp()).toMatchObject({
+        repositories: ["docs"],
+      });
+    });
+
+    test("capturing reads the row and the switch in the creating transaction and holds the row", async () => {
+      const { workspaceId, agentId, releaseId } = await fixture({
+        source: "agent",
+      });
+      await settingsRow(workspaceId, agentId, {
+        repositories: ["sample-app", "docs"],
+        features: REVIEW_ON,
+        revision: 3,
+        updatedBy: PERSON,
+      });
+      let competing: Promise<unknown> = Promise.resolve();
+      let settled = false;
+      const captured = await db.transaction(async (tx) => {
+        const taken = await captureGitHubPolicyStart(tx, releaseId);
+        competing = pool
+          .query(
+            "UPDATE agent_github_settings SET repositories = '[]', revision = revision + 1 WHERE agent_id = $1",
+            [agentId],
+          )
+          .then(() => {
+            settled = true;
+          });
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        // A save waits for the session to exist.
+        expect(settled).toBe(false);
+        return taken;
+      });
+      await competing;
+      expect(settled).toBe(true);
+      expect(captured).toEqual({
+        enabled: true,
+        revision: 3,
+        settings: {
+          repositories: ["sample-app", "docs"],
+          push_approval: true,
+          features: REVIEW_ON,
+          actions_allow: [],
+        },
+      });
+    });
+
+    test("capturing with no row, or one that cannot be read, is closed", async () => {
+      const closed = {
+        enabled: false,
+        revision: 0,
+        settings: GITHUB_POLICY_CLOSED,
+      };
+      const none = await fixture({ source: "agent" });
+      expect(
+        await db.transaction((tx) =>
+          captureGitHubPolicyStart(tx, none.releaseId),
+        ),
+      ).toEqual(closed);
+      const bad = await fixture({ source: "agent" });
+      await settingsRow(bad.workspaceId, bad.agentId, { repositories: [1] });
+      expect(
+        await db.transaction((tx) =>
+          captureGitHubPolicyStart(tx, bad.releaseId),
+        ),
+      ).toEqual(closed);
+    });
+
+    test("a list past the old cap of 32 is stored and read", async () => {
+      const many = Array.from({ length: 40 }, (_, i) => `repo-${i}`);
+      const { workspaceId, agentId, sessionId } = await fixture({
+        source: "agent",
+      });
+      await settingsRow(workspaceId, agentId, {
+        repositories: many,
+        updatedBy: PERSON,
+      });
+      expect(await paths(sessionId, workspaceId).mcp()).toMatchObject({
+        repositories: many,
+      });
+      await expect(
+        pool.query(
+          "UPDATE agent_github_settings SET repositories = '{}'::jsonb WHERE agent_id = $1",
+          [agentId],
+        ),
+      ).rejects.toThrow(/repositories_check/);
+    });
+  });
+
+  describe("a release session and a row a person saved", () => {
+    const PERSON = randomUUID();
+    const row = {
+      repositories: ["sample-app", "docs"],
+      pushApproval: true,
+      features: GITHUB_CEILING_NONE,
+    };
+
+    test("the gate, the built-in server and push all narrow the pin; a migration's row does not", async () => {
+      const { workspaceId, agentId, sessionId } = await fixture();
+      const gate = createPostgresGitHubGateStore(db);
+      const mcp = createPostgresGitHubMcpStore(db);
+      const read = async () => ({
+        gate: (await gate.context(sessionId))?.policy.settings,
+        mcp: (await mcp.sessionState(sessionId))?.github,
+        push: (await pushes.findSession(workspaceId, sessionId))?.github,
+      });
+
+      await settingsRow(workspaceId, agentId, { ...row, repositories: [] });
+      expect(await read()).toEqual({
+        gate: PIN_OFF,
+        mcp: PIN_OFF,
+        push: PIN_OFF,
+      });
+
+      await settingsRow(workspaceId, agentId, { ...row, updatedBy: PERSON });
+      const narrowed = { ...PIN_OFF, push_approval: true };
+      expect(await read()).toEqual({
+        gate: narrowed,
+        mcp: narrowed,
+        push: narrowed,
+      });
+      expect((await gate.context(sessionId))?.policy).toMatchObject({
+        source: "release",
+        startActionsAllow: [],
+        agentSettingsRevision: 1,
+      });
+
+      await settingsRow(workspaceId, agentId, {
+        ...row,
+        repositories: [],
+        updatedBy: PERSON,
+      });
+      expect(await read()).toEqual({
+        gate: { ...narrowed, repositories: [] },
+        mcp: { ...narrowed, repositories: [] },
+        push: { ...narrowed, repositories: [] },
+      });
+    });
+
+    test("no row at all changes nothing", async () => {
+      const { workspaceId, sessionId } = await fixture();
+      expect(
+        (await pushes.findSession(workspaceId, sessionId))?.github,
+      ).toEqual(PIN_OFF);
+    });
+
+    test("a pin-less release keeps no list of its own and takes only the person's list as a limit", async () => {
+      const { workspaceId, agentId, sessionId } = await fixture({
+        pins: { github: undefined },
+      });
+      await settingsRow(workspaceId, agentId, { ...row, updatedBy: PERSON });
+      expect(
+        (await createPostgresGitHubGateStore(db).context(sessionId))?.policy,
+      ).toEqual({
+        source: "release",
+        settings: null,
+        startRepositoryId: null,
+        agentSettingsRevision: 1,
+        currentRepositories: ["sample-app", "docs"],
+        startActionsAllow: null,
+        enabledAtStart: true,
+      });
+      expect(
+        await createPostgresGitHubMcpStore(db).sessionState(sessionId),
+      ).toMatchObject({ github: null });
+    });
+
+    test("a row that cannot be read closes the session, whoever wrote it", async () => {
+      for (const updatedBy of [PERSON, undefined]) {
+        const { workspaceId, agentId, sessionId } = await fixture();
+        await settingsRow(workspaceId, agentId, {
+          ...row,
+          repositories: [1],
+          ...(updatedBy === undefined ? {} : { updatedBy }),
+        });
+        expect(
+          (await createPostgresGitHubGateStore(db).context(sessionId))?.policy
+            .settings,
+        ).toBe("invalid");
+        expect((await pushes.findSession(workspaceId, sessionId))?.github).toBe(
+          "invalid",
+        );
+        expect(
+          (await createPostgresGitHubMcpStore(db).sessionState(sessionId))
+            ?.github,
+        ).toBeNull();
+      }
+    });
+
+    test("a push the pin approved goes back to a person once a person's row asks for approval", async () => {
+      const { workspaceId, agentId, sessionId } = await fixture();
+      const found = await pushes.findSession(workspaceId, sessionId);
+      const created = await request({
+        workspaceId,
+        sessionId,
+        policyApproval: found?.policyApproval ?? null,
+        policyFields: found?.policyFields ?? {},
+      });
+      if (created.outcome !== "written") throw new Error("not written");
+      await settingsRow(workspaceId, agentId, {
+        ...row,
+        pushApproval: true,
+        updatedBy: PERSON,
+        revision: 2,
+      });
+      expect(await claimed()).not.toContain(sessionId);
+      expect(await stateOf(created.request.id)).toMatchObject({
+        state: "requested",
+        approval_basis: null,
+      });
+      const { rows } = await pool.query<{ result: Record<string, unknown> }>(
+        `SELECT result FROM receipts
+          WHERE owner_id = $1 AND operation = 'resolve_push'
+          ORDER BY created_at DESC LIMIT 1`,
+        [workspaceId],
+      );
+      expect(rows[0]?.result).toMatchObject({
+        refusal: "approval_required",
+        policy_source: "release",
+      });
+    });
+  });
+
+  describe("the workspace repository ceiling, written as installed", () => {
+    async function workspaceOnly() {
+      const workspaceId = randomUUID();
+      await pool.query(
+        "INSERT INTO workspaces (id, slug, name) VALUES ($1, $2, 'ws')",
+        [workspaceId, `ws-${workspaceId.slice(0, 8)}`],
+      );
+      return workspaceId;
+    }
+    const revisionOf = async (workspaceId: string) =>
+      (
+        await pool.query<{ revision: number }>(
+          "SELECT revision FROM github_workspace_settings WHERE workspace_id = $1",
+          [workspaceId],
+        )
+      ).rows[0]?.revision;
+
+    test("no row: writes the ceiling and leaves everything else closed; a repeat is a no-op", async () => {
+      const workspaceId = await workspaceOnly();
+      expect(await ensureInstalledRepositoryCeiling(db, workspaceId)).toEqual({
+        changed: true,
+      });
+      expect(await workspaceRepositoryCeiling(db, workspaceId)).toEqual({
+        repository_ids: [],
+        github_app_repositories: "installed",
+      });
+      const { rows } = await pool.query(
+        "SELECT ceiling FROM github_workspace_settings WHERE workspace_id = $1",
+        [workspaceId],
+      );
+      expect(rows[0]?.ceiling).toEqual(GITHUB_CEILING_NONE);
+      const revision = await revisionOf(workspaceId);
+      expect(await ensureInstalledRepositoryCeiling(db, workspaceId)).toEqual({
+        changed: false,
+      });
+      expect(await revisionOf(workspaceId)).toBe(revision);
+    });
+
+    test("a ceiling that lists ids keeps them, and the ids asked for join them", async () => {
+      const workspaceId = await workspaceOnly();
+      await pool.query(
+        `INSERT INTO github_workspace_settings (workspace_id, ceiling, repository_ceiling)
+         VALUES ($1, $2, $3)`,
+        [
+          workspaceId,
+          JSON.stringify(GITHUB_CEILING_NONE),
+          JSON.stringify({
+            repository_ids: ["kept"],
+            github_app_repositories: "listed",
+          }),
+        ],
+      );
+      expect(
+        await ensureInstalledRepositoryCeiling(db, workspaceId, ["added"]),
+      ).toEqual({ changed: true });
+      expect(await workspaceRepositoryCeiling(db, workspaceId)).toEqual({
+        repository_ids: ["kept", "added"],
+        github_app_repositories: "installed",
+      });
+      expect(
+        await ensureInstalledRepositoryCeiling(db, workspaceId, ["added"]),
+      ).toEqual({ changed: false });
+    });
+
+    test("a ceiling that cannot be read, or null, becomes the installed one", async () => {
+      for (const stored of [null, JSON.stringify({ from: "later" })]) {
+        const workspaceId = await workspaceOnly();
+        await pool.query(
+          `INSERT INTO github_workspace_settings (workspace_id, ceiling, repository_ceiling)
+           VALUES ($1, $2, $3)`,
+          [workspaceId, JSON.stringify(GITHUB_CEILING_NONE), stored],
+        );
+        await ensureInstalledRepositoryCeiling(db, workspaceId);
+        expect(await workspaceRepositoryCeiling(db, workspaceId)).toEqual({
+          repository_ids: [],
+          github_app_repositories: "installed",
+        });
+      }
+    });
+
+    test("two first calls at once write once", async () => {
+      const workspaceId = await workspaceOnly();
+      const results = await Promise.all([
+        ensureInstalledRepositoryCeiling(db, workspaceId),
+        ensureInstalledRepositoryCeiling(db, workspaceId),
+      ]);
+      expect(results.filter(({ changed }) => changed)).toHaveLength(1);
+    });
   });
 
   describe("a claim's SQL and the check after it", () => {

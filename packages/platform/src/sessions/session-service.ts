@@ -860,6 +860,9 @@ export function createSessionService(deps: {
           : {}),
         ...(release ? { agentReleaseId: release.id } : {}),
         githubPolicySource: policy.source,
+        ...(policy.source === "agent"
+          ? { captureGitHubPolicyStart: true as const }
+          : {}),
         ...(platformPrompt === undefined ? {} : { platformPrompt }),
         ...(credentialsUnbound ? { credentialsUnbound: true as const } : {}),
         ...(input.shareScope === undefined

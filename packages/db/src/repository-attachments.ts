@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
-  effectiveGitHubPolicy,
+  newSessionGitHubPolicy,
   type RepositoryAttachFailure,
 } from "@werft-ai/contracts";
 import type {
@@ -9,8 +9,13 @@ import type {
 } from "@werft-ai/platform";
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
+import {
+  agentGitHubSettingsRowOf,
+  agentSettingsColumns,
+} from "./github-settings.ts";
 import type { Database } from "./queries.ts";
 import {
+  agentGitHubSettings,
   agentReleases,
   agents,
   attempts,
@@ -203,6 +208,7 @@ export function createPostgresRepositoryAttachments(
           id: activeRelease.id,
           profileId: activeRelease.runtimeProfileId,
           github: sql<unknown>`${activeRelease.policyPins} -> 'github'`,
+          ...agentSettingsColumns,
         })
         .from(sessions)
         .innerJoin(
@@ -211,15 +217,20 @@ export function createPostgresRepositoryAttachments(
         )
         .innerJoin(agents, eq(agents.id, sessionRelease.agentId))
         .innerJoin(activeRelease, eq(activeRelease.id, agents.activeReleaseId))
+        .leftJoin(
+          agentGitHubSettings,
+          eq(agentGitHubSettings.agentId, agents.id),
+        )
         .where(eq(sessions.id, rawSessionId.toLowerCase()))
         .limit(1);
       if (row === undefined) return null;
       const { id, profileId } = row;
-      const { settings } = effectiveGitHubPolicy({
-        source: "release",
-        releasePin: row.github,
-        agentRow: null,
-      });
+      // What a session started now would run on, so a repository the agent's
+      // settings no longer list is not offered as "allowed in a newer release".
+      const { settings } = newSessionGitHubPolicy(
+        agentGitHubSettingsRowOf(row),
+        row.github,
+      );
       return { id, profileId, github: settings };
     },
 

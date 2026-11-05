@@ -827,6 +827,7 @@ describe("which policy a new session runs on", () => {
     actionsAllow: [],
     startRepositoryId: "app",
     revision: 2,
+    updatedBy: null,
   };
   const CEILING: RepositoryCeiling = {
     repository_ids: ["app"],
@@ -868,9 +869,11 @@ describe("which policy a new session runs on", () => {
       repository: { id: "app" },
       githubPolicySource: "release",
     });
+    // The release's pin is the whole policy: nothing to snapshot.
+    expect(accepted).not.toHaveProperty("captureGitHubPolicyStart");
   });
 
-  test("a row: the agent's, starting on the row's repository", async () => {
+  test("a row: the agent's, starting on the row's repository, with the settings snapshotted at start", async () => {
     const { refusal, accepted } = await start({
       agentSettings: ROW,
       repositoryCeiling: CEILING,
@@ -879,6 +882,7 @@ describe("which policy a new session runs on", () => {
     expect(accepted).toMatchObject({
       repository: { id: "app" },
       githubPolicySource: "agent",
+      captureGitHubPolicyStart: true,
     });
   });
 

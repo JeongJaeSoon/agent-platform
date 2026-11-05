@@ -1348,6 +1348,10 @@ export const sessions = pgTable(
     githubPolicySource: text("github_policy_source")
       .notNull()
       .default("release"),
+    // An `agent` session's GitHub settings as they were when it started
+    // (`githubPolicyStartSchema`); later changes can only narrow them for it.
+    // Null on a session without one, which reads the row alone.
+    githubPolicyStart: jsonb("github_policy_start").$type<unknown>(),
   },
   (table) => [
     check("sessions_cost_usd_nonneg", sql`${table.costUsd} >= 0`),
@@ -3184,7 +3188,7 @@ export const agentGitHubSettings = pgTable(
     }),
     check(
       "agent_github_settings_repositories_check",
-      sql`jsonb_typeof(${table.repositories}) = 'array' AND jsonb_array_length(${table.repositories}) <= 32`,
+      sql`jsonb_typeof(${table.repositories}) = 'array'`,
     ),
     check(
       "agent_github_settings_start_check",

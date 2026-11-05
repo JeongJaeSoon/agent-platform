@@ -57,6 +57,13 @@ export type AcceptSessionInput = {
   attachedRepositoryIds?: string[];
   /** Absent: `release`. */
   githubPolicySource?: GitHubPolicySource;
+  /**
+   * Set for an `agent` session: the store reads the agent's GitHub settings
+   * and switch inside the creating transaction, holding the settings row so
+   * they cannot change before the session exists, and keeps them as the
+   * session's start snapshot.
+   */
+  captureGitHubPolicyStart?: true;
   // The profile's fingerprint under the catalog that allowed the pair, which
   // every claim of the session is then held to. Left out, the row
   // is pinned by its first claim, as one from before the column is.

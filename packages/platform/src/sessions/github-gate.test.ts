@@ -1177,6 +1177,55 @@ describe("a session under the agent's settings", () => {
     );
   });
 
+  test("a pin-less release takes only the list a person saved as its limit", async () => {
+    const policy = (currentRepositories: string[]) => ({
+      ...releasePolicy(null),
+      currentRepositories,
+    });
+    const listed = harness({
+      policy: policy(["app"]),
+      repositoryCeiling: IN_CEILING,
+    });
+    await listed.grant({ purpose: "clone" });
+    const off = harness({
+      policy: policy(["ghes"]),
+      repositoryCeiling: IN_CEILING,
+    });
+    expect((await refused(off.grant({ purpose: "clone" }))).reason).toBe(
+      "repository_not_allowed",
+    );
+  });
+
+  test("a workflow must be allowed by the list the session started with as well as by the current one", async () => {
+    const run = (startActionsAllow: AgentGitHub["actions_allow"]) =>
+      harness({
+        policy: {
+          ...agentPolicy(
+            settings({
+              repositories: ["app"],
+              features: features({ actions: true }),
+              actions_allow: [{ workflow: "release.yml" }],
+            }),
+          ),
+          startActionsAllow,
+        },
+        repositoryCeiling: IN_CEILING,
+        ceiling: ALL_ON,
+      });
+    const work = {
+      purpose: "dispatch",
+      workflow: { file: "release.yml", ref: "main" },
+    } as const;
+    await run([{ workflow: "release.yml" }]).grant(work);
+    expect(
+      (await refused(run([{ workflow: "ci.yml" }]).grant(work))).reason,
+    ).toBe("workflow_not_allowed");
+    // An empty list at the start allows nothing, as an empty list now does.
+    expect((await refused(run([]).grant(work))).reason).toBe(
+      "workflow_not_allowed",
+    );
+  });
+
   test("the platform reading a recorded pull request answers to no ceiling", async () => {
     const { grant } = harness({
       policy: agentPolicy(GITHUB_POLICY_CLOSED),

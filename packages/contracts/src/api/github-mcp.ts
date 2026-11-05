@@ -63,6 +63,10 @@ const waitSecondsSchema = z
   .max(GITHUB_MCP_WAIT_SECONDS_MAX)
   .optional();
 
+/** `list_repositories` answers this many repositories a page unless asked for fewer. */
+export const LIST_REPOSITORIES_LIMIT_DEFAULT = 100;
+export const LIST_REPOSITORIES_LIMIT_MAX = 500;
+
 /**
  * Each tool's arguments: the session API's body plus what that API takes
  * from the path. Never a session id: the attempt token names the session.
@@ -92,7 +96,18 @@ export const GITHUB_MCP_TOOL_ARGUMENTS = {
   submit_review: submitPullRequestReviewRequestSchema.safeExtend({
     number: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
   }),
-  list_repositories: z.object({}).strict(),
+  list_repositories: z
+    .object({
+      limit: z
+        .number()
+        .int()
+        .min(1)
+        .max(LIST_REPOSITORIES_LIMIT_MAX)
+        .optional(),
+      cursor: z.string().min(1).max(256).optional(),
+      query: z.string().min(1).max(128).optional(),
+    })
+    .strict(),
   attach_repository: z
     .object({
       repository_id: z.string().min(1).max(128),
@@ -163,6 +178,12 @@ export type ListedRepository = z.infer<typeof listedRepositorySchema>;
 
 export const listRepositoriesResponseSchema = z.object({
   repositories: z.array(listedRepositorySchema),
+  /**
+   * Pass it as `cursor` for the next page; null on the last. A call that
+   * sends no `limit` or `cursor` gets the first page, so a caller from before
+   * pages reads at most the first `LIST_REPOSITORIES_LIMIT_DEFAULT`.
+   */
+  next_cursor: z.string().nullable(),
 });
 export type ListRepositoriesResponse = z.infer<
   typeof listRepositoriesResponseSchema
@@ -288,8 +309,7 @@ export const GITHUB_MCP_TOOL_DESCRIPTIONS: Record<GitHubMcpTool, string> = {
     "Rerun a workflow run that the platform dispatched for the session's repository.",
   submit_review:
     "Submit a review of a pull request as the reviewer App, on the commit named by `commit_id`.",
-  list_repositories:
-    "List the repositories the session can work on. `status` is `primary` (the session's own), `attached`, `pending` or `failed` (fetch in progress or failed), `available` (attach_repository would add it) or `allowed_in_newer_release` (only the agent's current release allows it).",
+  list_repositories: `List the repositories the session can work on, ${LIST_REPOSITORIES_LIMIT_DEFAULT} a page. The session's own comes first on the first page and is not counted in \`limit\` (1 to ${LIST_REPOSITORIES_LIMIT_MAX}); the others are in id order. \`next_cursor\` is non-null when more follow: send it back as \`cursor\`. \`query\` keeps those whose id or name contains it. \`status\` is \`primary\` (the session's own), \`attached\`, \`pending\` or \`failed\` (fetch in progress or failed), \`available\` (attach_repository would add it) or \`allowed_in_newer_release\` (only the agent's current release allows it).`,
   attach_repository: `Attach a repository the release allows to the session as a git remote named \`repository_id\`, with its default branch fetched to \`<repository_id>/<branch>\`. \`status\` is \`pending\` while the fetch runs. \`wait_seconds\` (0 to ${GITHUB_MCP_WAIT_SECONDS_MAX}, default 0) holds the answer until the fetch ends or the seconds have passed; \`final\` is false when the fetch was still running at the end of the wait. Attaching an attached repository changes nothing.`,
 };
 

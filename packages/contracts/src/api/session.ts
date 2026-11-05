@@ -580,7 +580,6 @@ export const messageTextSchema = z
   })
   .meta({ description: `At most ${MESSAGE_MAX_BYTES} bytes of UTF-8` });
 
-export const ATTACHED_REPOSITORIES_MAX = 32;
 export const createSessionRequestSchema = z
   .object({
     profile_id: z.string().min(1).optional().meta({
@@ -603,13 +602,12 @@ export const createSessionRequestSchema = z
             message: "Not a repository id a git remote can be named",
           }),
       )
-      .max(ATTACHED_REPOSITORIES_MAX)
       .refine((ids) => new Set(ids).size === ids.length, {
         message: "attached_repository_ids lists a repository twice",
       })
       .optional()
       .meta({
-        description: `Catalog repositories besides the session's own that it may fetch, push to and open pull requests on, at most ${ATTACHED_REPOSITORIES_MAX}. Each one has to be listed in the agent release's GitHub settings (\`github.repositories\`), allowed for the profile, and other than the session's repository; otherwise 403 \`GITHUB_REFUSED\` with \`repository_not_allowed\`, as is any list sent for a session without an agent release or on a profile whose \`repository_mode\` is \`none\`. A session started without a repository on an \`optional\` profile works on these alone, and names one in each push request. Omitted, the same as \`[]\`: the session starts with none besides its own, and its agent attaches others the release lists with the built-in MCP tool \`attach_repository\` when it needs them.`,
+        description: `Catalog repositories besides the session's own that it may fetch, push to and open pull requests on. Each one has to be listed in the agent release's GitHub settings (\`github.repositories\`), allowed for the profile, and other than the session's repository; otherwise 403 \`GITHUB_REFUSED\` with \`repository_not_allowed\`, as is any list sent for a session without an agent release or on a profile whose \`repository_mode\` is \`none\`. A session started without a repository on an \`optional\` profile works on these alone, and names one in each push request. Omitted, the same as \`[]\`: the session starts with none besides its own, and its agent attaches others the release lists with the built-in MCP tool \`attach_repository\` when it needs them.`,
       }),
     message: messageTextSchema,
     // Pins the session to this release of an agent: the session then belongs
