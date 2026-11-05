@@ -197,8 +197,11 @@ export type ConfirmedStatus =
   | "not_applicable";
 
 export type Confirmation = Map<string, ConfirmedStatus>;
-const confirmationKey = (c: { session_id: string; repository_id: string }) =>
-  `${c.session_id}\u0000${c.repository_id}`;
+const confirmationKey = (c: {
+  session_id: string;
+  repository_id: string;
+  via: Via;
+}) => `${c.session_id}\u0000${c.repository_id}\u0000${c.via}`;
 
 type SessionGroup = {
   kind: "agent" | "agentless";

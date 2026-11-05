@@ -330,6 +330,12 @@ integration("the read-only repository migration report", () => {
       workspaceId: ids.a,
       releaseId: a1.releaseId,
     });
+    // the same value by two paths: each path is judged on its own
+    await session("dual", {
+      workspaceId: ids.a,
+      releaseId: a1.releaseId,
+      repositoryId: "pat-url",
+    });
     await session("agent-policy", {
       workspaceId: ids.a,
       releaseId: a2.releaseId,
@@ -467,6 +473,8 @@ integration("the read-only repository migration report", () => {
     const status = (key: string, repo: string, via: string) =>
       candidate(key, repo, via)?.confirmed;
     expect(status("primary-idle", "none-url", "primary")).toBe("confirmed");
+    expect(status("dual", "pat-url", "primary")).toBe("confirmed");
+    expect(status("dual", "pat-url", "policy")).toBe("not_reachable");
     // valid pins: a GitHub-hosted basic repository has a connection, a plain
     // URL repository has none
     expect(status("valid-policy", "pat-url", "policy")).toBe("confirmed");
