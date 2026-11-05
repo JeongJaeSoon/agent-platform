@@ -20,7 +20,11 @@ import { join } from "node:path";
 
 const script = join(import.meta.dir, "..", "scripts/local.sh");
 
-const rendered = (id: string | undefined, ports: string[] = []) =>
+const rendered = (
+  id: string | undefined,
+  ports: string[] = [],
+  volumeNamespace?: string,
+) =>
   JSON.stringify({
     services: {
       api: {
@@ -31,7 +35,12 @@ const rendered = (id: string | undefined, ports: string[] = []) =>
         })),
       },
       scheduler: {
-        environment: id === undefined ? {} : { EXECUTION_INSTALLATION_ID: id },
+        environment: {
+          ...(id === undefined ? {} : { EXECUTION_INSTALLATION_ID: id }),
+          ...(volumeNamespace === undefined
+            ? {}
+            : { EXECUTION_VOLUME_LABEL_NAMESPACE: volumeNamespace }),
+        },
       },
     },
   });
@@ -160,6 +169,7 @@ echo '{"status":"ready"}'
     expect(await calls("docker-calls")).toEqual([
       `${noMode} ps -aq egress-proxy`,
       'inspect --format {{index .Config.Labels "werft.egress-proxy"}} proxy-id',
+      `${noMode} config --format json`,
       ...deletions("ap434local"),
     ]);
   });
@@ -173,19 +183,19 @@ echo '{"status":"ready"}'
       expect(await calls("docker-calls")).toEqual([
         `${noMode} ps -aq egress-proxy`,
         `${noMode} config --format json`,
+        `${noMode} config --format json`,
         ...deletions(id),
       ]);
     },
   );
 
-  test("down finds the workspace volumes by the scheduler's volume label prefix and the workers by the fixed one", async () => {
-    await writeFile(config, rendered("local"));
-    const result = await run(["down"], {
-      EXECUTION_VOLUME_LABEL_NAMESPACE: "other-ns",
-    });
+  test("down finds the workspace volumes by the scheduler's rendered volume label prefix, not the shell's, and the workers by the fixed one", async () => {
+    await writeFile(config, rendered("local", [], "other-ns"));
+    const result = await run(["down"]);
     expect(result.exitCode).toBe(0);
     expect(await calls("docker-calls")).toEqual([
       `${noMode} ps -aq egress-proxy`,
+      `${noMode} config --format json`,
       `${noMode} config --format json`,
       ...deletions("local").slice(0, 3),
       "volume ls -q --filter label=other-ns.installation=local",

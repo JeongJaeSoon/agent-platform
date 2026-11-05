@@ -246,7 +246,7 @@ installation_id() {
 
 down() {
   # Whichever mode the stack was started in (reset's included).
-  local id overlay="" keep=""
+  local id overlay="" keep="" volume_namespace
   case "$*" in
     "") ;;
     --keep-volumes) keep=1 ;;
@@ -255,6 +255,11 @@ down() {
   command -v jq >/dev/null || die "jq is not installed"
   id=$(installation_id) || true
   [ -n "$id" ] || die "cannot tell the stack's EXECUTION_INSTALLATION_ID; nothing was deleted"
+  if [ -z "$keep" ]; then
+    # Read before compose goes down: the scheduler's setting, not this shell's.
+    volume_namespace=$(rendered | jq -r '.services.scheduler.environment.EXECUTION_VOLUME_LABEL_NAMESPACE // empty') ||
+      die "cannot read the scheduler's volume label namespace; nothing was deleted"
+  fi
   if [ -n "$keep" ]; then
     echo "local.sh: stopping the local stack and deleting its workers; volumes and checkpoint objects kept" >&2
     compose down --remove-orphans
@@ -273,7 +278,7 @@ down() {
     echo "local.sh: stopped" >&2
     return
   fi
-  docker volume ls -q --filter "label=${EXECUTION_VOLUME_LABEL_NAMESPACE:-werft}.installation=$id" | xargs -r docker volume rm >/dev/null
+  docker volume ls -q --filter "label=${volume_namespace:-werft}.installation=$id" | xargs -r docker volume rm >/dev/null
   echo "local.sh: deleted" >&2
 }
 
