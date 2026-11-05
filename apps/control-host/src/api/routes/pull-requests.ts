@@ -1,8 +1,10 @@
 import {
   commentPullRequestRequestSchema,
   commentPullRequestResponseSchema,
+  openPullRequestQuerySchema,
   openPullRequestRequestSchema,
   openPullRequestResponseSchema,
+  openPullRequestResultSchema,
   pushRequestParamsSchema,
 } from "@werft-ai/contracts";
 import type { PullRequestService } from "@werft-ai/platform";
@@ -12,7 +14,7 @@ import {
   jsonWithSchema,
   parseJsonBody,
 } from "../app.ts";
-import { mapped, requireParams } from "./errors.ts";
+import { mapped, requireParams, requireQuery } from "./errors.ts";
 import { actorOf } from "./push-requests.ts";
 
 export function registerPullRequestRoutes(
@@ -21,9 +23,37 @@ export function registerPullRequestRoutes(
 ) {
   apiRoute(router, "openPullRequest", async (context) => {
     const params = requireParams(context, pushRequestParamsSchema);
+    const query = requireQuery(context, openPullRequestQuerySchema);
+    const readBody = () => parseJsonBody(context, openPullRequestRequestSchema);
+    // Without the query a push that has not finished is still refused with
+    // `409 not_pushed`, as before; the schedule is opt-in.
+    if (query.schedule === "true") {
+      const answered = await mapped(() =>
+        service.schedule(
+          actorOf(context),
+          params.id,
+          { pushRequestId: params.push_request_id },
+          { readBody },
+        ),
+      );
+      if ("status" in answered) {
+        return jsonWithSchema(
+          context,
+          openPullRequestResultSchema,
+          answered,
+          202,
+        );
+      }
+      return jsonWithSchema(
+        context,
+        openPullRequestResultSchema,
+        answered,
+        answered.created ? 201 : 200,
+      );
+    }
     const opened = await mapped(() =>
       service.open(actorOf(context), params.id, params.push_request_id, {
-        readBody: () => parseJsonBody(context, openPullRequestRequestSchema),
+        readBody,
       }),
     );
     return jsonWithSchema(

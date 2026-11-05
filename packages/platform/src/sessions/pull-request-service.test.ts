@@ -130,6 +130,9 @@ function harness(
     gitCommit: "a".repeat(40),
   };
   const store: PullRequestStore = {
+    schedule: async () => {
+      throw new Error("not used");
+    },
     findSource: async (_owner, session, push) => {
       sourceReads.push(session);
       return session === SESSION && push === PUSH ? source : null;
@@ -146,7 +149,7 @@ function harness(
             entry.head === head,
         ) ?? null,
     recordReceipt: async (input) => {
-      receipts.push(input);
+      receipts.push(input as PullRequestReceipt);
       return `receipt-${receipts.length}`;
     },
     recordStateChange: async ({ url, ...input }) => {

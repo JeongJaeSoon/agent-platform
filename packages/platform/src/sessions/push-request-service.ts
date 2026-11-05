@@ -5,6 +5,7 @@ import {
   type Principal,
   type PushRefusal,
   type PushRequest,
+  type PushRequestSnapshot,
   type PushResolution,
   pushBranchFor,
   pushClassOf,
@@ -287,6 +288,21 @@ export function createPushRequestService(deps: {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
       }
       return request;
+    },
+
+    /** `get_push_request`: needs `session.read` only, like `get`. */
+    async snapshot(
+      actor: PushActor,
+      sessionId: string,
+      ref: { pushRequestId: string } | { pushIntentId: string },
+    ): Promise<PushRequestSnapshot> {
+      requireVerified(actor);
+      await requireSession(actor, "session.read", sessionId);
+      const snapshot = await store.snapshot(actor.ownerId, sessionId, ref);
+      if (snapshot === null) {
+        throw new SessionServiceError("NOT_FOUND", "Resource not found");
+      }
+      return snapshot;
     },
 
     async decide(

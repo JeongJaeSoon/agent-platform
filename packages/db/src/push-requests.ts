@@ -11,6 +11,7 @@ import {
   type PushDecider,
   type PushReceiptResult,
   type PushRequest,
+  type PushRequestSnapshot,
   type PushRequestState,
   pushBranchFor,
   pushClassOf,
@@ -42,6 +43,8 @@ import {
   catalogRepositories,
   githubWorkspaceSettings,
   idempotencyKeys,
+  pullRequests,
+  pushIntents,
   pushRequests,
   receipts,
   sessions,
@@ -616,6 +619,97 @@ export function createPostgresPushRequests(
         )
         .limit(1);
       return row ? publicPushRequest(row) : null;
+    },
+
+    snapshot(ownerId, rawSessionId, ref) {
+      const sessionId = rawSessionId.toLowerCase();
+      if (!UUID.test(sessionId)) return Promise.resolve(null);
+      const byIntent = "pushIntentId" in ref;
+      const wanted = (
+        "pushIntentId" in ref ? ref.pushIntentId : ref.pushRequestId
+      ).toLowerCase();
+      if (!UUID.test(wanted)) return Promise.resolve(null);
+      return db.transaction(
+        async (tx) => {
+          let intent: typeof pushIntents.$inferSelect | undefined;
+          let requestId: string | null = null;
+          if (byIntent) {
+            [intent] = await tx
+              .select()
+              .from(pushIntents)
+              .where(
+                and(
+                  eq(pushIntents.id, wanted),
+                  eq(pushIntents.sessionId, sessionId),
+                  eq(pushIntents.ownerId, ownerId),
+                ),
+              )
+              .limit(1);
+            if (!intent) return null;
+            requestId = intent.pushRequestId;
+          } else {
+            requestId = wanted;
+            [intent] = await tx
+              .select()
+              .from(pushIntents)
+              .where(
+                and(
+                  eq(pushIntents.pushRequestId, wanted),
+                  eq(pushIntents.sessionId, sessionId),
+                  eq(pushIntents.ownerId, ownerId),
+                ),
+              )
+              .limit(1);
+          }
+          const [request] =
+            requestId === null
+              ? []
+              : await tx
+                  .select()
+                  .from(pushRequests)
+                  .where(
+                    and(
+                      eq(pushRequests.id, requestId),
+                      eq(pushRequests.sessionId, sessionId),
+                      eq(pushRequests.ownerId, ownerId),
+                    ),
+                  )
+                  .limit(1);
+          if (!request && !intent) return null;
+          const [pull] = request
+            ? await tx
+                .select({ number: pullRequests.number, url: pullRequests.url })
+                .from(pullRequests)
+                .where(eq(pullRequests.pushRequestId, request.id))
+                .limit(1)
+            : [];
+          const scope = request ?? intent;
+          if (!scope) return null;
+          return {
+            push_intent_id: intent?.id ?? null,
+            intent_status: (intent?.status ??
+              null) as PushRequestSnapshot["intent_status"],
+            intent_refusal: (intent?.refusalCode ??
+              null) as PushRequestSnapshot["intent_refusal"],
+            push_request_id: request?.id ?? null,
+            push_state: (request?.state ??
+              null) as PushRequestSnapshot["push_state"],
+            repository_id: scope.repositoryId,
+            target_branch: scope.targetBranch,
+            pull_request_scheduled: request
+              ? request.pullRequestIntent !== null
+              : intent?.pullRequest != null,
+            pull_request_stage: (request?.prState ??
+              null) as PushRequestSnapshot["pull_request_stage"],
+            pull_request_error: request?.prError ?? null,
+            pull_request:
+              pull?.number == null
+                ? null
+                : { number: pull.number, url: pull.url },
+          };
+        },
+        { isolationLevel: "repeatable read", accessMode: "read only" },
+      );
     },
 
     async displayOf(ownerId, sessionId, pushRequestId) {
