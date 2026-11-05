@@ -81,7 +81,7 @@ describe("the action class every tool carries", () => {
 
   test("the fixed list and the per-release list are built from the classified tools only", () => {
     expect([...GITHUB_MCP_FIXED_TOOLS].sort()).toEqual(
-      Object.keys(GITHUB_MCP_TOOL_CLASSES).sort(),
+      (Object.keys(GITHUB_MCP_TOOL_CLASSES) as GitHubMcpTool[]).sort(),
     );
     for (const tool of githubMcpTools(settings({ actions: true }))) {
       expect(GITHUB_MCP_TOOL_CLASSES[tool]).toBeDefined();

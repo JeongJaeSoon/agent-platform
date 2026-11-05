@@ -5,12 +5,12 @@ import type {
   DeciderKey,
   GitHubPolicyReceiptFields,
   GitHubPolicySource,
+  PushAttached,
   PushDecision,
   PushReasonCode,
   PushReceiptResult,
   PushRefusal,
   PushRequest,
-  PushAttached,
   ReceiptActor,
   RepositoryCeiling,
 } from "@werft-ai/contracts";

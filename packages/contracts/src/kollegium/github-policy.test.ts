@@ -487,7 +487,7 @@ describe("push_attached: a push to an attached repository", () => {
   const START: GitHubPolicyStart = {
     enabled: true,
     revision: 2,
-    settings: SETTINGS,
+    settings: PIN,
   };
 
   test("a value is read as it is stored; none reads as ask; an unknown one is refused", () => {

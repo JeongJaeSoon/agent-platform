@@ -392,6 +392,113 @@ integration("the readers of an agent's GitHub settings", () => {
     });
   });
 
+  describe("push_attached", () => {
+    const columnOf = async (agentId: string) => {
+      const { rows } = await pool.query<{ push_attached: string | null }>(
+        "SELECT push_attached FROM agent_github_settings WHERE agent_id = $1",
+        [agentId],
+      );
+      return rows[0]?.push_attached;
+    };
+
+    test("a row written without the column holds null and reads as ask, with no approval by policy", async () => {
+      const { workspaceId, agentId, sessionId } = await fixture({
+        source: "agent",
+      });
+      // The row as it was stored before the column existed.
+      await settingsRow(workspaceId, agentId, {
+        pushApproval: false,
+        updatedBy: randomUUID(),
+      });
+      expect(await columnOf(agentId)).toBeNull();
+      expect(await agentGitHubSettingsOf(db, agentId)).toMatchObject({
+        pushAttached: null,
+      });
+      const found = await pushes.findSession(workspaceId, sessionId);
+      expect(found).toMatchObject({
+        pushAttached: "ask",
+        attachedApproval: null,
+      });
+      // Reading it does not write the column.
+      expect(await columnOf(agentId)).toBeNull();
+    });
+
+    test("the column accepts allow, ask and deny and nothing else", async () => {
+      const { workspaceId, agentId } = await fixture({ source: "agent" });
+      for (const value of ["allow", "ask", "deny"]) {
+        await settingsRow(workspaceId, agentId, { pushAttached: value });
+        expect(await columnOf(agentId)).toBe(value);
+      }
+      await expect(
+        settingsRow(workspaceId, agentId, { pushAttached: "sometimes" }),
+      ).rejects.toThrow();
+    });
+
+    test("allow is a policy approval for an attached repository even while the own repository asks; ask or deny after that sends it back to a person", async () => {
+      for (const narrowed of ["ask", "deny"]) {
+        const { workspaceId, agentId, sessionId } = await fixture({
+          source: "agent",
+        });
+        await settingsRow(workspaceId, agentId, {
+          pushApproval: true,
+          pushAttached: "allow",
+          revision: 2,
+          updatedBy: randomUUID(),
+        });
+        const found = await pushes.findSession(workspaceId, sessionId);
+        // The own repository still asks; the attached one is approved.
+        expect(found?.policyApproval).toBeNull();
+        expect(found?.attachedApproval).toMatchObject({
+          source: "agent",
+          settingsRevision: 2,
+        });
+        const created = await request({
+          workspaceId,
+          sessionId,
+          repositoryId: "docs",
+          policyApproval: found?.attachedApproval ?? null,
+          policyFields: found?.policyFields ?? {},
+        });
+        if (created.outcome !== "written") throw new Error("not written");
+        expect(await stateOf(created.request.id)).toMatchObject({
+          state: "approved",
+          approval_basis: "policy",
+        });
+
+        await settingsRow(workspaceId, agentId, {
+          pushApproval: true,
+          pushAttached: narrowed,
+          revision: 3,
+          updatedBy: randomUUID(),
+        });
+        expect(await claimed()).not.toContain(sessionId);
+        expect(await stateOf(created.request.id)).toMatchObject({
+          state: "requested",
+          approval_basis: null,
+        });
+      }
+    });
+
+    test("while the row still says allow, the approved attached push is claimed", async () => {
+      const { workspaceId, agentId, sessionId } = await fixture({
+        source: "agent",
+      });
+      await settingsRow(workspaceId, agentId, {
+        pushApproval: true,
+        pushAttached: "allow",
+        updatedBy: randomUUID(),
+      });
+      const found = await pushes.findSession(workspaceId, sessionId);
+      await request({
+        workspaceId,
+        sessionId,
+        repositoryId: "docs",
+        policyApproval: found?.attachedApproval ?? null,
+      });
+      expect(await claimed()).toContain(sessionId);
+    });
+  });
+
   test("the row still off, the push is claimed; a person's approval outlives the row", async () => {
     const off = await fixture({ source: "agent" });
     await settingsRow(off.workspaceId, off.agentId, { pushApproval: false });

@@ -207,8 +207,8 @@ export function createPushRequestService(deps: {
       ) {
         return refuse("repository_not_allowed", repository);
       }
-      const attachedPush = pushClassOf(session.repositoryId, repositoryId) ===
-        "push.attached";
+      const attachedPush =
+        pushClassOf(session.repositoryId, repositoryId) === "push.attached";
       // `push.attached = deny` ends the request here; `ask` and `allow` are
       // told apart below by whether a policy approves it.
       if (attachedPush && session.pushAttached === "deny") {
