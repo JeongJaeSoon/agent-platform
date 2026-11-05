@@ -428,7 +428,12 @@ integration("settings console writes", () => {
       ).toEqual({ outcome: "not_found" });
 
       await store().importEntries(
-        document({ "move-off": FROM_ENV }),
+        document({
+          "move-off": {
+            ...FROM_ENV,
+            auth: { kind: "api_key", value_env: "OFF_KEY" },
+          },
+        }),
         importOptions,
       );
       await store().disable({ kind: "connection", id: "move-off" }, owner);

@@ -447,6 +447,19 @@ export function planSettingsImport(
         if (source === "stored" && !row.has_value) plan.needs_value.push(ref);
         continue;
       }
+      // A profile ceiling still reaches the row that moved off this definition;
+      // a second connection holding it would make that match depend on which
+      // rows are usable at the moment.
+      if (
+        kind === "connection" &&
+        [...rows.values()].some(
+          (other) =>
+            other.replaces !== undefined && sameEntry(other.replaces, entry),
+        )
+      ) {
+        plan.conflicts.push(ref);
+        continue;
+      }
       if (source === "external" && !rules.allowExternal) {
         plan.refused_external.push(ref);
         continue;

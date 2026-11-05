@@ -322,6 +322,37 @@ describe("planSettingsImport", () => {
     expect(plan.conflicts).toEqual(["connection:main"]);
   });
 
+  test("a new connection under a definition another row moved off is a conflict", () => {
+    const moved = {
+      ...entries.connections.main,
+      auth: { kind: "api_key", stored: "connection:main" },
+    };
+    const renamed = parseSettingsDocument({
+      ...DOCUMENT,
+      connections: { twin: DOCUMENT.connections.main },
+    });
+    const plan = planSettingsImport(
+      renamed,
+      {
+        ...NONE,
+        connections: new Map([
+          [
+            "main",
+            {
+              entry: moved,
+              active: true,
+              has_value: true,
+              replaces: entries.connections.main,
+            },
+          ],
+        ]),
+      },
+      { allowExternal: true },
+    );
+    expect(plan.conflicts).toEqual(["connection:twin"]);
+    expect(plan.add.map((add) => add.id)).not.toContain("twin");
+  });
+
   test("adds every entry over an empty installation", () => {
     const plan = planSettingsImport(entries, NONE, { allowExternal: true });
     expect(plan.add.map((add) => `${add.kind}:${add.id}`)).toEqual([
