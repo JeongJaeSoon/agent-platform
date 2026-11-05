@@ -390,6 +390,22 @@ integration("postgres pull request drain", () => {
       .where(eq(pushRequests.id, younger.id));
   });
 
+  test("an expired opening stage on a request that is not pushed is never claimed", async () => {
+    const { id } = await due();
+    await db
+      .update(pushRequests)
+      .set({
+        state: "failed",
+        prState: "opening",
+        prAttempts: 1,
+        prClaimToken: crypto.randomUUID(),
+        prLeaseExpiresAt: new Date(Date.now() - 1_000),
+      })
+      .where(eq(pushRequests.id, id));
+    expect(await drain.claimNextDue(60_000)).toBeNull();
+    expect((await row(id))?.prState).toBe("opening");
+  });
+
   test("a legacy request with an invalid intent is failed without a notice", async () => {
     const { id, sessionId } = await due({ title: 42 });
     await slackThread(sessionId);
