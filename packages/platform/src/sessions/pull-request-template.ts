@@ -402,6 +402,9 @@ function scan(text: string): Scanned {
         const chunk = line.slice(at, end);
         // Some parsers end a comment at `--!>`; the renderer here does not.
         if (chunk.includes("--!>")) unbalanced = true;
+        // A table cell ends at `|` whatever is open, so a comment holding one
+        // may end in another cell than it began in.
+        if (/(?<!\\)\|/.test(chunk)) unbalanced = true;
         row.parts.push({ text: chunk, comment: true });
         at = end;
         if (close !== -1) inside = false;
