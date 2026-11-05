@@ -7,7 +7,7 @@ mainをKubernetesに載せる手順です。chartのソースは`deploy/helm/age
 
 **現在の状態:** 公式リリース(`v*`タグ)はまだありません。`main`のマージごとに公開されるchartには、そのrunのイメージdigestとworker runtimeが入っているので、リポジトリのcheckoutなしで[公開chartでインストール](#公開chartでインストール)します。リポジトリの`values.yaml`はdigestが空なので、checkoutのパスでインストールするときはdigestを自分で入れます。そのままではrenderが失敗します。
 
-Docker単一サーバーのインストール(`local-docker`実行基盤、compose)は引き続き運用します。その手順は[単一サーバーの設置](https://jeongjaesoon.github.io/werft/ja/run-server/self-hosting/single-server/)で、このページはその隣にある2つ目のインストール経路です。
+Docker単一サーバーのインストール(`local-docker`実行基盤、compose)は引き続き運用します。その手順は[server-deployment.md](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/server-deployment.md)で、公開イメージでインストールする順序は[単一サーバーの設置](https://jeongjaesoon.github.io/werft/ja/run-server/self-hosting/single-server/)にあります。このページはその隣にある2つ目のインストール経路です。
 
 worker Pod 1つのメモリ(`worker.memoryMb`)はtranscript上限に合わせた値で、requests = limitsなのでノードあたりの同時セッション数を決めます。ノードの大きさを決める前や、この値を変える前に[容量管理](https://jeongjaesoon.github.io/werft/ja/run-server/self-hosting/operate/capacity/)を読んでください。
 
@@ -349,7 +349,7 @@ kubectl -n werft exec deploy/werft-api -- env \
 
 workerイメージを戻す通常のrollbackは`refused`です。戻すrevisionの`images.workerPrevious`が、いまデプロイされているイメージではないからです(検査は組み合わせではなくイメージ参照を比べます)。設定やDBを読めなければ`check_failed`です。いまのイメージで動いているworkerは、rollbackの後も終わるまでそのイメージの組み合わせでcheckpointを残しますが、検査はそのcheckpointを見られません。出力の`affected`は、検査の時点ですでに選んだセッションです。ロールフォワードが先です。それでも戻すなら、再開するときにschedulerが組み合わせでイメージを選びます。戻したrevisionのworkerイメージと直前イメージ(あれば)のどちらとも組み合わせが合わないセッション(いまのイメージが新しいSDK・CLIを載せていたなら、rollbackの間にいまのイメージでcheckpointを残したセッション)は`recovery_required`で止まります。`images.worker`をそのままにするrollbackは、いまデプロイされている直前イメージが戻すrevisionにもそのままあれば、承認リストが空のとき`proceed`で(残った承認は`refused`)、抜けるか変わるなら上のupgradeのようにセッションを比べます。このコマンドはhookではないので、rollbackを止めてはくれません。`refused`が出たら`affected`を読んで、戻すかどうかを決めます。デプロイされたworkerイメージがあるのに`UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS`を抜くと`check_failed`です。
 
-**検査が見ないもの。** 単一サーバーのアップグレード検査と違い、この検査は対象イメージを実行しません。ポインターに記録された組み合わせ(engine・SDK・CLI・profile digestの方式)だけを比べ、実際のprofile digestは復元のときに判定されます。検査の後にwriterを止めて再検査することもしません。workerイメージが変わるupgradeは、対象の`images.workerPrevious`がいまデプロイされているイメージと同じでなければ通らないので、検査の後にいまのイメージのworkerが残すcheckpointは、対象のサポート窓の中にあります。workerイメージをそのままにして直前イメージを外すupgradeには、この保証がありません。直前イメージで動くworkerは、検査の後もその組み合わせでcheckpointを残せます。最初のcheckpointの前のセッションも同じです。そのため、直前イメージを外す前に、そのworkerが終わったかを先に見ます。それより古いイメージで動くworkerのセッションは、ポインターがすでにその組み合わせならリストに載ります。最初のcheckpointの前のセッションはリストにありません。この限界は、サポート窓から外れるすべてのイメージ、そして直前イメージを変えるupgradeにも同じです。対象イメージをregistryから取得できるかも見ません。取得できなければ、launchの失敗として現れます。
+**検査が見ないもの。** 単一サーバーのアップグレード検査([アップグレード](https://jeongjaesoon.github.io/werft/ja/run-server/self-hosting/upgrade/)を参照)と違い、この検査は対象イメージを実行しません。ポインターに記録された組み合わせ(engine・SDK・CLI・profile digestの方式)だけを比べ、実際のprofile digestは復元のときに判定されます。検査の後にwriterを止めて再検査することもしません。workerイメージが変わるupgradeは、対象の`images.workerPrevious`がいまデプロイされているイメージと同じでなければ通らないので、検査の後にいまのイメージのworkerが残すcheckpointは、対象のサポート窓の中にあります。workerイメージをそのままにして直前イメージを外すupgradeには、この保証がありません。直前イメージで動くworkerは、検査の後もその組み合わせでcheckpointを残せます。最初のcheckpointの前のセッションも同じです。そのため、直前イメージを外す前に、そのworkerが終わったかを先に見ます。それより古いイメージで動くworkerのセッションは、ポインターがすでにその組み合わせならリストに載ります。最初のcheckpointの前のセッションはリストにありません。この限界は、サポート窓から外れるすべてのイメージ、そして直前イメージを変えるupgradeにも同じです。対象イメージをregistryから取得できるかも見ません。取得できなければ、launchの失敗として現れます。
 
 ## 単一サーバー10ステップとの対応
 
