@@ -239,7 +239,7 @@ scripts/test-ops.sh start
 
 env ファイルの値を変えた設置には、`scripts/test-ops.sh upgrade /var/lib/agent-platform/test-ops/current.json` で同じ release を再適用します。`CONSOLE_ORIGIN` を足してこのコマンドで適用すると、api コンテナが作り直され、`/readyz` は ready でした。`start` が変えた env の値を読むかどうかは確認していません。
 
-残るのは DB の volume です。LocalStack は volume を持たずメモリに保存するので、コンテナを止めると `-v` がなくても checkpoint object は消えます。DB に未回収の checkpoint が残っているのに bucket が空だと API は起動を拒否します。その場合は[再起動](#再起動)の `reseed` か `reset` です。データを守るなら S3 で設置します。これらのコマンドは、唯一のセッションが失敗で終わった(未回収の checkpoint がない)LocalStack の設置で確認しました。手で実行した `compose down` で止まった設置を `start` で戻すこと、再起動の後に `start` で戻すことは、どちらも実行し、`/readyz` が 200 を返し owner でログインできました。未回収の checkpoint がある LocalStack の設置での `start` は確認していません。
+残るのは DB の volume です。LocalStack は volume を持たずメモリに保存するので、コンテナを止めると `-v` がなくても checkpoint object は消えます。DB に未回収の checkpoint が残っているのに bucket が空だと API は起動を拒否します。その場合は[再起動](#再起動)の `reseed` か `reset` です。データを守るなら S3 で設置します。これらのコマンドは、唯一のセッションが失敗で終わった(未回収の checkpoint がない)LocalStack の設置で確認しました。`stop` で止めた設置を `start` で戻すことも実行して確認しました。`stop` の後、コンテナと network は 0 個で volume は残り、`start` は exit 0、`/readyz` は 200 でした。手で実行した `compose down` で止まった設置を `start` で戻すこと、再起動の後に `start` で戻すことは、どちらも実行し、`/readyz` が 200 を返し owner でログインできました。未回収の checkpoint がある LocalStack の設置での `start` は確認していません。
 
 ## 運用する
 
@@ -311,7 +311,7 @@ scripts/test-ops.sh reseed /var/lib/werft/test-ops/backups/backup-<timestamp>
 
 `reseed` は、バックアップの manifest、project、bucket、checksum を確認し、空の LocalStack に object をアップロードして、未回収の checkpoint をすべて固定し直し、設置を起動し直します。最後のバックアップの後に新しい checkpoint ができていたら拒否し、その場合は `reset` しかありません。予期しない再起動の後に API が起動を拒否するのも同じ状態で、同じ方法で解消します。`reseed` は再起動していないスタックでも bucket が空なら通り、空でない bucket は拒否します。object があるときの動作は確認していません。
 
-再起動の後、スタックは自動では戻りません。検証マシン(OrbStack、Docker は起動時に自動開始)で再起動した後にコンテナを見ると、egress-proxy、reconciler、scheduler(`restart: unless-stopped`)だけが起動しており、postgres、api、localstack(restart ポリシーなし)は `Exited` でした。再起動の後は `scripts/test-ops.sh start` を自分で呼びます。このマシンでは `start` が exit 0 で終わり、`/readyz` が 200 を返し、再起動前の owner でログインでき、セッションの記録も残っていました。S3 の設置は再起動しても object が残るので、`start` だけで済みます。LocalStack の設置は `start` の後に bucket が空なので、未回収の checkpoint があるときは上の `reseed` が必要です。その場合は確認していません。
+再起動すると、スタックは自動で戻ります。postgres、api、localstack を含む常駐サービスのすべてが `restart: unless-stopped` だからです。検証マシン(OrbStack、Docker は起動時に自動開始)で `start` なしに再起動したところ、約 20 秒後に `/readyz` が 200 を返し、コンテナ 6 個すべてが healthy で、再起動前の owner でログインできました。戻らないときは `scripts/test-ops.sh start` を呼びます。`stop` や `compose down` で止めたスタックは、コンテナがすでに消えているため、再起動しても戻りません。このポリシーは、これを含む release に `upgrade` した設置に適用されます。それ以前にデプロイした設置は、コンテナを作り直すまで従来どおりです(再起動後、postgres、api、localstack は `Exited` で、`start` で起動します)。LocalStack の設置では、その最初の `upgrade` が restart ポリシーの変わった LocalStack コンテナを作り直し、メモリ上の object が空になります。`status` の `sessions with uncollected checkpoints` が 0 でなければ、その `upgrade` は見送ります。空になった後で API が起動に失敗すると、`upgrade` が残した `pending.json` のために `reseed` は拒否され、残る道は `reset`(セッションと checkpoint を削除)だけです。事前に `backup --stop` でバックアップを残しても、この道は開きません。この場合は確認していません。S3 の設置は再起動しても object が残ります。LocalStack の設置は再起動で bucket が空になるため、未回収の checkpoint があると API は起動を拒否して再起動を繰り返します。その場合は上の `reseed` か `reset` を使います。この場合は確認していません。
 
 再起動の前に、進行中のターンがないこと、`status` が正常であること、最新のバックアップがホストの外に複製されていることを確認します。再起動の後は、NTP、XFS `prjquota`、Docker の自動起動(これだけでは postgres、api、localstack は起動しないので、上の `start` が必要です)、ディスクと inode の余裕をもう一度確認します。続けて、`status` と `/readyz` が正常であること、再起動前のセッションを再開すると新しい worker が以前の workspace を引き継ぐことを確認します。API は選んだ経路からだけ届き、PostgreSQL と Docker socket は外から閉じている必要があります。
 
