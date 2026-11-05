@@ -712,6 +712,12 @@ describe("markup the scan and a renderer could read differently", () => {
       "<div>\n</div>\n`<select>`\n\n## Summary",
       // A comment that opens after text and runs over lines is read differently.
       "text <!--\n<details>\n-->\n\n## Summary",
+      // A list item or quote ends a comment's row without ending the comment.
+      "- a\n  <!-- <title>\n-->\n\n## Summary",
+      "> <!-- <title>\n-->\n\n## Summary",
+      // A reference definition takes the next row as its address.
+      "<noembed>\n\n[x]:\n</noembed>\n\n## Summary",
+      "<details>\n\n[x]:\n</details>\n\n## Summary",
       // A table cell ends at `|`, comment or not.
       "| x |\n| --- |\n| <!-- <title> | --> |\n\n## Summary",
       "<select>\n\n## Summary",

@@ -387,6 +387,9 @@ function scan(text: string): Scanned {
         continue;
       }
     }
+    // A reference definition whose address is on the next row takes that row,
+    // an end tag included, so the scan and a renderer would count it differently.
+    if (/^ {0,3}\[[^\]\n]*\]:[ \t]*$/.test(line)) unbalanced = true;
     const literal =
       raw ||
       /^\s*>/.test(line) ||
@@ -436,12 +439,10 @@ function scan(text: string): Scanned {
           line.slice(at, found.index),
         ].join(" ");
         if (hasLooseTag(before)) unbalanced = true;
-        // Renderers differ on a comment that opens after text and runs over
-        // lines; only one that opens its row, or ends on it, is taken.
-        if (
-          line.indexOf("-->", found.index + 4) === -1 &&
-          line.slice(0, found.index).trim() !== ""
-        ) {
+        // Renderers differ on a comment that opens after text or an indent
+        // (a list item, a quote) and runs over lines; only one that opens at
+        // the start of its row, or ends on it, is taken.
+        if (line.indexOf("-->", found.index + 4) === -1 && found.index !== 0) {
           unbalanced = true;
         }
         if (found.index > at) {
