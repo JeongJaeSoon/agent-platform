@@ -106,7 +106,12 @@ type StepState = "done" | "pending" | "unknown";
 interface Step {
   readonly key: MessageKey;
   readonly state: StepState;
-  readonly to?: "/members" | "/agents" | "/sessions" | "/profiles";
+  readonly to?:
+    | "/members"
+    | "/agents"
+    | "/sessions"
+    | "/profiles"
+    | "/settings/workspace/connections";
   /** Every step says how it gets done, so every row has the same two lines. */
   readonly hint: MessageKey;
 }
@@ -125,6 +130,7 @@ const STEP_ACTION = {
   "/agents": "home.checklist.toAgents",
   "/sessions": "home.checklist.toSessions",
   "/profiles": "home.setup.toProfiles",
+  "/settings/workspace/connections": "home.setup.toConnections",
 } as const satisfies Record<NonNullable<Step["to"]>, MessageKey>;
 
 const RECENT_LIMIT = 5;
@@ -259,7 +265,7 @@ export function HomeScreen() {
         {
           key: "home.setup.connection",
           state: stateOf(connections),
-          to: "/profiles",
+          to: "/settings/workspace/connections",
           hint: "home.setup.connectionHint",
         },
         {

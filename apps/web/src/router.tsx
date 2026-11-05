@@ -73,6 +73,7 @@ import {
   type SessionsSearch,
   sessionsSearch,
 } from "./routes/sessions.tsx";
+import { ConnectionsScreen } from "./routes/settings-connections.tsx";
 import { McpServersScreen } from "./routes/settings-mcp-servers.tsx";
 import { TeamDetailScreen, TeamsScreen } from "./routes/teams.tsx";
 import {
@@ -375,6 +376,12 @@ const orgKeys = createRoute({
   component: OrgKeysScreen,
 });
 
+const connections = createRoute({
+  getParentRoute: () => authed,
+  path: "/settings/workspace/connections",
+  component: ConnectionsScreen,
+});
+
 const mcpServers = createRoute({
   getParentRoute: () => authed,
   path: "/settings/workspace/mcp-servers",
@@ -505,6 +512,7 @@ const routeTree = root.addChildren([
     workspaceGitHub,
     workspaceGitHubNewApp,
     orgKeys,
+    connections,
     mcpServers,
     oldUsage,
     profiles,

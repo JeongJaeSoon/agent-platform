@@ -509,3 +509,73 @@ describe("MCP 서버", () => {
     expect(api.calls.some((call) => call.path === MCP)).toBe(false);
   });
 });
+
+describe("설정의 모델 연결", () => {
+  const routes = (signedIn = me()) => ({
+    "GET /v1/auth/me": () => json(200, signedIn),
+    "GET /v1/profiles": () =>
+      json(200, { items: [imported("coding-claude"), imported("general")] }),
+    [`GET ${CONNECTIONS}`]: () =>
+      json(200, {
+        items: [connection("anthropic"), connection("console-key")],
+        credential_hosts: null,
+        endpoint_defaults: { anthropic: "https://api.anthropic.com" },
+      }),
+    [`POST ${CONNECTIONS}`]: () => json(201, CHANGE("fresh")),
+  });
+
+  test("the owner reaches the list and the add dialog from the settings menu", async () => {
+    const { api } = renderAt("/settings/workspace", routes());
+    const user = await setupUser();
+    const nav = await screen.findByRole("navigation", { name: "설정" });
+    await user.click(within(nav).getByRole("link", { name: "모델 연결" }));
+
+    const table = await screen.findByRole("table", { name: "모델 연결" });
+    // One h1 for the page; the table's own head is not a second heading.
+    expect(
+      screen
+        .getAllByRole("heading", { name: "모델 연결" })
+        .map((h) => h.tagName),
+    ).toEqual(["H1"]);
+    expect(rowOf(table, "anthropic").textContent).toContain("설치 프로필 2개");
+    expect(
+      within(screen.getByRole("navigation", { name: "설정" }))
+        .getByRole("link", { name: "모델 연결" })
+        .getAttribute("aria-current"),
+    ).toBe("page");
+
+    await user.click(screen.getByRole("button", { name: "연결 추가" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.type(within(dialog).getByLabelText("id"), "fresh");
+    await user.type(within(dialog).getByLabelText("키 값"), "example-key");
+    await user.click(within(dialog).getByRole("button", { name: "만들기" }));
+    await screen.findByText("fresh를 만들었습니다.");
+    expect(writes(api.calls).map((call) => [call.method, call.path])).toEqual([
+      ["POST", CONNECTIONS],
+    ]);
+  });
+
+  test("the Profiles screen keeps its own connections section", async () => {
+    renderAt("/profiles", routes());
+    expect(
+      await screen.findByRole("table", { name: "모델 연결" }),
+    ).toBeDefined();
+    expect(screen.getByRole("button", { name: "연결 추가" })).toBeDefined();
+  });
+
+  test("an admin gets no menu item, and a direct visit is refused without a request", async () => {
+    const { api } = renderAt(
+      "/settings/workspace/connections",
+      routes(me(undefined, "admin")),
+    );
+    await screen.findByText("이 화면을 볼 권한이 없습니다");
+    const nav = screen.getByRole("navigation", { name: "설정" });
+    expect(within(nav).queryByRole("link", { name: "모델 연결" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "연결 추가" })).toBeNull();
+    expect(
+      api.calls.some(
+        (call) => call.path === CONNECTIONS || call.path === "/v1/profiles",
+      ),
+    ).toBe(false);
+  });
+});
