@@ -674,6 +674,11 @@ describe("markup the scan and a renderer could read differently", () => {
       "<details>\n> </details>\n\n## Summary",
       "<details>\n- </details>\n\n## Summary",
       "<div><details>\n</details></div>\n\n## Summary",
+      // A parser ignores the closer of an element that is not the innermost.
+      "<details>\n<table>\n</details>\n</table>\n\n## Summary",
+      "<details>\n<table>\n</details>\n</table>\n</details>\n\n## Summary",
+      "<details>\n<select>\n</details>\n</select>\n\n## Summary",
+      "<details>\n<svg>\n</details>\n\n## Summary",
       // Openers with no end the scan can follow, and elements it cannot close.
       "## Testing\n\n<?x\n",
       "## Testing\n\n<!DOCTYPE x\n",
@@ -693,6 +698,7 @@ describe("markup the scan and a renderer could read differently", () => {
       '<div align="center">\n\n![logo](x.png)\n</div>\n## Summary',
       "## Summary\nUse \\<Type here and <br> too.",
       "## Summary\nA \\<?x and \\<!x are text.",
+      "<details>\n<summary>More</summary>\n<table>\n<tr><td>a</td></tr>\n</table>\n</details>\n## Summary",
     ]) {
       expect(prepareTemplate(text)).not.toBeNull();
     }

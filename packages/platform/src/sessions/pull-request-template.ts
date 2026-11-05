@@ -291,6 +291,19 @@ const RAW_ELEMENTS: ReadonlySet<string> = new Set([
 ]);
 const ELEMENT_NAMES =
   "details|pre|div|table|blockquote|section|textarea|script|style|title|xmp|noembed|noframes|noscript|iframe|template";
+// The tags a template may use inside an element it has opened: the tracked
+// elements and plain text-level and table markup. Anything else (a `select`,
+// `svg`, `form`...) changes how a parser reads the end tags that follow.
+const KNOWN_INSIDE: ReadonlySet<string> = new Set([
+  ...ELEMENT_NAMES.split("|"),
+  ...[
+    "summary,br,p,a,b,i,u,s,em,strong,code,kbd,img,ul,ol,li,span,hr,sub,sup",
+    "h1,h2,h3,h4,h5,h6,tr,td,th,thead,tbody,tfoot,caption,colgroup,col",
+    "picture,source,dl,dt,dd,del,ins,mark,small,abbr,center",
+  ]
+    .join(",")
+    .split(","),
+]);
 // Markup that has no end the scan could follow: a declaration, a processing
 // instruction, a CDATA section, a malformed comment opener, `<plaintext>`.
 const OPEN_ENDED = /<(?:[!?](?!--)|plaintext(?![\w-]))/gi;
@@ -455,11 +468,21 @@ function scan(text: string): Scanned {
     if (mentionsElement(code)) unbalanced = true;
     const tags = elementsIn(seen, line);
     if (tags === null) unbalanced = true;
+    // Inside an open element a parser ignores or reroutes the end tags of the
+    // ones it does not know, so only tags the scan knows are taken there.
+    if (
+      (open.length > 0 || (tags ?? []).some(([closing]) => !closing)) &&
+      [...seen.matchAll(/<\/?([A-Za-z][\w-]*)/g)].some(
+        ([, name]) => !KNOWN_INSIDE.has((name ?? "").toLowerCase()),
+      )
+    ) {
+      unbalanced = true;
+    }
     for (const [closing, tag] of tags ?? []) {
       if (!closing) open.push(tag);
-      else if (open.lastIndexOf(tag) !== -1) {
-        open.splice(open.lastIndexOf(tag), 1);
-      }
+      // Closed in the order opened, or a parser may ignore the end tag.
+      else if (open.at(-1) === tag) open.pop();
+      else unbalanced = true;
     }
   }
   const fenced = rows.some(
