@@ -495,7 +495,14 @@ function scan(text: string): Scanned {
     }
   }
   const fenced = rows.some(
-    (row) => row.code && row.parts.some((part) => mentionsElement(part.text)),
+    (row) =>
+      row.code &&
+      row.parts.some(
+        (part) =>
+          mentionsElement(part.text) ||
+          hasLooseTag(part.text) ||
+          new RegExp(OPEN_ENDED).test(part.text),
+      ),
   );
   // An element the template leaves open would take the platform's text in.
   return {
