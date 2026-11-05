@@ -60,7 +60,6 @@ const ALLOWED: Record<string, string> = {
     "held: still calls an internal test script and has unfinished sections",
   "docs/operator/data-retention.md":
     "held: pins line numbers to a commit and has an open decisions section",
-  "docs/operator/execution.md": "held: no site page yet",
   "docs/operator/server-deployment.md": "held: no site page yet",
 };
 const ALLOWED_PREFIXES: Record<string, string> = {

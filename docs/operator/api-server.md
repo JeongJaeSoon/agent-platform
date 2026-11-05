@@ -1,6 +1,6 @@
 # API 서버 — 카탈로그, 자격 증명, checkpoint 저장소, 인증과 권한
 
-API 서버가 운영자 카탈로그(Agent Profile·repository)와 자격 증명을 다루는 방식, checkpoint object store, API 인증과 세션 실행 권한을 적는다. 설정값은 [설정 레퍼런스](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/configuration/)에, worker 실행과 격리는 [실행 기반과 worker 격리](execution.md)에 있다.
+API 서버가 운영자 카탈로그(Agent Profile·repository)와 자격 증명을 다루는 방식, checkpoint object store, API 인증과 세션 실행 권한을 적는다. 설정값은 [설정 레퍼런스](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/configuration/)에, worker 실행과 격리는 [실행 기반과 worker 격리](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/execution/)에 있다.
 
 ## provider 키와 저장소 자격 증명은 worker에 가지 않는다
 

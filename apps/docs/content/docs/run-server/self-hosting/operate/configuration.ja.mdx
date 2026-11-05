@@ -3,7 +3,7 @@ title: "設定リファレンス"
 description: インストール上限、API設定、scheduler・workerコンテナ・egressの設定
 ---
 
-インストール上限、API設定、scheduler・workerコンテナ・egressの設定をまとめます。reconcilerとschedulerの監督ループの設定は[実行基盤とworkerの隔離](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/execution.md)に、接続・保存先・上限(コンソールと設定ドキュメント)と認証の設定は[APIサーバー](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)に、Kubernetes backendの設定は[Kubernetes実行backend](/run-server/self-hosting/operate/kubernetes-backend)にあります。
+インストール上限、API設定、scheduler・workerコンテナ・egressの設定をまとめます。reconcilerとschedulerの監督ループの設定は[実行基盤とworkerの隔離](/run-server/self-hosting/operate/execution)に、接続・保存先・上限(コンソールと設定ドキュメント)と認証の設定は[APIサーバー](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)に、Kubernetes backendの設定は[Kubernetes実行backend](/run-server/self-hosting/operate/kubernetes-backend)にあります。
 
 ## インストール上限
 
@@ -108,7 +108,7 @@ GitHub Packagesのbot token([決定](https://github.com/JeongJaeSoon/werft/blob/
 
 ## scheduler・workerコンテナ・egressの設定
 
-schedulerがworkerコンテナを作るときに読む値です。なければ既定値を使い、形式が誤っていれば起動しません。user、HOMEとworkspaceのパス、tmpfsのサイズ、credentialのポート、stop timeoutは、`werft.isolation`のフィンガープリントに入ります([実行基盤とworkerの隔離](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/execution.md#reconcilerscheduler와-worker-격리))。そのため、変えると実行中のworkerが入れ替わります。CPU・メモリ・PIDの上限は、次のlaunchから適用されます。
+schedulerがworkerコンテナを作るときに読む値です。なければ既定値を使い、形式が誤っていれば起動しません。user、HOMEとworkspaceのパス、tmpfsのサイズ、credentialのポート、stop timeoutは、`werft.isolation`のフィンガープリントに入ります([実行基盤とworkerの隔離](/run-server/self-hosting/operate/execution#reconcilerschedulerとworkerの隔離))。そのため、変えると実行中のworkerが入れ替わります。CPU・メモリ・PIDの上限は、次のlaunchから適用されます。
 
 `WORKER_MEMORY_MB`は、transcript上限(`MAX_TRANSCRIPT_BYTES`)と一緒に決めた値です。2つの関係、実測、ノードあたりのセッション数、変え方は[容量管理](/run-server/self-hosting/operate/capacity)にあります。
 

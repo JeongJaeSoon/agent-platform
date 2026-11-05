@@ -3,7 +3,7 @@ title: "Kubernetes execution backend"
 description: How the scheduler runs workers as Kubernetes Pods, and the settings it reads
 ---
 
-This page describes how the scheduler behaves, and what it reads, when it runs workers as Kubernetes Pods instead of Docker containers. The steps to install with the Helm chart are in [Kubernetes install (Helm chart)](/run-server/self-hosting/operate/kubernetes-deployment). The Docker backend is described in [Execution base and worker isolation](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/execution.md).
+This page describes how the scheduler behaves, and what it reads, when it runs workers as Kubernetes Pods instead of Docker containers. The steps to install with the Helm chart are in [Kubernetes install (Helm chart)](/run-server/self-hosting/operate/kubernetes-deployment). The Docker backend is described in [Execution base and worker isolation](/run-server/self-hosting/operate/execution).
 
 `packages/adapters/execution/kubernetes` creates one worker Pod per launch. Each Pod gets one nonce Secret that it owns, and the session's workspace PVC is mounted.
 
