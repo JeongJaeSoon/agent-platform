@@ -129,7 +129,7 @@ integration("a settings document seeding an empty PostgreSQL", () => {
           { repositories: entries.repositories, profiles },
           (ref) =>
             "secret_id" in ref &&
-            ref.secret_id === "agent-platform/local/fake-github-app"
+            ref.secret_id === "werft/local/fake-github-app"
               ? appKey
               : PLACEHOLDER,
         );

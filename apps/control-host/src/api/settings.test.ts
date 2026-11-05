@@ -24,7 +24,7 @@ const OLD_CATALOG = {
     endpoint: http://fake-messages:4010
     auth:
       kind: api_key
-      secret_id: agent-platform/local/fake-messages
+      secret_id: werft/local/fake-messages
 `,
   "repositories.yaml": `repositories:
   sample-app:
@@ -53,7 +53,7 @@ const OLD_CATALOG = {
     credential_ref: mcp/fake
     auth:
       kind: bearer
-      secret_id: agent-platform/local/fake-mcp
+      secret_id: werft/local/fake-mcp
     workspaces: [verify]
 `,
   "profiles.yaml": `profiles:
@@ -68,7 +68,7 @@ const OLD_CATALOG = {
       endpoint: http://fake-messages:4010
       auth:
         kind: api_key
-        secret_id: agent-platform/local/fake-messages
+        secret_id: werft/local/fake-messages
 `,
   "platform.yaml": `secret_key:
   value_env: UNREAD
