@@ -14,6 +14,7 @@ import {
 import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { createPostgresAgentGitHubStore } from "./agent-github.ts";
 import {
   agentGitHubSettingsOf,
   captureGitHubPolicyStart,
@@ -491,6 +492,83 @@ integration("the readers of an agent's GitHub settings", () => {
           approval_basis: null,
         });
       }
+    });
+
+    // The real save path, as the PUT route reaches it. `pushAttached` is left
+    // out of the input unless a test names it.
+    const save = (
+      workspaceId: string,
+      agentId: string,
+      input: {
+        expectedRevision: number | null;
+        pushApproval: boolean;
+        pushAttached?: "allow" | "ask" | "deny";
+      },
+    ) =>
+      createPostgresAgentGitHubStore(db).putSettings({
+        workspaceId,
+        agentId,
+        expectedRevision: input.expectedRevision,
+        settings: {
+          repositories: ["sample-app"],
+          push_approval: input.pushApproval,
+          features: { ...GITHUB_CEILING_NONE },
+          actions_allow: [],
+        },
+        startRepositoryId: null,
+        ...(input.pushAttached === undefined
+          ? {}
+          : { pushAttached: input.pushAttached }),
+        userId: randomUUID(),
+        principal: { ownerId: workspaceId },
+        managerRoles: [],
+        check: () => {},
+      });
+
+    test("a row from before the column stays null, and asks, after a save that changes another field", async () => {
+      const { workspaceId, agentId } = await fixture({ source: "agent" });
+      await settingsRow(workspaceId, agentId, {
+        pushApproval: true,
+        updatedBy: randomUUID(),
+      });
+      expect(await columnOf(agentId)).toBeNull();
+      const saved = await save(workspaceId, agentId, {
+        expectedRevision: 1,
+        pushApproval: false,
+      });
+      expect(saved).toMatchObject({ outcome: "saved", revision: 2 });
+      expect(await columnOf(agentId)).toBeNull();
+      expect(await agentGitHubSettingsOf(db, agentId)).toMatchObject({
+        pushApproval: false,
+        pushAttached: null,
+      });
+    });
+
+    test("a first save that leaves the field out stores allow", async () => {
+      const { workspaceId, agentId } = await fixture({ source: "agent" });
+      expect(await columnOf(agentId)).toBeUndefined();
+      const saved = await save(workspaceId, agentId, {
+        expectedRevision: null,
+        pushApproval: true,
+      });
+      expect(saved).toMatchObject({ outcome: "saved", revision: 1 });
+      expect(await columnOf(agentId)).toBe("allow");
+    });
+
+    test("a save that leaves the field out keeps a stored deny", async () => {
+      const { workspaceId, agentId } = await fixture({ source: "agent" });
+      await save(workspaceId, agentId, {
+        expectedRevision: null,
+        pushApproval: true,
+        pushAttached: "deny",
+      });
+      expect(await columnOf(agentId)).toBe("deny");
+      const saved = await save(workspaceId, agentId, {
+        expectedRevision: 1,
+        pushApproval: false,
+      });
+      expect(saved).toMatchObject({ outcome: "saved", revision: 2 });
+      expect(await columnOf(agentId)).toBe("deny");
     });
 
     test("a session with no snapshot is capped at ask even when the row now says allow", async () => {
