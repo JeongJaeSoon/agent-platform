@@ -102,7 +102,7 @@ kill "$PF"
 
 アップグレードの直前に[バックアップ](/run-server/self-hosting/single-server#バックアップと復元)を一度取ります。元に戻すには、以前の release ファイルで `upgrade` をもう一度呼びます。worker イメージがまた変わるので、同じ規則が適用されます。
 
-アップグレードが新しい release の起動前に止まると(例: scheduler の quota 検査の失敗)、設置は止まったままになり、状態ディレクトリに `pending.json` が残ります。この状態では `status` 以外のコマンドが、以前の release へ戻す `upgrade` も含めて拒否されます。原因を直した後、同じ対象の release ファイルでもう一度 `upgrade` を呼ぶと解消します。
+アップグレードが新しい release の起動前に止まると(例: scheduler の quota 検査の失敗)、設置は止まったままになり、状態ディレクトリに `pending.json` が残ります。この状態では `status` と `reset` 以外のコマンドが、以前の release へ戻す `upgrade` も含めて拒否されます。原因を直した後、同じ対象の release ファイルでもう一度 `upgrade` を呼ぶと解消します。
 
 ```bash
 git fetch && git checkout <new source_commit> && bun install --frozen-lockfile

@@ -51,7 +51,7 @@ done
 
 ### 이미지를 직접 빌드할 때
 
-게시된 이미지를 받을 수 없을 때(`amd64`, `arm64`가 아닌 호스트, 게시되지 않은 commit)의 경로다. 설치할 commit의 checkout에서 세 이미지를 빌드해 호스트가 받을 수 있는 registry에 올리고, push가 돌려준 digest를 4단계의 release 파일에 적는다. 이미지는 빌드한 머신의 아키텍처로 만들어지므로 호스트와 같은 아키텍처에서 빌드한다. 이 경로는 스크립트와 compose 파일을 읽어 옮긴 것이고 위 검증에서는 실행하지 않았다.
+게시된 이미지를 받을 수 없을 때(게시되지 않은 commit)의 경로다. 지원하는 아키텍처는 `amd64`와 `arm64`뿐이다. 설치할 commit의 checkout에서 세 이미지를 빌드해 호스트가 받을 수 있는 registry에 올리고, push가 돌려준 digest를 4단계의 release 파일에 적는다. 이미지는 빌드한 머신의 아키텍처로 만들어지므로 호스트와 같은 아키텍처에서 빌드한다. 이 경로는 스크립트와 compose 파일을 읽어 옮긴 것이고 위 검증에서는 실행하지 않았다.
 
 ```bash
 R=<registry>   # for example 127.0.0.1:5000
@@ -170,7 +170,7 @@ jq -n \
 
 ## 5. 설치하기
 
-object store는 처음 `deploy`할 때 정해지고 그 뒤에는 바꿀 수 없다. 기본은 같은 호스트의 LocalStack이다. 실서버라면 아래 두 명령 앞에 `TEST_OPS_OBJECT_STORE=s3`를 붙이고, 전용 AWS S3 bucket을 준비해 env 파일에 `AWS_REGION`, `S3_BUCKET`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`를 채운다. `EGRESS_CREDENTIAL_ALLOWLIST`에는 `<bucket>.s3.ap-northeast-1.amazonaws.com:443`을 더하고, `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`는 값을 비운다(`localstack:4566`이 남아 있으면 `preflight`가 거부한다). bucket 준비는 [전용 S3 bucket](#전용-s3-bucket)을 따른다.
+object store는 처음 `deploy`할 때 정해지고 그 뒤에는 바꿀 수 없다. 기본은 같은 호스트의 LocalStack이다. 실서버라면 아래 두 명령 앞에 `TEST_OPS_OBJECT_STORE=s3`를 붙이고, 전용 AWS S3 bucket을 준비해 env 파일에 `AWS_REGION`, `S3_BUCKET`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`를 채운다. `EGRESS_CREDENTIAL_ALLOWLIST`에는 `<bucket>.s3.ap-northeast-1.amazonaws.com:443`을 더하고(bucket 이름에 `.`이 있으면 `s3.ap-northeast-1.amazonaws.com:443`을 더한다), `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`는 값을 비운다(`localstack:4566`이 남아 있으면 `preflight`가 거부한다). bucket 준비는 [전용 S3 bucket](#전용-s3-bucket)을 따른다.
 
 `preflight`가 Docker 버전, checkout, env 파일, release 파일을 먼저 검사한다. 디스크 quota는 `deploy`에서 scheduler가 검사한다. 통과하면 `deploy`가 같은 파일로 설치한다.
 

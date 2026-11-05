@@ -102,7 +102,7 @@ kill "$PF"
 
 업그레이드 직전에 [백업](/run-server/self-hosting/single-server#백업과-복원)을 한 번 받는다. 되돌리기는 이전 release 파일로 `upgrade`를 다시 부르는 것이고, worker 이미지가 다시 바뀌므로 같은 규칙이 적용된다.
 
-업그레이드가 새 release가 뜨기 전에(예: scheduler의 quota 검사 실패) 멈추면 설치가 멈춘 채로 남고, 상태 디렉터리의 `pending.json`이 남는다. 이 상태에서는 `status`를 뺀 다른 명령, 이전 release로 되돌리는 `upgrade`도 거부한다. 원인을 고친 뒤 같은 대상 release 파일로 `upgrade`를 다시 부르면 풀린다.
+업그레이드가 새 release가 뜨기 전에(예: scheduler의 quota 검사 실패) 멈추면 설치가 멈춘 채로 남고, 상태 디렉터리의 `pending.json`이 남는다. 이 상태에서는 `status`와 `reset`을 뺀 다른 명령은 이전 release로 되돌리는 `upgrade`도 포함해 거부한다. 원인을 고친 뒤 같은 대상 release 파일로 `upgrade`를 다시 부르면 풀린다.
 
 ```bash
 git fetch && git checkout <new source_commit> && bun install --frozen-lockfile
