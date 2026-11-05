@@ -333,7 +333,7 @@ describe("a template from the repository is made inert", () => {
       "    <!-- shown as code\n@victim",
       "> <!-- quoted\n@victim",
       "\\<!-- escaped @victim -->",
-      "<textarea><!-- @victim --></textarea>",
+      "<textarea>\n<!-- @victim -->\n</textarea>",
       "<pre>\n<!-- @victim -->\n</pre>",
     ]) {
       const out = inert(text);
@@ -591,7 +591,7 @@ describe("markup the scan and a renderer could read differently", () => {
     }
     expect(
       prepareTemplate(
-        '<details open><summary>a > b</summary>\n<a href="x">y</a></details>',
+        '<details open><summary>a > b</summary>\n<a href="x">y</a>\n</details>',
       ),
     ).not.toBeNull();
   });
@@ -612,17 +612,20 @@ describe("markup the scan and a renderer could read differently", () => {
     expect(out.replaceAll(ZWSP, "")).toContain("ping @victim, see acme/app#9");
   });
 
-  test("a field is not put into what a comment's last row goes on to open", () => {
-    const out = filled(
-      "## Summary\n<!--\nguidance\n--><details>\nmore\n</details>",
-      { summary: "REAL SUMMARY" },
-    );
-    expect(out.indexOf("REAL SUMMARY")).toBeGreaterThan(
-      out.indexOf("</details>"),
-    );
-    expect(out.slice(0, out.indexOf("REAL SUMMARY"))).not.toMatch(
-      /<details>(?![\s\S]*<\/details>)/,
-    );
+  test("a field is not put at a row that ends a comment and goes on with text", () => {
+    const out = filled("## Summary\n<!--\nguidance\n--> **note**\nmore", {
+      summary: "REAL SUMMARY",
+    });
+    // Not between the comment's rows, where it would be hidden: after all.
+    expect(out.indexOf("REAL SUMMARY")).toBeGreaterThan(out.indexOf("more"));
+  });
+
+  test("a row that ends a comment and opens an element rejects the template", () => {
+    expect(
+      prepareTemplate(
+        "## Summary\n<!--\nguidance\n--><details>\nx\n</details>",
+      ),
+    ).toBeNull();
   });
 
   test("references to issues and pull requests are not live, links to anything else stay", () => {
@@ -644,6 +647,8 @@ describe("markup the scan and a renderer could read differently", () => {
         `https://github.com/acme/app/commit/${sha}`,
         `acme/app@${sha}`,
         sha,
+        "[issue](https://github.com/acme/app/issues/&#49;3)",
+        "[issue](https://github.com/acme/app/issues/%313)",
       ].join("\n"),
     );
     expect(out).not.toMatch(
@@ -662,6 +667,13 @@ describe("markup the scan and a renderer could read differently", () => {
       "<details>\n\n## Summary",
       "```html\n<div>\n```\n## Summary",
       "## Summary\nuse `</details>` to close",
+      // A closer that is code, escaped, or swallowed by a comment is not a closer.
+      "<details>\n\n    </details>\n\n## Summary",
+      "<details>\n\\<details>\n</details>\n\n## Summary",
+      "<details>\n    <!-- </details>\n\n## Summary",
+      "<details>\n> </details>\n\n## Summary",
+      "<details>\n- </details>\n\n## Summary",
+      "<div><details>\n</details></div>\n\n## Summary",
       // Openers with no end the scan can follow, and elements it cannot close.
       "## Testing\n\n<?x\n",
       "## Testing\n\n<!DOCTYPE x\n",

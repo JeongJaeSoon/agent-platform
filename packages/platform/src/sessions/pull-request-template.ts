@@ -7,19 +7,16 @@
 import type { PullRequestTemplateRecord } from "@werft-ai/contracts";
 import type { GitHubApi, GitTreeEntry } from "../ports/github-gate.ts";
 import { closeOpenBlocks } from "./git-attribution.ts";
-import {
-  breakReferences,
-  neutralizeReferences,
-  stripEngineSignatures,
-} from "./pull-request-text.ts";
+import { breakReferences, stripEngineSignatures } from "./pull-request-text.ts";
 
 // What a template may not link on its own: `#12`, `GH-12`, a commit, and the
 // address of an issue, pull request or commit. (`&#12;` is an entity.) An
 // address is broken in its path, whatever its scheme or host is written as:
 // a host is normalised by a URL parser, a path is not.
 const LOCAL_REFERENCE = /(^|[^\w&])(#|GH-)(?=\d)/gi;
-const NUMBERED_PATH = /(\/(?:issues|pull)\/)(?=\d)/gi;
-const COMMIT_PATH = /(\/commit\/)(?=[0-9a-f]{7})/gi;
+// Whatever follows the segment, an entity or a percent escape included.
+const NUMBERED_PATH = /(\/(?:issues|pull)\/)(?=[^\s])/gi;
+const COMMIT_PATH = /(\/commit\/)(?=[^\s])/gi;
 const COMMIT_REFERENCE = /(^|[^\w/.-])([\w.-]+\/[\w.-]+@)(?=[0-9a-f]{7})/gi;
 const COMMIT_HASH = /\b([0-9a-f]{7})(?=[0-9a-f]{33}\b)/gi;
 
@@ -456,7 +453,7 @@ function scan(text: string): Scanned {
       .map((part) => (part.text.match(/(`+)[^`]*?\1/g) ?? []).join(" "))
       .join(" ");
     if (mentionsElement(code)) unbalanced = true;
-    const tags = elementsIn(seen);
+    const tags = elementsIn(seen, line);
     if (tags === null) unbalanced = true;
     for (const [closing, tag] of tags ?? []) {
       if (!closing) open.push(tag);
@@ -480,18 +477,26 @@ function mentionsElement(text: string): boolean {
 }
 
 /**
- * The elements `text` opens and closes, or null when one is written in a way
- * the scan does not follow (a quote or `>` inside the tag, anything after
- * the attributes).
+ * The element `seen` (a row's text outside comments and code spans) opens or
+ * closes, or null when the row writes one in a way the scan does not follow:
+ * more than one, one that does not begin the row (after at most three spaces),
+ * one escaped, indented as code, quoted or in a list item, or one with a quote or `>`
+ * inside the tag. Whether a renderer reads those as markup depends on block
+ * rules the scan does not model, so none is judged.
  */
-function elementsIn(text: string): Array<[boolean, string]> | null {
-  const found: Array<[boolean, string]> = [];
-  for (const match of text.matchAll(ELEMENT_ANY)) {
-    if (escaped(text, match.index)) continue;
-    if (!ELEMENT_SIMPLE.test(text.slice(match.index))) return null;
-    found.push([match[1] === "/", (match[2] ?? "").toLowerCase()]);
-  }
-  return found;
+function elementsIn(
+  seen: string,
+  line: string,
+): Array<[boolean, string]> | null {
+  const named = [...seen.matchAll(ELEMENT_ANY)];
+  if (named.length === 0) return [];
+  const [only] = named;
+  if (named.length > 1 || only === undefined) return null;
+  const start = new RegExp(`^ {0,3}(?=<(/?)(${ELEMENT_NAMES})(?![\\w-]))`, "i");
+  const at = start.exec(line);
+  if (at === null) return null;
+  if (!ELEMENT_SIMPLE.test(line.slice(at[0].length))) return null;
+  return [[only[1] === "/", (only[2] ?? "").toLowerCase()]];
 }
 
 /** Whether an HTML tag opened in `text` is still open at its end (quotes honoured). */
@@ -550,7 +555,11 @@ export function prepareTemplate(raw: string): PreparedTemplate | null {
       row.parts.map((part) => (part.comment ? " " : part.text)).join(""),
     )
     .join("\n");
-  const broken = breakLinks(neutralizeReferences(visible));
+  // A text `<!--` loses its `<` to the text, not its dashes: `<!` followed by
+  // anything else opens a bogus comment that runs to the next `>`.
+  const broken = breakLinks(
+    breakReferences(visible).replaceAll("<!--", `<${ZWSP}!--`),
+  );
   const added: number[] = new Array(visible.length + 1).fill(0);
   let j = 0;
   for (let i = 0; i <= visible.length; i += 1) {
