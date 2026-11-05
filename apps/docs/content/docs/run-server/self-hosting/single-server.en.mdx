@@ -242,7 +242,7 @@ What stays is the database volume. LocalStack keeps S3 in memory with no volume,
 ## Operations
 
 <Callout type="warn">
-This section was written by reading `scripts/test-ops.sh` and the code. On the verification machine, `backup`, `reseed`, `restore-drill`, a reboot, an S3 object-store install and a TLS reverse proxy were not run. The arguments and behavior below were checked against the script's argument handling and the code, not by running them end to end on a real server.
+This section was written by reading `scripts/test-ops.sh` and the code. On the verification machine (a LocalStack install), `backup`, `restore-drill` and `reseed` were each run. `backup` exited 0 and the `/readyz` body at the end said ready; `restore-drill` was called without `--bucket` and reported `PASSED` with exit 0; `reseed` exited 0 and `/readyz` returned HTTP 200. That stack had 0 objects and 0 checkpoint rows, though, so the object upload path and the checkpoint comparison were not used. The procedure that chains `backup --stop`, a reboot and `reseed`, an S3 object-store install and a TLS reverse proxy were not run. For those, the arguments and behavior were checked against the script's argument handling and the code only.
 </Callout>
 
 ### Access path
@@ -269,14 +269,14 @@ The credentials go only to the API and maintenance containers. Workers go throug
 scripts/test-ops.sh backup
 ```
 
-`backup` stops the api, scheduler, reconciler and worker containers, bundles the database and checkpoint objects into `$TEST_OPS_STATE_DIR/backups/backup-<timestamp>`, and starts the stopped services again. Turns in progress are cut off, and the reconciler reclaims them later. A failed backup stays as `.failed`, and one cut short by a forced stop stays as `.partial`; neither counts as a successful copy. If the services cannot be restarted, the command fails even when the backup succeeded, so check with `status`.
+`backup` stops the api, scheduler, reconciler and worker containers, bundles the database and checkpoint objects into `$TEST_OPS_STATE_DIR/backups/backup-<timestamp>`, and starts the stopped services again. On the verification machine it produced the database backup with 0 objects, exited 0, and the `/readyz` body at the end said ready. Turns in progress are cut off, and the reconciler reclaims them later. A failed backup stays as `.failed`, and one cut short by a forced stop stays as `.partial`; neither counts as a successful copy. If the services cannot be restarted, the command fails even when the backup succeeded, so check with `status`.
 
 - Schedule: once a day at a quiet hour, and right before every upgrade.
 - Retention: keep the last 14 days of successful copies on the host and the last 90 days in an encrypted off-host store. A backup holds the whole database and the API key hashes. Keep the directory at `0700`, encrypt transfer and storage, and keep access to a minimum.
 - Alerts: treat a non-zero exit, a failure to restart the services, and 26 hours without a new successful copy as failures.
 - Restore drill: once a month, and after the first backup following each upgrade.
 
-A restore drill restores a backup into a new project and its object store and compares every checkpoint pointer by version. On a LocalStack install, call it without a bucket. On an S3 install, pass a freshly created, empty bucket with `--bucket` for every drill. It refuses a target that is the original bucket or is not empty. This restore drill was not run.
+A restore drill restores a backup into a new project and its object store and compares every checkpoint pointer by version. On a LocalStack install, call it without a bucket. On an S3 install, pass a freshly created, empty bucket with `--bucket` for every drill. It refuses a target that is the original bucket or is not empty. On the verification machine (LocalStack) it was called without `--bucket` and reported `restore-drill: PASSED` with exit 0, and no container, volume or network of the drill project was left behind. That stack had no checkpoint rows, so it printed a warning that nothing was compared. The comparison of checkpoint pointers by version was therefore not checked. The example below is for an S3 install, so it passes `--bucket`; on LocalStack leave it out.
 
 ```bash
 # Restore a backup into a throwaway project and a new, empty bucket, then verify it
@@ -289,7 +289,7 @@ A restore drill restores only PostgreSQL and the object store and does not start
 
 ### Reboot
 
-A LocalStack install loses its objects on reboot. Leave a backup before a reboot you know about and restore from it. The `backup --stop` and `reseed` procedure below was not run.
+A LocalStack install loses its objects on reboot. Leave a backup before a reboot you know about and restore from it. The procedure below that chains `backup --stop`, a reboot and `reseed` was not run as written. `reseed` alone was run on a stack that was up and not rebooted, with 0 objects; it exited 0 and `/readyz` returned 200.
 
 ```bash
 # Back up, leave the writers stopped, restart the host, then restore the objects
@@ -298,11 +298,11 @@ sudo reboot
 scripts/test-ops.sh reseed /var/lib/agent-platform/test-ops/backups/backup-<timestamp>
 ```
 
-`reseed` checks the backup's manifest, project, bucket and checksum, uploads the objects into the empty LocalStack, pins every uncollected checkpoint again and brings the installation back up. If a new checkpoint appeared after the last backup it refuses, and then only `reset` is left. An API that refuses to start after an unexpected restart is in the same state and is fixed the same way.
+`reseed` checks the backup's manifest, project, bucket and checksum, uploads the objects into the empty LocalStack, pins every uncollected checkpoint again and brings the installation back up. If a new checkpoint appeared after the last backup it refuses, and then only `reset` is left. An API that refuses to start after an unexpected restart is in the same state and is fixed the same way. `reseed` also passed on a stack that had not been restarted when the bucket was empty, and it refuses a bucket that is not empty. What it does when objects exist was not checked.
 
 After a reboot the stack comes back by itself, because every long-running service, postgres, api and localstack included, is `restart: unless-stopped`. On the verification machine (OrbStack, Docker starting at boot), about 20 seconds after a reboot without `start`, `/readyz` returned 200, all six containers were healthy and the owner from before the reboot could log in. If it does not come back, run `scripts/test-ops.sh start`. A stack you took down with `stop` or `compose down` stays down across a reboot, because its containers are already gone. The policy applies to an install that was upgraded to a release carrying it; an install deployed earlier behaves as before (postgres, api and localstack are `Exited` after a reboot, and `start` brings them up) until its containers are recreated. On a LocalStack install, that first `upgrade` recreates the LocalStack container, whose restart policy changed, and empties the objects held in memory. If `sessions with uncollected checkpoints` in `status` is not 0, hold that `upgrade` back. If the API then fails to start on the emptied store, `reseed` is refused because of the `pending.json` the `upgrade` left, and only `reset` (which deletes sessions and checkpoints) remains. A backup taken with `backup --stop` beforehand does not open that way out. That case was not checked. An S3 install keeps its objects across a restart. A LocalStack install loses its bucket in a reboot, so with uncollected checkpoints the API refuses to start and keeps restarting; then use `reseed` or `reset` above. That case was not checked.
 
-Before the reboot, check that no turn is in progress, that `status` is healthy and that the latest backup has been copied off the host. After it, check NTP, XFS `prjquota`, Docker's automatic start, and disk and inode headroom again. Then check that `status` and `/readyz` are healthy, and that resuming a session from before the reboot lets a new worker continue the old workspace. The API must be reachable only through the path you chose, and PostgreSQL and the Docker socket must be closed from outside.
+Before the reboot, check that no turn is in progress, that `status` is healthy and that the latest backup has been copied off the host. After it, check NTP, XFS `prjquota`, Docker's automatic start (which alone does not bring postgres, api and localstack up, so the `start` above is needed), and disk and inode headroom again. Then check that `status` and `/readyz` are healthy, and that resuming a session from before the reboot lets a new worker continue the old workspace. The API must be reachable only through the path you chose, and PostgreSQL and the Docker socket must be closed from outside.
 
 ### Day 1
 
