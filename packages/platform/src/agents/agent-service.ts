@@ -159,6 +159,16 @@ export function createAgentService(deps: {
   // Who names any live team as an agent's managing team, as setManagingTeam.
   const TEAM_ASSIGNERS = MANAGEMENT_ROLES["agent.admin.manage"] ?? [];
 
+  // An agent with a settings row takes its GitHub settings from `PUT
+  // …/github/settings`; a release no longer carries them (design 3.6).
+  const githubSettingsOwned = () =>
+    new SessionServiceError(
+      "ALREADY_EXISTS",
+      "github: this agent's GitHub settings are saved with PUT /v1/agents/{id}/github/settings, not in a release",
+      undefined,
+      { field: "github", reason_code: "github_settings_exist" },
+    );
+
   const githubInvalid = (
     field: string,
     reason: GitHubRefusal | "release_repository_outside",
@@ -450,6 +460,14 @@ export function createAgentService(deps: {
         request.version_id,
       );
       if (!version) throw NOT_FOUND();
+      // Checked ahead of the other refusals so it is the answer; the store
+      // checks again under the agent's lock against a concurrent first save.
+      if (
+        request.github !== undefined &&
+        (await store.hasGitHubSettings(agentId))
+      ) {
+        throw githubSettingsOwned();
+      }
       const profileId = request.runtime_profile_id;
       await refreshWorkspaceProfilesFor(catalog, [profileId], { strict: true });
       const workspaceRefusal = workspaceProfileRefusal(
@@ -533,6 +551,7 @@ export function createAgentService(deps: {
         principal: caller,
         workspaceId: caller.ownerId,
         managerRoles: AGENT_MANAGERS,
+        refuseGitHubWhenSettings: request.github !== undefined,
         release: {
           id: deriveReleaseId(identity),
           version_id: version.id,
@@ -548,6 +567,8 @@ export function createAgentService(deps: {
           throw ACTOR_INACTIVE();
         case "outranked":
           throw OUTRANKED();
+        case "github_settings_exist":
+          throw githubSettingsOwned();
         default:
           assertReleaseIdentity(result.release);
           return {

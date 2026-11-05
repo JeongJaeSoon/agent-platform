@@ -1,15 +1,18 @@
 import {
   AGENT_GITHUB_ACTIVITY_LIMIT,
-  type AgentGitHub,
   type AgentGitHubActivityResponse,
   type AgentGitHubFeatureUnavailable,
   type AgentGitHubRepositoryUnavailable,
   type AgentGitHubResponse,
+  type AgentGitHubSettings,
   GITHUB_CEILING_NONE,
   type GitHubAppRole,
   type GitHubFeatures,
+  githubFeaturesOverCeiling,
   newSessionGitHubPolicy,
   type PutAgentGitHubEnabledResponse,
+  type PutAgentGitHubSettingsRequest,
+  type PutAgentGitHubSettingsResponse,
 } from "@werft-ai/contracts";
 import {
   type AuthorizationPolicy,
@@ -31,13 +34,9 @@ import type {
 import type { GitHubConnections } from "../ports/github-gate.ts";
 import type { GitHubSettingsStore } from "../ports/github-settings.ts";
 import {
-  allowedPair,
-  catalogProfile,
   GITHUB_API_BASE,
   repositoryInCeiling,
-  repositoryModeOf,
   type SessionCatalog,
-  usesWorkspaceCeiling,
 } from "../sessions/catalog.ts";
 import {
   createGitHubConnectionResolver,
@@ -167,6 +166,11 @@ export function createAgentGitHubService(deps: {
     return { author: of("author"), reviewer: of("reviewer") };
   }
 
+  const entry = (id: string) =>
+    Object.hasOwn(catalog.repositories, id)
+      ? catalog.repositories[id]
+      : undefined;
+
   const manage = (caller: Caller, agentId: string) =>
     requirePermitted(authorization, caller, "agent.manage", {
       kind: "agent",
@@ -200,34 +204,18 @@ export function createAgentGitHubService(deps: {
       );
       // Settings this image cannot read are shown as none, never guessed.
       const github = policy.settings === "invalid" ? null : policy.settings;
-      const releaseRepository = release?.repository_id ?? null;
-      const entry = (id: string) =>
-        Object.hasOwn(catalog.repositories, id)
-          ? catalog.repositories[id]
-          : undefined;
 
+      // Saved settings apply to the agent, not to a release, so only the
+      // workspace's ceiling and the catalog judge a repository.
       const repositories = (
         await Promise.all(
           Object.entries(catalog.repositories)
             .filter(([, repository]) => onGitHub(repository))
             .map(async ([id, repository]) => {
               const reason: AgentGitHubRepositoryUnavailable | null =
-                release === null ||
-                allowedPair(
-                  catalog,
-                  release.runtime_profile_id,
-                  id,
-                  policy.source,
-                ) === null ||
-                (usesWorkspaceCeiling(
-                  catalog,
-                  release.runtime_profile_id,
-                  policy.source,
-                ) &&
-                  !repositoryInCeiling(catalog, repositoryCeiling, id))
+                !repositoryInCeiling(catalog, repositoryCeiling, id)
                   ? "repository_not_allowed"
-                  : policy.source === "release" &&
-                      repository.auth?.kind !== "github_app"
+                  : repository.auth?.kind !== "github_app"
                     ? "app_required"
                     : null;
               const [author, reviewer] = await Promise.all([
@@ -245,28 +233,10 @@ export function createAgentGitHubService(deps: {
         )
       ).sort((a, b) => a.id.localeCompare(b.id));
 
-      // As the release itself is checked: one without a repository takes
-      // GitHub settings on an `optional` profile (session-repository-
-      // attachment.md decision 4). The tab starts that first save from no
-      // repository, which `legacy_defaults` cannot carry.
-      const profile =
-        release === null
-          ? undefined
-          : catalogProfile(catalog, release.runtime_profile_id);
-      const unsavable =
-        release === null
-          ? ("no_active_release" as const)
-          : releaseRepository === null
-            ? profile !== undefined && repositoryModeOf(profile) === "optional"
-              ? null
-              : ("repository_none" as const)
-            : entry(releaseRepository)?.auth?.kind !== "github_app"
-              ? ("app_required" as const)
-              : null;
-      const legacyDefaults: AgentGitHub | null =
-        github === null && unsavable === null && releaseRepository !== null
+      const legacyDefaults: AgentGitHubSettings | null =
+        github === null
           ? {
-              repositories: [releaseRepository],
+              repositories: [],
               // What a first save starts from (owner decision d123,
               // 2026-11-02). Until then the release still asks a person:
               // only an explicit false turns approval off.
@@ -278,7 +248,7 @@ export function createAgentGitHubService(deps: {
 
       // The gate decides at every token issue; these are what the tab shows
       // before it, from the ceiling and the permissions each App last read.
-      const scope = github?.repositories ?? legacyDefaults?.repositories ?? [];
+      const scope = github?.repositories ?? [];
       const enterprise =
         scope.length > 0 && scope.every((id) => enterpriseApp(entry(id)));
       const pinned = await scopePermissions(workspaceId, scope);
@@ -326,10 +296,10 @@ export function createAgentGitHubService(deps: {
       return {
         enabled,
         active_release_id: release?.id ?? null,
-        release_repository_id: releaseRepository,
         github,
+        settings_revision: agentRow?.revision ?? null,
+        start_repository_id: agentRow?.startRepositoryId ?? null,
         legacy_defaults: legacyDefaults,
-        unsavable,
         options: {
           repositories,
           features: Object.fromEntries(
@@ -366,6 +336,117 @@ export function createAgentGitHubService(deps: {
       switch (result.outcome) {
         case "saved":
           return { enabled, receipt_id: result.receiptId };
+        case "actor_inactive":
+          throw ACTOR_INACTIVE();
+        case "outranked":
+          throw OUTRANKED();
+        default:
+          throw NOT_FOUND();
+      }
+    },
+
+    /**
+     * Replaces the agent's settings (never makes a release). Only what the
+     * save adds is judged against the catalog and the workspace's ceilings,
+     * so narrowing is always possible; the invariants between fields hold
+     * for the whole request.
+     */
+    async putSettings(
+      caller: Caller,
+      agentId: string,
+      request: PutAgentGitHubSettingsRequest,
+    ): Promise<PutAgentGitHubSettingsResponse> {
+      await manage(caller, agentId);
+      const userId = caller.actor?.userId;
+      if (
+        caller.subject.surface.kind !== "web" ||
+        caller.subject.principal?.kind !== "user" ||
+        !userId
+      ) {
+        throw new SessionServiceError(
+          "FORBIDDEN",
+          "An agent's GitHub settings are saved from a signed-in console session, not with an API key",
+          undefined,
+          { reason_code: "web_session_required" },
+        );
+      }
+      const refused = (field: string, reason: string) =>
+        new SessionServiceError(
+          "BAD_REQUEST",
+          `${field}: ${reason}`,
+          undefined,
+          {
+            field,
+            reason_code: reason,
+          },
+        );
+      const settings: AgentGitHubSettings = {
+        ...request.settings,
+        repositories: [...new Set(request.settings.repositories)],
+      };
+      if (settings.actions_allow.length > 0 && !settings.features.actions) {
+        throw refused("settings.actions_allow", "actions_off");
+      }
+      const start = request.start_repository_id;
+      if (start !== null && !settings.repositories.includes(start)) {
+        throw refused("start_repository_id", "start_repository_outside");
+      }
+      const workspaceId = caller.ownerId;
+      const [workspace, repositoryCeiling] = await Promise.all([
+        deps.githubSettings.get(workspaceId),
+        store.repositoryCeiling(workspaceId),
+      ]);
+      const result = await store.putSettings({
+        workspaceId,
+        agentId,
+        expectedRevision: request.expected_revision,
+        settings,
+        startRepositoryId: start,
+        userId,
+        principal: caller,
+        managerRoles: MANAGEMENT_ROLES["agent.manage"] ?? [],
+        check: (current) => {
+          const held = new Set<unknown>(
+            Array.isArray(current?.repositories) ? current.repositories : [],
+          );
+          for (const [index, id] of settings.repositories.entries()) {
+            if (held.has(id)) continue;
+            const field = `settings.repositories.${index}`;
+            if (!repositoryInCeiling(catalog, repositoryCeiling, id)) {
+              throw refused(field, "repository_not_allowed");
+            }
+            if (entry(id)?.auth?.kind !== "github_app") {
+              throw refused(field, "app_required");
+            }
+          }
+          const before = current?.features;
+          const wasOn = (feature: keyof GitHubFeatures) =>
+            typeof before === "object" &&
+            before !== null &&
+            (before as Record<string, unknown>)[feature] === true;
+          const over = githubFeaturesOverCeiling(
+            settings.features,
+            workspace.ceiling,
+          ).find((feature) => !wasOn(feature));
+          if (over !== undefined) {
+            throw refused(
+              `settings.features.${over}`,
+              "over_workspace_ceiling",
+            );
+          }
+        },
+      });
+      switch (result.outcome) {
+        case "saved":
+          return {
+            settings_revision: result.revision,
+            receipt_id: result.receiptId,
+          };
+        case "conflict":
+          throw new SessionServiceError(
+            "REVISION_CONFLICT",
+            `The GitHub settings are at revision ${result.revision ?? "none"}, not ${request.expected_revision ?? "none"}`,
+          );
         case "actor_inactive":
           throw ACTOR_INACTIVE();
         case "outranked":

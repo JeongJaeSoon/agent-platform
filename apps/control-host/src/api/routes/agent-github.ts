@@ -4,6 +4,8 @@ import {
   agentIdParamsSchema,
   putAgentGitHubEnabledRequestSchema,
   putAgentGitHubEnabledResponseSchema,
+  putAgentGitHubSettingsRequestSchema,
+  putAgentGitHubSettingsResponseSchema,
 } from "@werft-ai/contracts";
 import type { AgentGitHubService } from "@werft-ai/platform";
 import {
@@ -24,6 +26,21 @@ export function registerAgentGitHubRoutes(
       context,
       agentGitHubResponseSchema,
       await mapped(() => service.get(context.get("caller"), params.id)),
+    );
+  });
+
+  apiRoute(router, "putAgentGitHubSettings", async (context) => {
+    const params = requireParams(context, agentIdParamsSchema);
+    const body = await parseJsonBody(
+      context,
+      putAgentGitHubSettingsRequestSchema,
+    );
+    return jsonWithSchema(
+      context,
+      putAgentGitHubSettingsResponseSchema,
+      await mapped(() =>
+        service.putSettings(context.get("caller"), params.id, body),
+      ),
     );
   });
 

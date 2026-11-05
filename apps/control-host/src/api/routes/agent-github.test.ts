@@ -112,6 +112,9 @@ function appWith(
         receiptId: changed ? crypto.randomUUID() : null,
       };
     },
+    async putSettings() {
+      return { outcome: "saved", revision: 1, receiptId: null };
+    },
     async activity() {
       return [];
     },
@@ -180,7 +183,7 @@ const code = (json: unknown) => apiErrorResponseSchema.parse(json).error.code;
 const github = (id = AGENT) => `/v1/agents/${id}/github`;
 
 describe("the agent GitHub API", () => {
-  test("an admin reads the tab and its activity; an agent without a release has nothing to save", async () => {
+  test("an admin reads the tab and its activity; an agent with no row starts from the first-save defaults", async () => {
     const { call } = appWith();
     const admin = cookieFor("admin");
     const read = await call("GET", github(), { cookie: admin });
@@ -188,8 +191,9 @@ describe("the agent GitHub API", () => {
     expect(agentGitHubResponseSchema.parse(read.json)).toMatchObject({
       enabled: true,
       github: null,
-      legacy_defaults: null,
-      unsavable: "no_active_release",
+      settings_revision: null,
+      start_repository_id: null,
+      legacy_defaults: { repositories: [], push_approval: false },
     });
     const activity = await call("GET", `${github()}/activity`, {
       cookie: admin,

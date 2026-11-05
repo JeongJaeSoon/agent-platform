@@ -968,6 +968,7 @@ export type ListAgentsResponse = z.infer<typeof listAgentsResponseSchema>;
 export type CountAgentsResponse = z.infer<typeof countAgentsResponseSchema>;
 export type PolicyPins = z.infer<typeof policyPinsSchema>;
 export type AgentGitHub = z.infer<typeof agentGitHubSchema>;
+export type AgentGitHubSettings = z.infer<typeof agentGitHubSettingsSchema>;
 export type ToolPolicy = z.infer<typeof toolPolicySchema>;
 export type CardToolPolicy = z.infer<typeof cardToolPolicySchema>;
 export type CreateAgentReleaseRequest = z.infer<

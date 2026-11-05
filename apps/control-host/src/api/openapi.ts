@@ -185,6 +185,8 @@ import {
   pushRequestSchema,
   putAgentGitHubEnabledRequestSchema,
   putAgentGitHubEnabledResponseSchema,
+  putAgentGitHubSettingsRequestSchema,
+  putAgentGitHubSettingsResponseSchema,
   putGitHubAppRequestSchema,
   putGitHubAppResponseSchema,
   putGitHubOAuthClientSecretRequestSchema,
@@ -365,6 +367,7 @@ const requestComponents = {
   PutGitHubPackagesAllowlistRequest: putGitHubPackagesAllowlistRequestSchema,
   GitHubLinkCallbackRequest: githubLinkCallbackRequestSchema,
   PutAgentGitHubEnabledRequest: putAgentGitHubEnabledRequestSchema,
+  PutAgentGitHubSettingsRequest: putAgentGitHubSettingsRequestSchema,
   BootstrapRequest: bootstrapRequestSchema,
   LoginRequest: loginRequestSchema,
   PasswordResetRequest: passwordResetRequestSchema,
@@ -474,6 +477,7 @@ const responseComponents = {
   ReviewAchievementResponse: reviewAchievementResponseSchema,
   AgentGitHubResponse: agentGitHubResponseSchema,
   PutAgentGitHubEnabledResponse: putAgentGitHubEnabledResponseSchema,
+  PutAgentGitHubSettingsResponse: putAgentGitHubSettingsResponseSchema,
   AgentGitHubActivityResponse: agentGitHubActivityResponseSchema,
   ReceiptAcceptedResponse: receiptAcceptedResponseSchema,
   TerminateSessionResponse: terminateSessionResponseSchema,
@@ -4680,12 +4684,12 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "Release a version against a runtime profile",
     description:
-      "The release id is a hash of the card, the profile's digest and the resolved runtime settings; releasing the same content again returns the stored release with `created: false`. The optional `note` (trimmed, 1 to 200 characters) is stored with the release but is not part of its id, so a re-release keeps the note it was first made with. A card tool outside the profile, a different model or an unknown profile answers 422. `repository_id` names the catalog repository the release's sessions work on (`GET /v1/profiles`, `repository_ids`): required when the profile's `repository_mode` is `required` (422 `repository_id: Profile <id> needs a repository: send repository_id`), refused when it is `none`, and 422 when the catalog has no such repository or it does not allow the profile. Slack sessions and API sessions that send no `repository_id` work on it. A profile the operator blocked, or one over a blocked base, answers 409 PROFILE_BLOCKED. Releasing approves and activates nothing.",
+      "The release id is a hash of the card, the profile's digest and the resolved runtime settings; releasing the same content again returns the stored release with `created: false`. The optional `note` (trimmed, 1 to 200 characters) is stored with the release but is not part of its id, so a re-release keeps the note it was first made with. A card tool outside the profile, a different model or an unknown profile answers 422. `repository_id` names the catalog repository the release's sessions work on (`GET /v1/profiles`, `repository_ids`): required when the profile's `repository_mode` is `required` (422 `repository_id: Profile <id> needs a repository: send repository_id`), refused when it is `none`, and 422 when the catalog has no such repository or it does not allow the profile. Slack sessions and API sessions that send no `repository_id` work on it. A profile the operator blocked, or one over a blocked base, answers 409 PROFILE_BLOCKED. A request carrying `github` for an agent that already has GitHub settings answers 409 ALREADY_EXISTS with `reason_code: github_settings_exist`: those are saved with `PUT /v1/agents/{id}/github/settings`. Releasing approves and activates nothing.",
     auth: "session",
     body: "CreateAgentReleaseRequest",
     success: { status: 200, schema: "CreateAgentReleaseResponse" },
     errors: [400, 401, 403, 404, 409, 413, 422, 503],
-    errorCodes: { 409: ["PROFILE_BLOCKED"] },
+    errorCodes: { 409: ["PROFILE_BLOCKED", "ALREADY_EXISTS"] },
     idempotent: false,
   },
   {
@@ -4947,7 +4951,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "The agent's GitHub switch, settings and what may be turned on",
     description:
-      "`enabled` is the switch that applies at once (`PUT …/github/enabled`). `github` is the active release's GitHub settings; null before one is saved, when `legacy_defaults` is what a first save starts from (the release's repository, push approval off, nothing optional; the release itself keeps asking a person before each push until settings are saved) and the release meanwhile runs on every repository its profile allows. Settings are saved as a new release (`POST /v1/agents/{id}/releases` with `github`). `unsavable` says why none can be: `no_active_release` or `repository_none` (the release names no repository). `options.repositories` lists the catalog's GitHub repositories with why one cannot be picked (`repository_not_allowed` by the release's profile), and `installed`: whether the author and the reviewer App are installed on each, as GitHub answers now (null when there is no such App or no answer). `options.features` says, per optional permission, why it cannot be turned on: `github_host_unsupported` (every chosen repository is on a GitHub Enterprise host), `over_workspace_ceiling`, `no_reviewer_app`, or `app_permission_missing` (the App's permissions as last read lack it; the token request decides). Whoever manages the agent reads it, and so do the live members of its managing team.",
+      "`enabled` is the switch that applies at once (`PUT …/github/enabled`). `github` is the agent's own GitHub settings, or the active release's pin while the agent has none; null when neither exists, when `legacy_defaults` is what a first save starts from (no repository, push approval off, nothing optional; the release itself keeps asking a person before each push until settings are saved). `settings_revision` is the row's revision (null without a row) and `start_repository_id` the repository a session naming none starts on. Settings are saved with `PUT …/github/settings`, never as a release. `options.repositories` lists the catalog's GitHub repositories with why one cannot be picked (`repository_not_allowed` by the workspace's repository ceiling), and `installed`: whether the author and the reviewer App are installed on each, as GitHub answers now (null when there is no such App or no answer). `options.features` says, per optional permission, why it cannot be turned on: `github_host_unsupported` (every chosen repository is on a GitHub Enterprise host), `over_workspace_ceiling`, `no_reviewer_app`, or `app_permission_missing` (the App's permissions as last read lack it; the token request decides). Whoever manages the agent reads it, and so do the live members of its managing team.",
     auth: "session",
     success: {
       status: 200,
@@ -4956,7 +4960,8 @@ export const API_ROUTE_DECLARATIONS = [
       example: {
         enabled: true,
         active_release_id: "rel_example",
-        release_repository_id: "werft-sandbox",
+        settings_revision: 3,
+        start_repository_id: "werft-sandbox",
         github: {
           repositories: ["werft-sandbox"],
           push_approval: true,
@@ -4970,7 +4975,6 @@ export const API_ROUTE_DECLARATIONS = [
           actions_allow: [{ workflow: "ci.yml", ref: "release/*" }],
         },
         legacy_defaults: null,
-        unsavable: null,
         options: {
           repositories: [
             {
@@ -5051,6 +5055,42 @@ export const API_ROUTE_DECLARATIONS = [
     },
     errors: [400, 401, 403, 404, 413, 502, 503],
     errorCodes: { 502: ["GITHUB_UNAVAILABLE"] },
+    idempotent: false,
+  },
+  {
+    method: "put",
+    path: "/v1/agents/{id}/github/settings",
+    operationId: "putAgentGitHubSettings",
+    tag: "Agents",
+    summary: "Save the agent's GitHub settings",
+    description:
+      "Replaces the agent's whole settings row in one transaction and makes no release: a new session reads it at once, and a change that narrows reaches running sessions too. `expected_revision` is `settings_revision` as read (null when there was no row); another value answers 409 `REVISION_CONFLICT`. `updated_by` is always the caller, so the first save of an agent also fixes the rollback floor at the snapshot-reading image. Only repositories the save adds are checked against the catalog and the workspace's repository ceiling, and features it turns on against the feature ceiling (400 with `reason_code`). Writes a `set_agent_github` receipt with `result.change = \"settings\"` and the values before and after; `receipt_id` is null when a person's row already held them. Agent managers with a web session only; API keys are refused.",
+    auth: "session",
+    body: "PutAgentGitHubSettingsRequest",
+    requestExample: {
+      expected_revision: 3,
+      settings: {
+        repositories: ["werft-sandbox"],
+        push_approval: true,
+        features: {
+          workflows: false,
+          actions: true,
+          checks: false,
+          issues: false,
+          review: false,
+        },
+        actions_allow: [{ workflow: "ci.yml" }],
+      },
+      start_repository_id: "werft-sandbox",
+    },
+    success: {
+      status: 200,
+      schema: "PutAgentGitHubSettingsResponse",
+      description: "Saved.",
+      example: { settings_revision: 4, receipt_id: EXAMPLE_RECEIPT_ID },
+    },
+    errors: [400, 401, 403, 404, 409, 413, 503],
+    errorCodes: { 409: ["REVISION_CONFLICT"] },
     idempotent: false,
   },
   {

@@ -98,6 +98,7 @@ import {
   postSessionMessageResponseSchema,
   pushRequestSchema,
   putAgentGitHubEnabledResponseSchema,
+  putAgentGitHubSettingsResponseSchema,
   putGitHubAppResponseSchema,
   putGitHubOAuthClientSecretResponseSchema,
   putGitHubRepositoryAppPinResponseSchema,
@@ -225,6 +226,7 @@ export const responseSchemas = {
   "PUT /v1/agents/{id}/slack/app/settings": slackAppSettingsSchema,
   "GET /v1/agents/{id}/github": agentGitHubResponseSchema,
   "PUT /v1/agents/{id}/github/enabled": putAgentGitHubEnabledResponseSchema,
+  "PUT /v1/agents/{id}/github/settings": putAgentGitHubSettingsResponseSchema,
   "GET /v1/agents/{id}/github/repositories":
     listAgentGitHubRepositoriesResponseSchema,
   "POST /v1/agents/{id}/github/repositories":

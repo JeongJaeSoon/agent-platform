@@ -89,22 +89,14 @@ type RepositoryReason = NonNullable<
   AgentGitHubResponse["options"]["repositories"][number]["reason"]
 >;
 const REPOSITORY_REASON: Record<RepositoryReason, string> = {
-  repository_not_allowed: "프로필이 이 저장소를 허용하지 않습니다.",
+  repository_not_allowed: "워크스페이스가 허용한 저장소 범위 밖입니다.",
   app_required:
     "PAT로 연결된 저장소라 권한을 좁힐 수 없습니다. GitHub App으로 옮겨야 고를 수 있습니다.",
-};
-type Unsavable = NonNullable<AgentGitHubResponse["unsavable"]>;
-const UNSAVABLE: Record<Unsavable, string> = {
-  no_active_release:
-    "활성 릴리스가 없습니다. 릴리스 탭에서 릴리스를 만들고 활성화하면 GitHub 설정을 정할 수 있습니다.",
-  repository_none:
-    "활성 릴리스의 프로필은 저장소 없이 실행합니다. 저장소를 쓰는 프로필로 릴리스를 만들면 GitHub 설정을 정할 수 있습니다.",
-  app_required:
-    "활성 릴리스의 저장소가 PAT로 연결되어 권한을 좁힐 수 없습니다. 운영자가 그 저장소를 GitHub App으로 옮기면 설정할 수 있습니다.",
 };
 const ACTIVITY_TITLE: Partial<Record<Receipt["operation"], string>> = {
   create_agent_release: "GitHub 설정을 바꾼 릴리스",
   activate_agent: "GitHub 설정을 바꾼 활성화",
+  set_agent_github: "GitHub 설정 저장",
   mint_github_token: "토큰 발급",
   dispatch_workflow: "워크플로 실행",
   rerun_workflow: "워크플로 다시 실행",
@@ -160,10 +152,10 @@ const OPEN = { available: true, reason: null } as const;
 const DATA: AgentGitHubResponse = {
   enabled: true,
   active_release_id: RELEASE.id,
-  release_repository_id: "werft-sandbox",
   github: SETTINGS,
+  settings_revision: 3,
+  start_repository_id: null,
   legacy_defaults: null,
-  unsavable: null,
   options: {
     repositories: [
       {
@@ -359,8 +351,8 @@ function AppRepositoryPicker({
         App이 설치된 저장소에서 고르기
       </Heading>
       <Text variant="meta">
-        설치 프로필이 App 저장소 전체를 허용합니다. 고른 저장소는 위 목록에 켜진
-        채로 더해지고, 저장하면 새 릴리스에 반영됩니다.
+        워크스페이스가 App 저장소 전체를 허용합니다. 고른 저장소는 위 목록에
+        켜진 채로 더해지고, 저장하면 반영됩니다.
       </Text>
       <div className="flex flex-col gap-2">
         <RowList variant="joined">
@@ -490,10 +482,9 @@ type TabProps = {
   readonly activity: readonly ActivityReceipt[];
 };
 
-// A savable release without a repository starts from none picked.
+// What a first save starts from when the release names no repository.
 const NO_REPOSITORY_DEFAULTS: AgentGitHub = {
   repositories: [],
-  // github.tsx NO_REPOSITORY_DEFAULTS (owner decision d123).
   push_approval: false,
   features: {
     review: false,
@@ -505,16 +496,12 @@ const NO_REPOSITORY_DEFAULTS: AgentGitHub = {
   actions_allow: [],
 };
 const baseOf = (data: AgentGitHubResponse) =>
-  data.github ??
-  data.legacy_defaults ??
-  (data.unsavable === null && data.release_repository_id === null
-    ? NO_REPOSITORY_DEFAULTS
-    : null);
+  data.github ?? data.legacy_defaults;
 
 function GitHubSettings({ data, draft, pick, activity }: TabProps) {
   const base = baseOf(data);
   const settings = draft ?? base;
-  const readOnly = !data.enabled || data.unsavable !== null || base === null;
+  const readOnly = !data.enabled || base === null;
   const pending = base && draft ? pendingCount(base, draft) : 0;
   // github.tsx firstSave: the defaults alone are worth a save.
   const firstSave = !readOnly && data.github === null;
@@ -522,11 +509,7 @@ function GitHubSettings({ data, draft, pick, activity }: TabProps) {
     (draft !== undefined || firstSave) && settings?.repositories.length === 0;
   const pendingTitle = firstSave
     ? "GitHub 설정을 아직 저장하지 않았습니다"
-    : `릴리스에 넣지 않은 변경 ${pending}건`;
-  const version = RELEASED.versions.find(
-    (v) => v.id === RELEASE.version_id,
-  )?.version_no;
-  const release = data.active_release_id ? RELEASE : null;
+    : `저장하지 않은 변경 ${pending}건`;
   return (
     <>
       <section
@@ -540,7 +523,7 @@ function GitHubSettings({ data, draft, pick, activity }: TabProps) {
             </Badge>
             <Text as="span">
               {base === null || data.github === null
-                ? "저장소 프로필 전체"
+                ? "저장소: 릴리스 설정 그대로"
                 : `저장소 ${data.github.repositories.length}개`}
             </Text>
             <Text as="span" className="flex items-center gap-2">
@@ -556,14 +539,6 @@ function GitHubSettings({ data, draft, pick, activity }: TabProps) {
                   : "—"}
               </Text>
             </Text>
-            {release ? (
-              <Text as="span" className="flex items-center gap-2">
-                <Text as="span" variant="sub">
-                  릴리스
-                </Text>
-                <Code>{release.label}</Code>
-              </Text>
-            ) : null}
           </RowListItem>
         </RowList>
       </section>
@@ -571,10 +546,9 @@ function GitHubSettings({ data, draft, pick, activity }: TabProps) {
         <Alert variant="blue" role="region" aria-label={pendingTitle}>
           <AlertTitle>{pendingTitle}</AlertTitle>
           <AlertDescription>
-            저장하면 지금 카드 버전 v{version}과 프로필{" "}
-            {RELEASE.runtime_profile_id}로 새 릴리스를 만들고 활성화합니다. 그
-            뒤에 시작하는 세션부터 적용되고, 진행 중인 세션은 이전 릴리스 설정을
-            씁니다.
+            저장하면 다음에 시작하는 세션부터 적용됩니다. 저장소를 빼거나 권한을
+            좁히는 변경은 진행 중인 세션에도 적용됩니다. 새 릴리스는 만들지
+            않습니다.
             {noRepository ? (
               <div className="mt-2">
                 <FieldError>
@@ -585,7 +559,7 @@ function GitHubSettings({ data, draft, pick, activity }: TabProps) {
           </AlertDescription>
           <AlertActions>
             <Button type="button" size="sm" disabled={noRepository}>
-              새 릴리스로 저장
+              저장
             </Button>
             {draft !== undefined ? (
               <Button type="button" size="sm" variant="ghost">
@@ -595,16 +569,12 @@ function GitHubSettings({ data, draft, pick, activity }: TabProps) {
           </AlertActions>
         </Alert>
       ) : null}
-      {data.unsavable ? (
-        <Alert variant="amber">
-          <AlertTitle>GitHub 설정을 저장할 수 없습니다</AlertTitle>
-          <AlertDescription>{UNSAVABLE[data.unsavable]}</AlertDescription>
-        </Alert>
-      ) : data.github === null && base ? (
+      {data.github === null && base ? (
         <Alert>
           <AlertDescription>
-            이 릴리스에는 아직 GitHub 설정이 없어 프로필이 허용하는 모든
-            저장소를 씁니다. 아래 값은 처음 저장할 때의 기본값입니다.
+            이 에이전트에는 저장한 GitHub 설정이 아직 없습니다. 지금은 활성
+            릴리스의 설정(없으면 프로필이 허용하는 저장소 전체)으로 동작하고,
+            저장하면 이후 세션부터 아래 설정을 씁니다.
           </AlertDescription>
         </Alert>
       ) : null}
@@ -638,7 +608,6 @@ function GitHubSettings({ data, draft, pick, activity }: TabProps) {
             <RowList variant="joined">
               {data.options.repositories.map((repository) => {
                 const on = settings.repositories.includes(repository.id);
-                const locked = repository.id === data.release_repository_id;
                 const blocked = !repository.available && !on;
                 return (
                   <SettingRow
@@ -655,11 +624,9 @@ function GitHubSettings({ data, draft, pick, activity }: TabProps) {
                         className={cn(INHERIT, "[overflow-wrap:anywhere]")}
                       >
                         {repository.url}
-                        {locked
-                          ? " · 활성 릴리스의 저장소라 뺄 수 없습니다."
-                          : repository.reason
-                            ? ` · ${REPOSITORY_REASON[repository.reason]}`
-                            : null}
+                        {repository.reason
+                          ? ` · ${REPOSITORY_REASON[repository.reason]}`
+                          : null}
                       </Text>
                     }
                     status={
@@ -671,7 +638,7 @@ function GitHubSettings({ data, draft, pick, activity }: TabProps) {
                       <Switch
                         aria-label={repository.id}
                         checked={on}
-                        disabled={readOnly || locked || blocked}
+                        disabled={readOnly || blocked}
                       />
                     }
                   />
@@ -1123,25 +1090,22 @@ export const AgentGitHubLegacy: Story = {
         name: "GitHub 설정을 아직 저장하지 않았습니다",
       }),
     ).toBeVisible();
-    await expect(
-      canvas.getByRole("button", { name: "새 릴리스로 저장" }),
-    ).toBeEnabled();
+    await expect(canvas.getByRole("button", { name: "저장" })).toBeEnabled();
     await expect(canvas.queryByRole("button", { name: "되돌리기" })).toBeNull();
   },
 };
 const NO_REPOSITORY_DATA: AgentGitHubResponse = {
   ...DATA,
-  release_repository_id: null,
   github: null,
-  legacy_defaults: null,
-  unsavable: null,
+  settings_revision: null,
+  legacy_defaults: NO_REPOSITORY_DEFAULTS,
 };
 export const AgentGitHubNoRepository: Story = {
-  name: "저장소 없는 릴리스",
+  name: "저장소 없이 시작한 설정",
   args: { data: NO_REPOSITORY_DATA, activity: [] },
 };
 export const AgentGitHubNoRepositoryUnpicked: Story = {
-  name: "저장소 없는 릴리스: 저장소를 고르기 전",
+  name: "저장소 없이 시작한 설정: 저장소를 고르기 전",
   args: {
     data: NO_REPOSITORY_DATA,
     draft: { ...NO_REPOSITORY_DEFAULTS, push_approval: true },
@@ -1149,29 +1113,14 @@ export const AgentGitHubNoRepositoryUnpicked: Story = {
   },
   play: async ({ canvas }) => {
     await expect(
-      await canvas.findByRole("button", { name: "새 릴리스로 저장" }),
+      await canvas.findByRole("button", { name: "저장" }),
     ).toBeDisabled();
   },
 };
 export const AgentGitHubNoRepositoryUnpickedMobile: Story = {
   ...AgentGitHubNoRepositoryUnpicked,
-  name: "저장소 없는 릴리스: 저장소를 고르기 전 (390px)",
+  name: "저장소 없이 시작한 설정: 저장소를 고르기 전 (390px)",
   globals: MOBILE,
-};
-export const AgentGitHubNoRelease: Story = {
-  name: "활성 릴리스 없음",
-  args: {
-    data: {
-      ...DATA,
-      active_release_id: null,
-      release_repository_id: null,
-      github: null,
-      legacy_defaults: null,
-      unsavable: "no_active_release",
-    },
-    pick: undefined,
-    activity: [],
-  },
 };
 export const AgentGitHubLoading: Story = {
   name: "불러오는 중",

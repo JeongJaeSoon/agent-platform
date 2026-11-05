@@ -97,9 +97,15 @@ const detail: AgentDetail = {
 };
 
 /** A store keeping inserted releases, as PostgreSQL returns them. */
-function memoryStore(tools: string[] = ["Read"]) {
+function memoryStore(
+  tools: string[] = ["Read"],
+  /** The agent has an `agent_github_settings` row. */
+  settingsRow = false,
+) {
   const releases = new Map<string, AgentRelease>();
   let activations = 0;
+  // A first save may land between the service's read and the insert.
+  const racing = { settingsRow: false };
   const store: AgentStore = {
     list: async () => ({ items: [detail.agent], next_cursor: null }),
     count: async () => ({
@@ -124,7 +130,14 @@ function memoryStore(tools: string[] = ["Read"]) {
     releaseSuperseded: async () => false,
     create: async () => ({ outcome: "created", detail }),
     update: async () => ({ outcome: "updated", detail }),
-    insertRelease: async ({ release }) => {
+    hasGitHubSettings: async () => settingsRow,
+    insertRelease: async ({ release, refuseGitHubWhenSettings }) => {
+      if (
+        refuseGitHubWhenSettings === true &&
+        (settingsRow || racing.settingsRow)
+      ) {
+        return { outcome: "github_settings_exist" };
+      }
       const existing = releases.get(release.id);
       if (existing) return { outcome: "exists", release: existing };
       const stored = {
@@ -151,7 +164,7 @@ function memoryStore(tools: string[] = ["Read"]) {
         : { outcome: "conflict", activeReleaseId: null, revision: 0 };
     },
   };
-  return { store, releases, activations: () => activations };
+  return { store, releases, racing, activations: () => activations };
 }
 
 function serviceOver(
@@ -724,6 +737,56 @@ describe("a release's GitHub settings", () => {
       actions: true,
     }).createRelease(owner, AGENT, { ...release, github: withActions });
     expect(made.release.policy_pins.github).toEqual(withActions);
+  });
+
+  describe("an agent with a settings row", () => {
+    const owned = {
+      code: "ALREADY_EXISTS" as const,
+      details: { field: "github", reason_code: "github_settings_exist" },
+    };
+    const attempt = async (
+      store: AgentStore,
+      body: Record<string, unknown>,
+    ) => {
+      const error = await service(store)
+        .createRelease(owner, AGENT, { ...release, ...body })
+        .then(
+          () => null,
+          (thrown: unknown) => thrown,
+        );
+      if (error === null) return null;
+      const { code, details } = error as SessionServiceError;
+      return { code, details };
+    };
+
+    test("a release request carrying `github` is 409", async () => {
+      const held = memoryStore(["Read"], true);
+      expect(await attempt(held.store, { github })).toEqual(owned);
+      expect(held.releases.size).toBe(0);
+    });
+
+    test("the refusal comes before the other checks", async () => {
+      const held = memoryStore(["Read"], true);
+      // Unknown repository and a profile that does not exist would also fail.
+      expect(
+        await attempt(held.store, {
+          github: { ...github, repositories: ["nowhere"] },
+          runtime_profile_id: "nope",
+        }),
+      ).toEqual(owned);
+    });
+
+    test("a first save landing after the read is refused under the lock", async () => {
+      const racing = memoryStore();
+      racing.racing.settingsRow = true;
+      expect(await attempt(racing.store, { github })).toEqual(owned);
+      expect(racing.releases.size).toBe(0);
+    });
+
+    test("a release without `github` still goes through, and so does one for an agent without a row", async () => {
+      expect(await attempt(memoryStore(["Read"], true).store, {})).toBeNull();
+      expect(await attempt(memoryStore().store, { github })).toBeNull();
+    });
   });
 
   test("an optional release with no repository keeps settings for the repositories it attaches", async () => {
