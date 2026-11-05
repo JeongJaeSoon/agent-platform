@@ -23,6 +23,7 @@ import {
   memberships,
   providerConnections,
   receipts,
+  secretValues,
   users,
   workspaces,
 } from "./schema.ts";
@@ -306,5 +307,162 @@ integration("settings console writes", () => {
     expect(
       await store().create(add("mcp_servers", "docs", MCP), "again", owner),
     ).toEqual({ outcome: "conflict", reason: "already_exists" });
+  });
+
+  describe("moving an env-referenced connection to a typed key", () => {
+    const FROM_ENV = {
+      kind: "anthropic",
+      endpoint: "https://api.anthropic.com",
+      auth: { kind: "api_key", value_env: "MOVE_ME_KEY" },
+    };
+    const importOptions = {
+      dryRun: false,
+      allowExternal: true,
+      actor: null,
+    } as const;
+    const document = (connections: Record<string, unknown>) =>
+      parseSettingsDocument({
+        version: 1,
+        connections,
+        repositories: {},
+        mcp_servers: {},
+      });
+
+    test("the row turns stored under its id, remembers the reference, and seals the typed value", async () => {
+      const owner = await person("owner");
+      await store().importEntries(
+        document({ "move-main": FROM_ENV }),
+        importOptions,
+      );
+      const moved = await store().convertConnection(
+        "move-main",
+        "typed-key-9876",
+        owner,
+      );
+      expect(moved.outcome).toBe("done");
+
+      const [row] = await db
+        .select()
+        .from(providerConnections)
+        .where(eq(providerConnections.id, "move-main"));
+      expect(row).toMatchObject({
+        origin: "import",
+        credentialSource: "stored",
+        definition: {
+          auth: { kind: "api_key", stored: "connection:move-main" },
+        },
+        replacesAuth: { kind: "api_key", value_env: "MOVE_ME_KEY" },
+      });
+      // A reference name, never a value.
+      expect(JSON.stringify(row?.replacesAuth)).not.toContain("typed-key");
+
+      const read = await settings().read({ openStored: true });
+      const item = read.connections.find((one) => one.id === "move-main");
+      expect(item?.provider.auth).toMatchObject({
+        stored: "connection:move-main",
+      });
+      expect(item?.replaces?.auth).toMatchObject({ value_env: "MOVE_ME_KEY" });
+      expect(read.stored.get("connection:move-main")).toBe("typed-key-9876");
+
+      const receipt = (await receiptsOf("set_settings_credential")).find(
+        (one) =>
+          (one.result as { connection_id?: string }).connection_id ===
+          "move-main",
+      );
+      expect(receipt?.result).toEqual({
+        connection_id: "move-main",
+        last4: "9876",
+        replaced: "value_env",
+      });
+      expect(JSON.stringify(receipt?.result)).not.toContain("typed-key-");
+    });
+
+    test("a settings document that still names the old entry leaves the row alone", async () => {
+      const again = await store().importEntries(
+        document({ "move-main": FROM_ENV }),
+        importOptions,
+      );
+      expect(again).toMatchObject({
+        outcome: "applied",
+        conflicts: [],
+        kept: ["connection:move-main"],
+      });
+      const [row] = await db
+        .select()
+        .from(providerConnections)
+        .where(eq(providerConnections.id, "move-main"));
+      expect(row?.credentialSource).toBe("stored");
+    });
+
+    test("a document naming it with another reference is still a conflict", async () => {
+      const refused = await store().importEntries(
+        document({
+          "move-main": {
+            ...FROM_ENV,
+            auth: { kind: "api_key", value_env: "SOMETHING_ELSE" },
+          },
+        }),
+        importOptions,
+      );
+      expect(refused).toMatchObject({
+        outcome: "refused",
+        conflicts: ["connection:move-main"],
+      });
+    });
+
+    test("a row that keeps its own value, a disabled one and a missing one are refused", async () => {
+      const owner = await person("owner");
+      await store().create(
+        add("connections", "move-own", CONNECTION),
+        "own-key-1111",
+        owner,
+      );
+      expect(
+        await store().convertConnection("move-own", "typed-key-2222", owner),
+      ).toEqual({ outcome: "conflict", reason: "not_external" });
+      expect(
+        await store().convertConnection("move-main", "typed-key-3333", owner),
+      ).toEqual({ outcome: "conflict", reason: "not_external" });
+      expect(
+        await store().convertConnection("move-nobody", "typed-key-4444", owner),
+      ).toEqual({ outcome: "not_found" });
+
+      await store().importEntries(
+        document({ "move-off": FROM_ENV }),
+        importOptions,
+      );
+      await store().disable({ kind: "connection", id: "move-off" }, owner);
+      expect(
+        await store().convertConnection("move-off", "typed-key-5555", owner),
+      ).toEqual({ outcome: "conflict", reason: "disabled" });
+    });
+
+    test("a connection another row is exactly, now or before, is refused so two keys never mix", async () => {
+      const owner = await person("owner");
+      // `move-twin` names the same reference `move-first` does: a ceiling
+      // made over that reference could belong to either.
+      await store().importEntries(
+        document({
+          "move-first": {
+            ...FROM_ENV,
+            auth: { kind: "api_key", value_env: "TWIN_KEY" },
+          },
+          "move-twin": {
+            ...FROM_ENV,
+            auth: { kind: "api_key", value_env: "TWIN_KEY" },
+          },
+        }),
+        importOptions,
+      );
+      expect(
+        await store().convertConnection("move-first", "typed-key-6666", owner),
+      ).toEqual({ outcome: "conflict", reason: "alias_taken" });
+      expect(
+        await db
+          .select()
+          .from(secretValues)
+          .where(eq(secretValues.ownerRef, "connection:move-first")),
+      ).toEqual([]);
+    });
   });
 });

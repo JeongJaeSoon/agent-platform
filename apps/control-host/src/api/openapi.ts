@@ -1028,6 +1028,8 @@ const SETTINGS_CREATE =
   "The credential is the value in the request, sealed under this row alone in the same transaction as the row; a reference to the deployment's env or Secrets Manager is the operator's settings CLI's. The destination never changes after: another one is a new id. An id ever used (disabled rows count) is 409 `already_exists`; an entry the catalog's rules refuse is 400 `invalid_entry`. With the secret store off (no `PLATFORM_SECRET_KEY`) a credential is 503.";
 const SETTINGS_CREDENTIAL =
   "Seals a new value for a row that stores its own: rotating it or giving a `needs_value` row its first. Running sessions are not stopped. A row whose credential comes from the operator's deployment is 409 `not_stored`, a disabled one 409 `disabled`, the secret store off 503. Writes a `set_settings_credential` receipt naming the last four characters.";
+const SETTINGS_CONVERT =
+  "For a connection whose key comes from the operator's deployment (an env or Secrets Manager reference): the person types the key, it is sealed under the same id, and the row is stored from then on. The server does not read the referenced value. Ceilings made before keep running on the stored key and their pins do not change. A settings document that still names the old entry leaves the row as it is. A connection that already keeps its own value is 409 `not_external`, a disabled one 409 `disabled`, one that another connection is or was exactly 409 `alias_taken`, the secret store off 503. Writes a `set_settings_credential` receipt naming the last four characters and which reference it replaced.";
 const SETTINGS_DISABLE =
   "Never undone and nothing is deleted: the id stays taken and the stored value stays sealed. Ceilings over it stop running anything. Disabling one already disabled is 409 `disabled`.";
 const SETTINGS_CHANGE_EXAMPLE = (id: string) => ({
@@ -6437,6 +6439,26 @@ export const API_ROUTE_DECLARATIONS = [
       schema: "SettingsChangeResponse",
       description: "The entry's id and the change's receipt.",
       example: SETTINGS_CHANGE_EXAMPLE("anthropic-console"),
+    },
+    errors: [400, 401, 403, 404, 409, 503],
+    errorCodes: { 409: ["REVISION_CONFLICT"] },
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/installation/settings/connections/{id}/convert",
+    operationId: "convertSettingsConnection",
+    tag: "Agents",
+    summary: "Move a connection's key from the deployment to a stored value",
+    description: `${SETTINGS_OWNER} ${SETTINGS_CONVERT}`,
+    auth: "session",
+    body: "SetSettingsCredentialRequest",
+    requestExample: { value: "example-key" },
+    success: {
+      status: 200,
+      schema: "SettingsChangeResponse",
+      description: "The entry's id and the change's receipt.",
+      example: SETTINGS_CHANGE_EXAMPLE("anthropic-main"),
     },
     errors: [400, 401, 403, 404, 409, 503],
     errorCodes: { 409: ["REVISION_CONFLICT"] },

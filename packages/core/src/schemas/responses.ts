@@ -386,6 +386,8 @@ export const responseSchemas = {
   "POST /v1/installation/settings/connections": settingsChangeResponseSchema,
   "POST /v1/installation/settings/connections/{id}/credential":
     settingsChangeResponseSchema,
+  "POST /v1/installation/settings/connections/{id}/convert":
+    settingsChangeResponseSchema,
   "POST /v1/installation/settings/connections/{id}/disable":
     settingsChangeResponseSchema,
   "GET /v1/installation/settings/mcp-servers":

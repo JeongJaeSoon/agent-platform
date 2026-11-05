@@ -112,6 +112,7 @@ function service(
     listRows: async (kind) => options.rows?.[kind] ?? [],
     create: record("create"),
     setValue: record("setValue"),
+    convertConnection: record("convertConnection"),
     disable: record("disable"),
     setMcpWorkspaces: record("setMcpWorkspaces"),
   };
@@ -158,6 +159,9 @@ describe("settings console service", () => {
       expect(
         (await refusal(settings.setCredential(who, "connection", "c", "v")))
           .code,
+      ).toBe("FORBIDDEN");
+      expect(
+        (await refusal(settings.convertConnection(who, "c", "v"))).code,
       ).toBe("FORBIDDEN");
     }
     expect(writes).toEqual([]);
@@ -292,7 +296,26 @@ describe("settings console service", () => {
         )
       ).code,
     ).toBe("BACKEND_UNAVAILABLE");
+    expect(
+      (
+        await refusal(
+          closed.settings.convertConnection(caller("owner"), "main", "v"),
+        )
+      ).code,
+    ).toBe("BACKEND_UNAVAILABLE");
     expect(closed.writes).toEqual([]);
+  });
+
+  test("moving a connection to a stored value passes the typed value and rereads", async () => {
+    const { settings, writes, rereads } = service();
+    const moved = await settings.convertConnection(
+      caller("owner"),
+      "main",
+      "typed-key-value",
+    );
+    expect(moved).toEqual({ id: "main", receipt_id: RECEIPT });
+    expect(writes).toEqual([["convertConnection", "main", "typed-key-value"]]);
+    expect(rereads()).toBe(1);
   });
 
   test("the store's refusals map to their codes and reason", async () => {
@@ -313,6 +336,16 @@ describe("settings console service", () => {
         { outcome: "conflict", reason: "disabled" },
         "REVISION_CONFLICT",
         "disabled",
+      ],
+      [
+        { outcome: "conflict", reason: "not_external" },
+        "REVISION_CONFLICT",
+        "not_external",
+      ],
+      [
+        { outcome: "conflict", reason: "alias_taken" },
+        "REVISION_CONFLICT",
+        "alias_taken",
       ],
     ] as const) {
       const { settings, rereads } = service({ result });

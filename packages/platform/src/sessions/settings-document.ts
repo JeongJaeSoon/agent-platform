@@ -335,6 +335,11 @@ export type ExistingSettingsEntry = {
   active: boolean;
   /** For a stored row: whether its value is set. */
   has_value: boolean;
+  /**
+   * For a connection the console moved to a stored value: the entry it was.
+   * A document that still names that entry leaves the row as it is.
+   */
+  replaces?: unknown;
 };
 
 export type ExistingSettings = {
@@ -422,6 +427,10 @@ export function planSettingsImport(
             ? sameEntry(withoutSeed(row.entry), withoutSeed(entry))
             : sameEntry(row.entry, entry);
         if (!same) {
+          if (row.replaces !== undefined && sameEntry(row.replaces, entry)) {
+            kept.push(ref);
+            continue;
+          }
           const ownedByDatabase =
             rules.databaseOwnsRepositories === true &&
             kind === "repository" &&

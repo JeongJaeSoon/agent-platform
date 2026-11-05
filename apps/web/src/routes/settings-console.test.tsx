@@ -246,13 +246,13 @@ describe("모델 연결", () => {
         .map((button) => button.getAttribute("aria-label")),
     ).toEqual(["console-key 값 바꾸기", "console-key 사용 중지"]);
 
-    // An operator reference: view and disable only.
+    // An operator reference: no replace, but it can move to a typed key.
     const ref = rowOf(table, "ops-ref");
     expect(
       within(ref)
         .getAllByRole("button")
         .map((button) => button.getAttribute("aria-label")),
-    ).toEqual(["ops-ref 사용 중지"]);
+    ).toEqual(["ops-ref 화면에서 키 넣기", "ops-ref 사용 중지"]);
 
     const fresh = rowOf(table, "fresh");
     expect(fresh.textContent).toContain("값 필요");
@@ -360,6 +360,52 @@ describe("모델 연결", () => {
       [`${CONNECTIONS}/console-key/credential`, { value: "rotated-key" }],
       [`${CONNECTIONS}/console-key/disable`, null],
     ]);
+  });
+
+  test("an env-referenced connection moves to a typed key through its own route", async () => {
+    const { api } = renderAt("/profiles", {
+      ...routes(),
+      [`POST ${CONNECTIONS}/anthropic/convert`]: () =>
+        json(200, CHANGE("anthropic")),
+    });
+    const user = await setupUser();
+    const table = await screen.findByRole("table", { name: "모델 연결" });
+    await user.click(
+      within(table).getByRole("button", { name: "anthropic 화면에서 키 넣기" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog.textContent).toContain("기존 값을 읽어 옮기지는 않습니다");
+    await user.type(within(dialog).getByLabelText("값"), "typed-key-value");
+    await user.click(within(dialog).getByRole("button", { name: "저장" }));
+    await screen.findByText("anthropic의 키를 저장했습니다.");
+    expect(writes(api.calls).map((call) => [call.path, call.body])).toEqual([
+      [`${CONNECTIONS}/anthropic/convert`, { value: "typed-key-value" }],
+    ]);
+  });
+
+  test("moving a key that another connection's old definition holds says why", async () => {
+    renderAt("/profiles", {
+      ...routes(),
+      [`POST ${CONNECTIONS}/anthropic/convert`]: () =>
+        json(409, {
+          error: {
+            code: "REVISION_CONFLICT",
+            message: "taken",
+            details: { reason_code: "alias_taken" },
+          },
+        }),
+    });
+    const user = await setupUser();
+    const table = await screen.findByRole("table", { name: "모델 연결" });
+    await user.click(
+      within(table).getByRole("button", { name: "anthropic 화면에서 키 넣기" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    await user.type(within(dialog).getByLabelText("값"), "typed-key-value");
+    await user.click(within(dialog).getByRole("button", { name: "저장" }));
+    expect((await within(dialog).findByRole("alert")).textContent).toContain(
+      "옛 정의와 같아",
+    );
   });
 
   test("a refusal names the server's reason", async () => {

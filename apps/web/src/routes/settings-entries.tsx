@@ -81,6 +81,8 @@ export function settingsMcpServersQuery(client: ApiClient, enabled = true) {
 const REASONS = [
   "already_exists",
   "not_stored",
+  "not_external",
+  "alias_taken",
   "disabled",
   "invalid_entry",
 ] as const;
@@ -164,6 +166,20 @@ export function setCredential(
   }
 }
 
+/** A connection whose key came from the deployment, now typed and stored. */
+export function convertConnection(
+  client: ApiClient,
+  id: string,
+  value: string,
+): Promise<SettingsChangeResponse> {
+  return unwrap(
+    client.POST("/v1/installation/settings/connections/{id}/convert", {
+      params: { path: { id } },
+      body: { value },
+    }),
+  );
+}
+
 export function disableEntry(
   client: ApiClient,
   kind: SettingsKind,
@@ -244,11 +260,20 @@ export function credentialText(
 export function entryActions(entry: {
   readonly state: SettingsEntryState;
   readonly credential: SettingsCredentialView;
-}): { readonly setValue: boolean; readonly disable: boolean } {
+}): {
+  readonly setValue: boolean;
+  /** Only a connection can: `useRowActions("connection")` offers it. */
+  readonly convert: boolean;
+  readonly disable: boolean;
+} {
   if (entry.state === "disabled") {
-    return { setValue: false, disable: false };
+    return { setValue: false, convert: false, disable: false };
   }
-  return { setValue: entry.credential.source === "stored", disable: true };
+  return {
+    setValue: entry.credential.source === "stored",
+    convert: entry.credential.source === "external",
+    disable: true,
+  };
 }
 
 /** The result line under a settings screen's table. */
@@ -373,19 +398,26 @@ export function useRowActions(
 ) {
   const { t } = useI18n();
   const [valueFor, setValueFor] = useState<string | null>(null);
+  // The same dialog moves a deployment's key to a typed one (connections).
+  const [converting, setConverting] = useState(false);
   const [disabling, setDisabling] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const value = useSettingsWrite(
     kind,
-    (client, input: { id: string; value: string }) =>
-      setCredential(client, kind, input.id, input.value),
+    (client, input: { id: string; value: string; convert: boolean }) =>
+      input.convert
+        ? convertConnection(client, input.id, input.value)
+        : setCredential(client, kind, input.id, input.value),
     {
-      onDone: (answer) => {
+      onDone: (answer, input) => {
         setValueFor(null);
         onOutcome({
           kind: "notice",
-          text: t("settings.done.value", { id: answer.id }),
+          text: t(
+            input.convert ? "settings.done.converted" : "settings.done.value",
+            { id: answer.id },
+          ),
         });
       },
       onRefused: setError,
@@ -417,15 +449,28 @@ export function useRowActions(
           if (!open) setValueFor(null);
         }}
         pending={value.isPending}
-        title={t("settings.setValueTitle", { id: valueFor ?? "" })}
-        description={t("settings.setValueDescription")}
+        title={t(
+          converting ? "settings.convertTitle" : "settings.setValueTitle",
+          {
+            id: valueFor ?? "",
+          },
+        )}
+        description={t(
+          converting
+            ? "settings.convertDescription"
+            : "settings.setValueDescription",
+        )}
         error={error}
         submitLabel={t("settings.save")}
         pendingLabel={t("settings.saving")}
         onSubmit={(form) => {
           if (valueFor === null) return;
           setError(null);
-          value.mutate({ id: valueFor, value: String(form.get("value")) });
+          value.mutate({
+            id: valueFor,
+            value: String(form.get("value")),
+            convert: converting,
+          });
         }}
       >
         <SecretInput label={t("settings.value")} />
@@ -453,6 +498,13 @@ export function useRowActions(
     openValue: (id: string) => {
       setError(null);
       onOutcome(null);
+      setConverting(false);
+      setValueFor(id);
+    },
+    openConvert: (id: string) => {
+      setError(null);
+      onOutcome(null);
+      setConverting(true);
       setValueFor(id);
     },
     openDisable: (id: string) => {
