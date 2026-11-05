@@ -230,7 +230,7 @@ export function FeatureList({
   const rows = settings.isPending ? (
     <SettingRow title={<Skeleton width="40%" />} />
   ) : settings.isError ? (
-    <li className="list-none p-4">
+    <li className="list-none py-4">
       <LoadFailure
         error={settings.error}
         onRetry={() => void settings.refetch()}
@@ -254,7 +254,9 @@ export function FeatureList({
 
   return (
     <>
-      <RowList variant="joined">{rows}</RowList>
+      <RowList variant="joined" framed={false}>
+        {rows}
+      </RowList>
       <div aria-live="polite" className="sr-only">
         {live}
       </div>

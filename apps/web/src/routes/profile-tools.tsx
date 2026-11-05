@@ -158,7 +158,7 @@ export function DenyChecklist({
       </FieldSet>
 
       {model.versioned && (accepting.length > 0 || model.removed.length > 0) ? (
-        <FieldSet className="gap-3 rounded-card border bg-muted/40 p-3">
+        <FieldSet className="gap-3">
           <FieldLegend variant="label" className="mb-0">
             {t("profiles.tools.diff.legend")}
           </FieldLegend>
