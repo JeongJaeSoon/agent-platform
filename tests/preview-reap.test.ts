@@ -43,7 +43,8 @@ case "$*" in
       jq -r --arg ns "$3" '.items[] | select(.metadata.name == $ns)
         | .metadata.annotations["werft.dev/preview-up-at"] // ""' "${dir}/namespaces.json"
     fi ;;
-  "get namespace "*" -o jsonpath="*) echo true ;;
+  "get namespace "*"labels.werft\\.dev/preview}"*) echo true ;;
+  "get namespace "*" -o jsonpath="*) echo ;;
   "get namespace "*) ;;
   "delete namespace "*) exit "\${STUB_DELETE_EXIT:-0}" ;;
   *) exit 1 ;;
