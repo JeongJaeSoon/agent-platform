@@ -148,24 +148,6 @@ export const listSettingsMcpServersResponseSchema = z
   .object({ items: z.array(settingsMcpServerSchema) })
   .strict();
 
-export const settingsRepositorySchema = z
-  .object({
-    id: z.string().min(1),
-    origin: settingsEntryOriginSchema,
-    state: settingsEntryStateSchema,
-    url: z.string(),
-    branch: z.string(),
-    auth_kind: z.enum(["none", "basic", "bearer", "github_app_explicit"]),
-    username: z.string().optional(),
-    credential: settingsCredentialViewSchema,
-    ...entryTimes,
-  })
-  .strict();
-
-export const listSettingsRepositoriesResponseSchema = z
-  .object({ items: z.array(settingsRepositorySchema) })
-  .strict();
-
 export const createSettingsConnectionRequestSchema = z
   .object({
     id: consoleEntryId,
@@ -189,25 +171,6 @@ export const createSettingsMcpServerRequestSchema = z
   })
   .strict();
 
-export const createSettingsRepositoryRequestSchema = z
-  .object({
-    id: consoleEntryId,
-    url: z.string().min(1),
-    branch: z.string().min(1),
-    auth: z.discriminatedUnion("kind", [
-      z.object({ kind: z.literal("none") }).strict(),
-      z.object({ kind: z.literal("bearer"), value: credentialValue }).strict(),
-      z
-        .object({
-          kind: z.literal("basic"),
-          username: z.string().min(1),
-          value: credentialValue,
-        })
-        .strict(),
-    ]),
-  })
-  .strict();
-
 export const settingsIdParamsSchema = z
   .object({ id: z.string().min(1) })
   .strict();
@@ -218,10 +181,6 @@ export const setSettingsCredentialRequestSchema = z
 
 export const setSettingsMcpServerRequestSchema = z
   .object({ workspaces: z.array(z.string().min(1)).min(1) })
-  .strict();
-
-export const setSettingsRepositoryRequestSchema = z
-  .object({ branch: z.string().min(1) })
   .strict();
 
 export const settingsChangeResponseSchema = z
@@ -235,24 +194,17 @@ export type SettingsCredentialView = z.infer<
 >;
 export type SettingsConnection = z.infer<typeof settingsConnectionSchema>;
 export type SettingsMcpServer = z.infer<typeof settingsMcpServerSchema>;
-export type SettingsRepository = z.infer<typeof settingsRepositorySchema>;
 export type ListSettingsConnectionsResponse = z.infer<
   typeof listSettingsConnectionsResponseSchema
 >;
 export type ListSettingsMcpServersResponse = z.infer<
   typeof listSettingsMcpServersResponseSchema
 >;
-export type ListSettingsRepositoriesResponse = z.infer<
-  typeof listSettingsRepositoriesResponseSchema
->;
 export type CreateSettingsConnectionRequest = z.infer<
   typeof createSettingsConnectionRequestSchema
 >;
 export type CreateSettingsMcpServerRequest = z.infer<
   typeof createSettingsMcpServerRequestSchema
->;
-export type CreateSettingsRepositoryRequest = z.infer<
-  typeof createSettingsRepositoryRequestSchema
 >;
 export type SettingsChangeResponse = z.infer<
   typeof settingsChangeResponseSchema

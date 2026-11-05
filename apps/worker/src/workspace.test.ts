@@ -311,7 +311,7 @@ describe("GitWorkspace", () => {
   test("fetches a reuse through a mirror inside.git that git status never shows and nothing outlives", async () => {
     const gitDirectory = join(root, ".git");
     const worker = (names: string[]) =>
-      names.filter((name) => name.startsWith("agent-platform-"));
+      names.filter((name) => name.startsWith("werft-"));
     let watching = false;
     const during: Array<{ scratch: string[]; status: string }> = [];
     const { server } = serveOrigin(null, () => {
@@ -331,9 +331,7 @@ describe("GitWorkspace", () => {
       // through it.
       expect(during.length).toBeGreaterThan(0);
       for (const seen of during) {
-        expect(seen.scratch).toEqual([
-          expect.stringMatching(/^agent-platform-fetch-/),
-        ]);
+        expect(seen.scratch).toEqual([expect.stringMatching(/^werft-fetch-/)]);
         expect(seen.status).toBe("");
       }
       expect(worker(await readdir(gitDirectory))).toEqual([]);
@@ -348,18 +346,75 @@ describe("GitWorkspace", () => {
   test("a reuse clears the scratch a killed worker left in.git and keeps the restored checkpoint", async () => {
     await prepare(descriptor());
     const gitDirectory = join(root, ".git");
-    const mirror = join(gitDirectory, "agent-platform-fetch-Ab3xYz", "o.git");
+    const mirror = join(gitDirectory, "werft-fetch-Ab3xYz", "o.git");
     await mkdir(mirror, { recursive: true });
     await writeFile(join(mirror, "pack"), "left by a killed worker\n");
-    await mkdir(join(gitDirectory, "agent-platform-capture-q1W2e3"));
+    await mkdir(join(gitDirectory, "werft-capture-q1W2e3"));
     await mkdir(join(gitDirectory, RESTORED_CHECKPOINT_DIRECTORY));
 
     expect(await prepare(descriptor())).toBe("reuse");
     expect(
-      (await readdir(gitDirectory)).filter((name) =>
-        name.startsWith("agent-platform-"),
-      ),
+      (await readdir(gitDirectory)).filter((name) => name.startsWith("werft-")),
     ).toEqual([RESTORED_CHECKPOINT_DIRECTORY]);
+  });
+
+  test("a reuse that runs out of space for its mirror fails with the work tree whole, and a pre-rename scratch still in .git", async () => {
+    await prepare(descriptor());
+    const gitDirectory = join(root, ".git");
+    await writeFile(join(root, "README.md"), "edited by the last attempt\n");
+    await writeFile(join(root, "notes.txt"), "only here\n");
+    // The old name is no longer swept, so it keeps counting against the
+    // quota: the cost of renaming the prefix, accepted rather than migrated.
+    const legacy = join(gitDirectory, "agent-platform-fetch-Ab3xYz");
+    await mkdir(legacy);
+    await writeFile(join(legacy, "pack"), "left by an older worker\n");
+    await mkdir(join(gitDirectory, "werft-fetch-q1W2e3"));
+    const before = git(["status", "--porcelain"], root);
+
+    // A git that cannot write the mirror, as on a full volume.
+    const bin = join(scratch, "bin");
+    await mkdir(bin);
+    const real = Bun.which("git");
+    expect(real).not.toBeNull();
+    await writeFile(
+      join(bin, "git"),
+      [
+        "#!/bin/sh",
+        'for arg in "$@"; do',
+        '  if [ "$arg" = "--bare" ]; then',
+        '    echo "fatal: write error: No space left on device" >&2',
+        "    exit 128",
+        "  fi",
+        "done",
+        `exec "${real}" "$@"`,
+        "",
+      ].join("\n"),
+    );
+    await chmod(join(bin, "git"), 0o755);
+    const path = process.env.PATH;
+    process.env.PATH = `${bin}:${path}`;
+    try {
+      await expect(prepare(descriptor())).rejects.toThrow(
+        "No space left on device",
+      );
+    } finally {
+      process.env.PATH = path;
+    }
+
+    expect(await Bun.file(join(root, "notes.txt")).text()).toBe("only here\n");
+    expect(await Bun.file(join(root, "README.md")).text()).toBe(
+      "edited by the last attempt\n",
+    );
+    expect(git(["status", "--porcelain"], root)).toBe(before);
+    expect(await readdir(gitDirectory)).toContain(
+      "agent-platform-fetch-Ab3xYz",
+    );
+    expect(await readdir(gitDirectory)).not.toContain("werft-fetch-q1W2e3");
+    expect(
+      (await readdir(gitDirectory)).filter((name) =>
+        name.startsWith("werft-fetch-"),
+      ),
+    ).toEqual([]);
   });
 
   test.each(["alternates", "a linked object store"])(
@@ -367,7 +422,7 @@ describe("GitWorkspace", () => {
     async (how) => {
       await prepare(descriptor());
       const gitDirectory = join(root, ".git");
-      const lender = join(gitDirectory, "agent-platform-capture-q1W2e3");
+      const lender = join(gitDirectory, "werft-capture-q1W2e3");
       await mkdir(lender);
       if (how === "alternates") {
         await mkdir(join(lender, "objects"));
@@ -399,9 +454,7 @@ describe("GitWorkspace", () => {
     );
     expect(git(["config", "remote.origin.url"], root)).toBe(`${origin}/`);
     expect(
-      (await readdir(elsewhere)).filter((name) =>
-        name.startsWith("agent-platform-"),
-      ),
+      (await readdir(elsewhere)).filter((name) => name.startsWith("werft-")),
     ).toEqual([]);
   });
 
@@ -723,7 +776,7 @@ describe("GitWorkspace without a repository", () => {
     await mkdir(join(root, "out"));
     await writeFile(join(root, "out", "report.md"), "draft\n");
     // A killed worker's scratch, which counts against the volume.
-    await mkdir(join(root, ".git", "agent-platform-capture-AbC123"));
+    await mkdir(join(root, ".git", "werft-capture-AbC123"));
 
     expect(await prepare(none)).toBe("keep");
     expect(git(["rev-parse", "HEAD"], root)).toBe(head);
@@ -731,7 +784,7 @@ describe("GitWorkspace without a repository", () => {
       "draft\n",
     );
     expect(await readdir(join(root, ".git"))).not.toContain(
-      "agent-platform-capture-AbC123",
+      "werft-capture-AbC123",
     );
   });
 

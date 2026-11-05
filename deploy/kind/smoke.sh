@@ -345,7 +345,7 @@ pass
 
 step upgrade
 helm get values "$RELEASE" --namespace "$NAMESPACE" -o json >"$STATE_DIR/smoke-release-values.json"
-helm upgrade "$RELEASE" "$root/deploy/helm/agent-platform" \
+helm upgrade "$RELEASE" "$root/deploy/helm/werft" \
   --namespace "$NAMESPACE" -f "$STATE_DIR/smoke-release-values.json" --timeout 10m
 [ "$(helm_status)" = deployed ] || fail "the upgrade left the release $(helm_status)"
 upgrade_check_verdict '.verdict == "proceed" and .deployedWorker == .targetWorker'

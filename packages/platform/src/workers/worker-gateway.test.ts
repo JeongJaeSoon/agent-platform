@@ -621,17 +621,16 @@ describe("WorkerGateway", () => {
         },
       },
     };
-    const appAndPat: Record<string, CatalogRepository> = {
+    const appRepositories: Record<string, CatalogRepository> = {
       app: {
         url: "https://github.com/acme/app.git",
         branch: "main",
         auth: { kind: "github_app", registered: true },
       },
-      pat: { url: "https://github.com/acme/pat.git", branch: "main" },
     };
     const seeded = withSeededInstallation({
       profiles: { p: profile },
-      repositories: appAndPat,
+      repositories: appRepositories,
     });
     const ceiling = seeded.installation.get("p");
     if (!ceiling) throw new Error("no seeded ceiling");
@@ -669,7 +668,6 @@ describe("WorkerGateway", () => {
     const repositories = new Set(runnable[0]?.map((pair) => pair.repositoryId));
     expect(ceiling.repository_ids).toEqual([]);
     expect(repositories.has("app")).toBe(true);
-    expect(repositories.has("pat")).toBe(false);
   });
 
   test("bootstrapClaim answers the row's repository and the catalog's resolved profile", async () => {
@@ -730,11 +728,13 @@ describe("WorkerGateway", () => {
             url: "https://example.invalid/app.git",
             branch: "main",
             profiles: ["claude-coding-v1", "other"],
+            auth: { kind: "github_app", registered: true },
           },
           docs: {
             url: "https://example.invalid/docs.git",
             branch: "trunk",
             profiles: ["other"],
+            auth: { kind: "github_app", registered: true },
           },
         },
       }),
@@ -854,6 +854,7 @@ describe("WorkerGateway", () => {
         url: "https://example.invalid/app.git",
         branch: "main",
         profiles: ["claude-coding-v1", "other"],
+        auth: { kind: "github_app", registered: true },
       }),
     });
     expect(claimed.profile_fingerprint).toBe(profileFingerprint(profile));
@@ -1311,11 +1312,13 @@ describe("WorkerGateway", () => {
             url: "https://example.invalid/app.git",
             branch: "main",
             profiles: ["p"],
+            auth: { kind: "github_app", registered: true } as const,
           },
           docs: {
             url: "https://example.invalid/docs.git",
             branch: "trunk",
             profiles: ["p"],
+            auth: { kind: "github_app", registered: true } as const,
           },
         },
       }),
@@ -1532,6 +1535,7 @@ describe("WorkerGateway", () => {
               url: "https://example.invalid/app.git",
               branch: "main",
               profiles: ["required", "optional"],
+              auth: { kind: "github_app", registered: true } as const,
             },
           },
         }),
@@ -2942,12 +2946,7 @@ describe("authorizeEgress", () => {
     url: "https://git.invalid/team/app.git",
     branch: "main",
     profiles: ["p"],
-    auth: {
-      kind: "basic",
-      username: "reader",
-      value: "repo-token",
-      ref: { secret_id: "repo" },
-    },
+    auth: { kind: "github_app", registered: true },
   };
   const granted = (binding: string, costUsd = 0): EgressAuthorization => ({
     outcome: "ok",
@@ -2978,6 +2977,15 @@ describe("authorizeEgress", () => {
         },
       }),
       catalog: withSeededInstallation(catalog),
+      github: {
+        grant: async () =>
+          ({
+            gitCredential: {
+              username: "x-access-token",
+              password: "installation-token",
+            },
+          }) as GitHubGrant,
+      },
       checkpoints: acceptAllCheckpoints,
       options: {
         sessionCostLimitUsd: 1_000,
@@ -3031,39 +3039,6 @@ describe("authorizeEgress", () => {
         })
       ).upstream.headers,
     ).toEqual([["x-api-key", "anthropic-key"]]);
-  });
-
-  test("a repository token is answered with the row's repository and its login", async () => {
-    const { instance } = authorizer(
-      granted(repositoryBinding("app", repository)),
-    );
-    const grant = await instance.authorizeEgress({
-      token: "wer_x",
-      purpose: "repository",
-    });
-    expect(grant.upstream).toEqual({
-      url: repository.url,
-      headers: [
-        [
-          "authorization",
-          `Basic ${Buffer.from("reader:repo-token").toString("base64")}`,
-        ],
-      ],
-    });
-    // A repository anyone may read gets nothing injected.
-    const { auth: _auth, ...open } = repository;
-    const public_ = authorizer(granted(repositoryBinding("app", open)), {
-      profiles: { p: profile },
-      repositories: { app: open },
-    });
-    expect(
-      (
-        await public_.instance.authorizeEgress({
-          token: "wer_x",
-          purpose: "repository",
-        })
-      ).upstream.headers,
-    ).toEqual([]);
   });
 
   test("an unknown token is 401 and an attempt that lost its session is 403", async () => {
@@ -3137,17 +3112,6 @@ describe("authorizeEgress", () => {
       { app: { ...repository, branch: "dev" } },
       // The pair is no longer allowed.
       { app: { ...repository, profiles: ["someone-else"] } },
-      // Another credential reference behind the same id.
-      {
-        app: {
-          ...repository,
-          auth: {
-            kind: "bearer" as const,
-            value: "repo-token",
-            ref: { value_env: "OTHER" },
-          },
-        },
-      },
       // Gone.
       {},
     ]) {
@@ -3189,15 +3153,6 @@ describe("authorizeEgress through a forge", () => {
       api_base: "https://api.github.com",
       value: "-----BEGIN RSA PRIVATE KEY-----fixture",
       ref: { value_env: "GITHUB_APP_KEY" },
-    },
-  };
-  const pat: CatalogRepository = {
-    ...app,
-    auth: {
-      kind: "basic",
-      username: "x-access-token",
-      value: "github_pat_fixture_value",
-      ref: { value_env: "GITHUB_PAT" },
     },
   };
 
@@ -3299,7 +3254,7 @@ describe("authorizeEgress through a forge", () => {
       const github = gate(async () => {
         throw new GitHubGateError(reason, "receipt-1");
       });
-      for (const repository of [app, pat]) {
+      for (const repository of [app]) {
         await expect(
           gateway(repository, github).authorizeEgress({
             token: "tok",
@@ -3349,23 +3304,6 @@ describe("authorizeEgress through a forge", () => {
     expect(github.asked).toHaveLength(1);
   });
 
-  test("with no gate, an agent's session has nothing to hold it to the workspace ceiling", async () => {
-    const offGitHub: CatalogRepository = {
-      ...pat,
-      url: "https://example.invalid/app.git",
-    };
-    await gateway(offGitHub).authorizeEgress({
-      token: "tok",
-      purpose: "repository",
-    });
-    await expect(
-      gateway(offGitHub, undefined, { source: "agent" }).authorizeEgress({
-        token: "tok",
-        purpose: "repository",
-      }),
-    ).rejects.toMatchObject({ status: 409 });
-  });
-
   test("another repository's route asks the gate for that repository and goes to its url", async () => {
     const docs: CatalogRepository = {
       ...app,
@@ -3394,43 +3332,6 @@ describe("authorizeEgress through a forge", () => {
         repository_id: "docs",
       }),
     ).rejects.toThrow();
-  });
-
-  test("a PAT repository sends the same header with or without a forge in front", async () => {
-    const expected: Array<[string, string]> = [
-      ["authorization", basic("x-access-token:github_pat_fixture_value")],
-    ];
-    expect(
-      (
-        await gateway(pat).authorizeEgress({
-          token: "t",
-          purpose: "repository",
-        })
-      ).upstream.headers,
-    ).toEqual(expected);
-    const static_ = gate(async () => ({
-      username: "x-access-token",
-      password: "github_pat_fixture_value",
-    }));
-    expect(
-      (
-        await gateway(pat, static_).authorizeEgress({
-          token: "t",
-          purpose: "repository",
-        })
-      ).upstream.headers,
-    ).toEqual(expected);
-    expect(
-      (
-        await gateway(
-          pat,
-          gate(async () => null),
-        ).authorizeEgress({
-          token: "t",
-          purpose: "repository",
-        })
-      ).upstream.headers,
-    ).toEqual(expected);
   });
 
   test("an App repository with no gate, a gate that fails, or no GitHub connection is refused with nothing of the failure", async () => {
@@ -3575,6 +3476,7 @@ describe("unmetered sessions", () => {
               url: "https://example.invalid/app.git",
               branch: "main",
               profiles: ["local"],
+              auth: { kind: "github_app", registered: true },
             },
           },
         }),

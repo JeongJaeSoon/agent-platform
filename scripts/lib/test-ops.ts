@@ -32,6 +32,7 @@ import {
   assertCheckpointBucketProtection,
   checkpointStorageConfigFromEnv,
 } from "../../apps/control-host/src/api/checkpoints.ts";
+import { withoutLegacyRepositories } from "../../apps/control-host/src/api/settings-from-dir.ts";
 
 const REPO_ROOT = resolve(import.meta.dir, "../..");
 const EXIT_REFUSED = 3;
@@ -151,6 +152,32 @@ export function parseReleaseManifest(
   };
   if (problems.length > 0) throw new Error(problems.join("\n"));
   return manifest;
+}
+
+/**
+ * The import leaves out a repository with no GitHub App and adds nothing for
+ * it, so the run would end with no repository after the images are up. This
+ * is the import's own rule applied before anything starts. A document that is
+ * not JSON is the import's to refuse.
+ */
+async function repositoriesWithoutGitHubApp(file: string): Promise<string[]> {
+  let document: unknown;
+  try {
+    document = JSON.parse(await readFile(file, "utf8"));
+  } catch {
+    return [];
+  }
+  if (document === null || typeof document !== "object") return [];
+  const skipped: string[] = [];
+  withoutLegacyRepositories(
+    (document as { repositories?: unknown }).repositories,
+    [],
+    skipped,
+  );
+  return skipped.map(
+    (id) =>
+      `settings document ${file}: repository ${id} names no GitHub App, so the import would leave it out; add "auth": {"kind": "github_app"}. If the database already holds a repository ${id}, that edit conflicts with the row: remove the entry or give it a new id. If it is the only repository and every top-level profile requires a repository, removing it also needs the top-level "profiles" removed (or use a new id instead), or the import fails with "at least one repository is required". If a run already stopped with pending.json left behind, copy the fixed manifest over it (docs/operator/test-ops.md)`,
+  );
 }
 
 export async function settingsDigest(file: string): Promise<string> {
@@ -362,6 +389,7 @@ export async function checkRender(
       problems.push(
         `settings document ${document} is ${digest}, the manifest says ${options.settingsDigest}`,
       );
+    problems.push(...(await repositoriesWithoutGitHubApp(document)));
   }
   if (problems.length > 0) throw new Error(problems.join("\n"));
   return digest;

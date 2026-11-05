@@ -67,8 +67,8 @@ if (done.push_receipt_id) {
 ```
 
 ```text
-failed
-push failed no_push_credential
+pushed
+push succeeded null
 ```
 
 `waitForPushRequest` waits until the request becomes `pushed`, `failed`, or `rejected`.
@@ -89,12 +89,12 @@ curl -sS "$API/v1/receipts/$(echo "$pushed" | jq -r .push_receipt_id)" -H "Autho
 
 ```text
 {
-  "state": "failed"
+  "state": "pushed"
 }
 {
   "operation": "push",
-  "status": "failed",
-  "refusal": "no_push_credential"
+  "status": "succeeded",
+  "refusal": null
 }
 ```
 
@@ -103,7 +103,7 @@ Reference: [`GET …/push-requests/{push_request_id}`](/reference/http-api/push-
 </Tab>
 </Tabs>
 
-The `sample-app` repository in the local stack has no push credential, so it ends with `no_push_credential`. When an operator sets up a GitHub App or PAT for the repository ([GitHub](/integrations/github)), it becomes `pushed`, and the receipt's `result` records `remote_ref` (`refs/heads/agent/<session-id>`) and `previous_commit`.
+The local stack's `sample-app` is registered with a GitHub App on the stack's own Git server, so the request becomes `pushed`. The receipt's `result` records `remote_ref` (`refs/heads/agent/<session-id>`) and `previous_commit`. A repository with no GitHub App credential that can write to it ends with `no_push_credential`.
 
 The platform sends only that one commit to that branch. It does not force push. It does not send to the default branch.
 

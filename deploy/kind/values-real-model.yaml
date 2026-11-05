@@ -2,6 +2,8 @@
 # settings' claude-coding-real profile against the sample repository of
 # deps-session.yaml, under infra/compose.real-model.yml's limits.
 config:
+  aws:
+    secretsManagerEndpointUrl: http://secrets:4566
   limits:
     SESSION_COST_LIMIT_USD: 1
     MAX_TURN_SECONDS: 600

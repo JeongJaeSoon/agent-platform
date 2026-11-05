@@ -1,6 +1,5 @@
 # What a session needs beyond deps.yaml, for smoke.sh (KIND_MODEL fake or
-# real): the repositories the catalogs name, read-only and rebuilt on every
-# start from the same fixed commits, as compose's local git host serves them.
+# real): repositories served through the local GitHub App's token flow.
 # Workers reach it only through the egress proxy's repository route.
 apiVersion: apps/v1
 kind: Deployment
@@ -25,7 +24,12 @@ spec:
           image: CONTROL_HOST_IMAGE
           imagePullPolicy: IfNotPresent
           # args, not command: the image's init stays PID 1.
-          args: ["bun", "run", "packages/testkit/src/fake-git-main.ts", "sample-app", "gate-app"]
+          args: ["bun", "run", "packages/testkit/src/local-github-main.ts", "sample-app", "gate-app"]
+          env:
+            - {name: AWS_ENDPOINT_URL_SECRETS_MANAGER, value: "http://secrets:4566"}
+            - {name: AWS_REGION, value: ap-northeast-1}
+            - {name: AWS_ACCESS_KEY_ID, value: test}
+            - {name: AWS_SECRET_ACCESS_KEY, value: test}
           ports:
             - containerPort: 3000
           readinessProbe:

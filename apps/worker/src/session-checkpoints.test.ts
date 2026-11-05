@@ -260,7 +260,7 @@ describe("SessionCheckpoints", () => {
     const projects = join(config, "projects");
     expect((await lstat(projects)).isSymbolicLink()).toBe(true);
     expect(await realpath(projects)).toStartWith(
-      join(await realpath(workspace), ".git", "agent-platform-transcripts-"),
+      join(await realpath(workspace), ".git", "werft-transcripts-"),
     );
     // A directory of its own is left where it is.
     const own = join(scratch, "own-home", ".claude");
@@ -388,7 +388,7 @@ describe("SessionCheckpoints", () => {
     );
     expect(
       (await readdir(join(workspace, ".git"))).filter((name) =>
-        name.startsWith("agent-platform-"),
+        name.startsWith("werft-"),
       ),
     ).toEqual([]);
   });
@@ -1769,7 +1769,7 @@ describe("SessionCheckpoints restoring a checkpoint", () => {
     const projects = join(config, "projects");
     expect((await lstat(projects)).isSymbolicLink()).toBe(true);
     expect(await realpath(projects)).toStartWith(
-      join(await realpath(workspace), ".git", "agent-platform-transcripts-"),
+      join(await realpath(workspace), ".git", "werft-transcripts-"),
     );
     const file = join(projects, root.projectKey, `${resume}.jsonl`);
     expect(JSON.parse(await readFile(file, "utf8"))).toEqual({
@@ -1918,13 +1918,11 @@ describe("SessionCheckpoints restoring a checkpoint", () => {
       "edited\n",
     );
     expect(
-      (await readdir(workspace)).filter((name) =>
-        name.startsWith(".agent-platform-"),
-      ),
+      (await readdir(workspace)).filter((name) => name.startsWith(".werft-")),
     ).toEqual([]);
-    expect(
-      await readdir(join(workspace, ".git", "agent-platform-checkpoint")),
-    ).toEqual(["checkpoint.git"]);
+    expect(await readdir(join(workspace, ".git", "werft-checkpoint"))).toEqual([
+      "checkpoint.git",
+    ]);
     // Out of the tree's way: nothing new to commit or capture.
     expect(await git(workspace, "status", "--porcelain")).toBe(
       " M CLAUDE.md\n M README.md\n",

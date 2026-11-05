@@ -18,7 +18,7 @@ networkPolicy:
     ingressFrom: []        # empty: reachable on 9464 from anywhere; narrow it to the collector namespace
 ```
 
-有効にすると、chartが`<release>-metrics` Deployment(replica 1、`Recreate`)、同じ名前のClusterIP Service(9464)、9464だけを開くNetworkPolicyを作ります。無効なら(既定)何も作らないので、既定のインストールのレンダリング結果は変わりません。値の全一覧は、`deploy/helm/agent-platform/values.yaml`の`metrics`ブロックです。
+有効にすると、chartが`<release>-metrics` Deployment(replica 1、`Recreate`)、同じ名前のClusterIP Service(9464)、9464だけを開くNetworkPolicyを作ります。無効なら(既定)何も作らないので、既定のインストールのレンダリング結果は変わりません。値の全一覧は、`deploy/helm/werft/values.yaml`の`metrics`ブロックです。
 
 `metrics`ロールが読む設定:
 

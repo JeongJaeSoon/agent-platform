@@ -28,6 +28,7 @@ import {
   readCatalogConfig,
   readConnections,
   readSeedProfiles,
+  withoutLegacyRepositories,
 } from "./settings-from-dir.ts";
 
 // The operator's settings import and export
@@ -112,14 +113,17 @@ export async function documentFromDir(dir: string): Promise<{
   document: SettingsDocument;
   profiles: SessionCatalogConfig["profiles"];
   notes: string[];
+  skipped: string[];
 }> {
-  const config = await readCatalogConfig(dir);
+  const notes: string[] = [];
+  const skipped: string[] = [];
+  const config = await readCatalogConfig(dir, notes, skipped);
   const entries: SettingsEntries = {
     connections: { ...(await readConnections(dir)) },
     repositories: config.repositories,
     mcp_servers: config.mcp_servers ?? {},
   };
-  const notes: string[] = [];
+  const skippedRepositories = notes.length > 0;
   if (await Bun.file(resolve(dir, PLATFORM_FILE)).exists()) {
     notes.push(
       `${PLATFORM_FILE} is not imported: set the master key in PLATFORM_SECRET_KEY`,
@@ -127,8 +131,9 @@ export async function documentFromDir(dir: string): Promise<{
   }
   return {
     document: settingsDocumentOf(entries),
-    profiles: await readSeedProfiles(dir, config),
+    profiles: await readSeedProfiles(dir, config, skippedRepositories),
     notes,
+    skipped,
   };
 }
 
@@ -167,12 +172,13 @@ async function seedProfiles(
     const rows = await store.listAll();
     if (rows.length === 0) installedRuntimes.assertProfiles(profiles);
     const missing = rows.filter((row) => row.repository_ids === null);
+    const seeded = rows.length === 0 ? Object.keys(profiles).sort() : [];
     return {
-      seed: rows.length === 0 ? Object.keys(profiles).sort() : [],
+      seed: seeded,
       fill: missing.map((row) => row.id),
-      unfilled: missing
-        .filter((row) => repositoryIdsOf(row.id).length === 0)
-        .map((row) => row.id),
+      unfilled: [...seeded, ...missing.map((row) => row.id)].filter(
+        (id) => repositoryIdsOf(id).length === 0,
+      ),
     };
   }
   const result = await store.seedCatalog({
@@ -186,12 +192,17 @@ async function seedProfiles(
   return {
     seed: result.seeded,
     fill: result.migrated,
-    unfilled: result.migrated.filter((id) => repositoryIdsOf(id).length === 0),
+    unfilled: [...result.seeded, ...result.migrated].filter(
+      (id) => repositoryIdsOf(id).length === 0,
+    ),
   };
 }
 
 type SettingsStores = {
-  settings: Pick<SettingsDocumentStore, "exportEntries" | "importEntries">;
+  settings: Pick<
+    SettingsDocumentStore,
+    "exportEntries" | "importEntries" | "sessionsOnRepositories"
+  >;
   profiles: Pick<InstallationProfileStore, "listAll" | "seedCatalog">;
 };
 
@@ -209,6 +220,7 @@ export async function runSettingsCommand(
   }
   const { source } = command;
   let seed: SeedDocument;
+  let skipped: string[] = [];
   if ("dir" in source) {
     if (source.ifPresent && (await dirIsEmpty(source.dir))) {
       output.err(`nothing to import from ${source.dir}`);
@@ -216,12 +228,42 @@ export async function runSettingsCommand(
     }
     const read = await documentFromDir(source.dir);
     for (const note of read.notes) output.err(`note: ${note}`);
+    skipped = read.skipped;
     seed = {
       entries: parseSeedDocument(read.document).entries,
       profiles: read.profiles,
     };
   } else {
-    seed = parseSeedDocument(await readDocument(source.document));
+    const document = await readDocument(source.document);
+    const notes: string[] = [];
+    seed = parseSeedDocument(
+      document !== null &&
+        typeof document === "object" &&
+        !Array.isArray(document) &&
+        Object.hasOwn(document, "repositories")
+        ? {
+            ...document,
+            repositories: withoutLegacyRepositories(
+              (document as { repositories: unknown }).repositories,
+              notes,
+              skipped,
+            ),
+          }
+        : document,
+      notes.length > 0,
+    );
+    for (const note of notes) output.err(`note: ${note}`);
+  }
+  // A session on a repository only the file knew would be failed by the
+  // claim gate with nothing to hold it: stop before anything is written.
+  const stranded = await stores.settings.sessionsOnRepositories(skipped);
+  if (stranded.length > 0) {
+    output.err(
+      `refused: nothing changed; sessions still use repositories this import leaves out: ${stranded
+        .map((row) => `${row.session_id} (${row.repository_id}, ${row.via})`)
+        .join(", ")}`,
+    );
+    return false;
   }
   const result = await stores.settings.importEntries(seed.entries, {
     dryRun: command.dryRun,

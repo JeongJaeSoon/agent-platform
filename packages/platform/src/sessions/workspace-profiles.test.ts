@@ -87,6 +87,7 @@ function catalogWith(
         url: "https://git.example.invalid/team/app.git",
         branch: "main",
         profiles: ["coding"],
+        auth: { kind: "github_app", registered: true },
       },
     },
     workspace_profiles: {

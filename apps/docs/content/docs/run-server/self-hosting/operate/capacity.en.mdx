@@ -12,8 +12,8 @@ The transcript size one session may use and the worker memory are tied together.
 | Transcript total limit `MAX_TRANSCRIPT_BYTES` | 512 MiB | `packages/runtime-core/src/checkpoint-manifest.ts` |
 | Transcript part limit `MAX_TRANSCRIPT_PART_BYTES` | 16 MiB | The same file |
 | Warning threshold `transcriptWarnBytes` | 80% of the limit, 409.6 MiB | The same file. See "80% warning" below |
-| Worker memory `WORKER_MEMORY_MB` / helm `worker.memoryMb` | 4608 MiB | `apps/control-host/src/scheduler/config.ts`, `deploy/helm/agent-platform/values.yaml`, `infra/compose.core.yml` |
-| Workspace limit `EXECUTION_WORKSPACE_QUOTA_MB` / helm `worker.workspace.quotaMb` | 4096 MiB (minimum 1024) | `packages/adapters/execution/kubernetes/src/config.ts`, `packages/adapters/execution/local-docker/src/config.ts`, `deploy/helm/agent-platform/values.yaml` |
+| Worker memory `WORKER_MEMORY_MB` / helm `worker.memoryMb` | 4608 MiB | `apps/control-host/src/scheduler/config.ts`, `deploy/helm/werft/values.yaml`, `infra/compose.core.yml` |
+| Workspace limit `EXECUTION_WORKSPACE_QUOTA_MB` / helm `worker.workspace.quotaMb` | 4096 MiB (minimum 1024) | `packages/adapters/execution/kubernetes/src/config.ts`, `packages/adapters/execution/local-docker/src/config.ts`, `deploy/helm/werft/values.yaml` |
 
 `.env.example` sets `WORKER_MEMORY_MB=2048` for local development. With that value the half-of-the-limit rule below does not hold. In a local test that resumes a large transcript, delete that line or change it to 4608.
 

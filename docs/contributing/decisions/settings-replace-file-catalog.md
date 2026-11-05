@@ -97,7 +97,7 @@ release id에는 MCP 서버가 들지 않는다(`deriveReleaseId`, `release-ids.
 ### 지우는 것
 
 - `profiles.yaml` 시드: 빈 설치는 상한 0개로 뜬다. 첫 상한은 콘솔에서 만든다(아래 첫 기동).
-- `platform.yaml`: master key는 env `PLATFORM_SECRET_KEY`만 읽는다. helm은 이미 ExternalSecret을 env로 넘길 수 있다(`deploy/helm/agent-platform/templates/external-secret.yaml`). 저장 값이 생기므로 비밀 저장소는 꺼질 수 없다. 키가 없으면 기동을 거부한다(지금은 503으로 기능만 끈다, `docs/operator/api-server.md:745`).
+- `platform.yaml`: master key는 env `PLATFORM_SECRET_KEY`만 읽는다. helm은 이미 ExternalSecret을 env로 넘길 수 있다(`deploy/helm/werft/templates/external-secret.yaml`). 저장 값이 생기므로 비밀 저장소는 꺼질 수 없다. 키가 없으면 기동을 거부한다(지금은 503으로 기능만 끈다, `docs/operator/api-server.md:745`).
 - `catalogRevision`, `catalog_authority` 테이블과 CLI, `connections-from-yaml` CLI, `test-ops`의 디렉터리 해시(설정 내보내기 digest로 바꾼다).
 
 ## 2. 자격 증명과 보안 경계
@@ -137,7 +137,7 @@ release id에는 MCP 서버가 들지 않는다(`deriveReleaseId`, `release-ids.
 ## 5. 이전(한 번에)
 
 1. 같은 릴리스에 `bun run settings import --from-dir <옛 디렉터리>`를 둔다. 옛 다섯 파일을 지금 스키마로 읽어 설정 문서로 바꾼 뒤 DB에 넣는다. id를 그대로 쓰고 `ON CONFLICT DO NOTHING`이라 여러 번 돌아도 같다. 넣은 행마다 receipt `import_*`(주체: 시스템). 이미 있는 id의 내용이 다르면 멈추고 그 id를 보고한다(덮어쓰지 않는다).
-2. helm: `migrate-job`은 이미 `pre-install,pre-upgrade` 훅이다(`deploy/helm/agent-platform/templates/migrate-job.yaml:12`). 새 chart는 이 job이 옛 ConfigMap `<fullname>-catalog`을 `optional: true`로 mount해 가져오기를 돌린 뒤, 같은 릴리스의 템플릿에서 ConfigMap을 지운다. pre-upgrade 훅이 옛 리소스가 지워지기 전에 도는지는 구현 PR이 kind에서 실측한다(미확인).
+2. helm: `migrate-job`은 이미 `pre-install,pre-upgrade` 훅이다(`deploy/helm/werft/templates/migrate-job.yaml:12`). 새 chart는 이 job이 옛 ConfigMap `<fullname>-catalog`을 `optional: true`로 mount해 가져오기를 돌린 뒤, 같은 릴리스의 템플릿에서 ConfigMap을 지운다. pre-upgrade 훅이 옛 리소스가 지워지기 전에 도는지는 구현 PR이 kind에서 실측한다(미확인).
 3. compose: `migrate` 서비스가 옛 `config/` mount가 있으면 같은 가져오기를 돈다. 저장소의 `config/` 디렉터리는 지운다.
 4. 새 API 이미지는 파일 로더가 없다. `PLATFORM_CONFIG_DIR`가 있으면 "가져오기를 끝내고 변수를 지운다"는 메시지로 기동을 거부한다.
 5. 롤링 업데이트 중 옛 replica는 파일을, 새 replica는 DB를 읽는다. 가져오기가 같은 객체를 만들므로 지문·binding·release id가 같다. 이 창에서 파일이나 콘솔 설정을 바꾸지 않는다(운영 문서에 적는다).

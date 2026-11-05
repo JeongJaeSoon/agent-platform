@@ -26,13 +26,9 @@ import {
 } from "@werft-ai/storage";
 import {
   createGitBundleChain,
-  createServedRepository,
   type FakeGitHub,
   type GitBundleFixture,
-  type GitHttpServer,
-  seedServedBranch,
   startFakeGitHub,
-  startGitHttpServer,
 } from "@werft-ai/testkit";
 import { connectionsOf } from "./forge-github.ts";
 import {
@@ -48,10 +44,8 @@ const privateKey = keys.privateKey
 const publicKey = keys.publicKey
   .export({ type: "spki", format: "pem" })
   .toString();
-const BASIC_LOGIN = `Basic ${Buffer.from("push-bot:pat-value-1234").toString("base64")}`;
 
 let github: FakeGitHub;
-let plainHost: GitHttpServer;
 let chain: { base: GitBundleFixture; tip: GitBundleFixture };
 let tempRoot: string;
 
@@ -59,22 +53,13 @@ beforeAll(async () => {
   github = await startFakeGitHub({ appId: 101, publicKey });
   await github.createRepository("acme", "app", { "README.md": "hello\n" });
   await github.createRepository("acme", "other", { "README.md": "no\n" });
-  plainHost = await startGitHttpServer({
-    authorization: BASIC_LOGIN,
-    push: true,
-  });
-  await createServedRepository(plainHost, "app", {
-    "README.md": "plainHost\n",
-  });
   chain = await createGitBundleChain();
   // A checkpoint builds on the repository it was cloned from.
   await github.seedBranch("acme", "app", "main", chain.base);
-  await seedServedBranch(plainHost, "app", "main", chain.base);
   tempRoot = await mkdtemp(join(tmpdir(), "push-executor-test-"));
 });
 afterAll(async () => {
   await github.stop();
-  await plainHost.stop();
   await rm(tempRoot, { force: true, recursive: true });
 });
 
@@ -590,47 +575,15 @@ describe("the platform's push", () => {
     }
   });
 
-  test("a basic credential without a forge (a non-GitHub host, GHES with a PAT) pushes with the catalog login", async () => {
-    const catalog = catalogOf({
-      plainHost: {
-        url: `${plainHost.origin}/app.git`,
-        branch: "main",
-        profiles: ["default"],
-        auth: {
-          kind: "basic",
-          username: "push-bot",
-          value: "pat-value-1234",
-          ref: { value_env: "PLAIN_HOST_TOKEN" },
-        },
-      },
+  test("an App repository with no connection is not pushed to", async () => {
+    const catalog = catalogOf({ app: appRepository() });
+    const result = await run(catalog, jobFor(catalog, "app"), {
+      connections: () => null,
     });
-    const job = jobFor(catalog, "plainHost");
-    const result = await run(catalog, job);
-    expect(result.outcome).toMatchObject({ state: "pushed" });
-    expectNoCredentialIn(result);
-    const pushes = plainHost.requests.filter((request) =>
-      request.path.includes("git-receive-pack"),
-    );
-    expect(pushes.length).toBeGreaterThan(0);
-    expect(
-      pushes.every((request) => request.authorization === BASIC_LOGIN),
-    ).toBe(true);
-  });
-
-  test("a repository with no credential is not pushed to", async () => {
-    const catalog = catalogOf({
-      open: {
-        url: `${plainHost.origin}/app.git`,
-        branch: "main",
-        profiles: ["d"],
-      },
+    expect(result.outcome).toMatchObject({
+      state: "failed",
+      refusal: "no_push_credential",
     });
-    expect((await run(catalog, jobFor(catalog, "open"))).outcome).toMatchObject(
-      {
-        state: "failed",
-        refusal: "no_push_credential",
-      },
-    );
   });
 
   test("every git runs under resource limits and is cut off before the lease runs out", async () => {

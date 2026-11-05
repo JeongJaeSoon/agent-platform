@@ -77,7 +77,7 @@
 
 ## 오브젝트 스토리지 (checkpoint bucket)
 
-bucket은 `S3_BUCKET`(기본 `claude-sessions`, `infra/compose.core.yml:290`, `deploy/helm/agent-platform/values.yaml:138`)이다. 세션 하나의 object는 모두 `sessions/<session id>/` 아래에 있다(`packages/platform/src/checkpoints/checkpoint-service.ts:98-99`). 보호 방식(`CHECKPOINT_OBJECT_PROTECTION`, 기본 `locked`)과 bucket 조건은 [api-server.md](api-server.md)에 있다.
+bucket은 `S3_BUCKET`(기본 `claude-sessions`, `infra/compose.core.yml:290`, `deploy/helm/werft/values.yaml:138`)이다. 세션 하나의 object는 모두 `sessions/<session id>/` 아래에 있다(`packages/platform/src/checkpoints/checkpoint-service.ts:98-99`). 보호 방식(`CHECKPOINT_OBJECT_PROTECTION`, 기본 `locked`)과 bucket 조건은 [api-server.md](api-server.md)에 있다.
 
 - **transcript** — `sessions/<id>/transcripts/generation-<10자리>/…/part-<n>.jsonl`
   - 담는 것: 엔진(Claude Code)이 쓴 대화 기록 JSONL 원문. 프롬프트, 답변, 도구 입출력이 모두 들어간다.

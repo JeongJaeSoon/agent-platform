@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { generateKeyPairSync } from "node:crypto";
 import { join } from "node:path";
 import * as schema from "@werft-ai/db";
 import {
@@ -47,6 +48,9 @@ const FIXTURES = [
   "local-model",
 ];
 const PLACEHOLDER = "placeholder-credential-value";
+const appKey = generateKeyPairSync("rsa", { modulusLength: 2048 })
+  .privateKey.export({ type: "pkcs8", format: "pem" })
+  .toString();
 
 // Computed on main at 304c2713 (catalog-config.test.ts): sessions and
 // releases pin these, so the database path must give the same.
@@ -123,7 +127,11 @@ integration("a settings document seeding an empty PostgreSQL", () => {
         // What the YAML-only image (main 9afaf942) resolves.
         const stageZero = resolveSessionCatalog(
           { repositories: entries.repositories, profiles },
-          () => PLACEHOLDER,
+          (ref) =>
+            "secret_id" in ref &&
+            ref.secret_id === "agent-platform/local/fake-github-app"
+              ? appKey
+              : PLACEHOLDER,
         );
         await seedSettings(db, document);
         const store = createPostgresInstallationProfileStore(db);
