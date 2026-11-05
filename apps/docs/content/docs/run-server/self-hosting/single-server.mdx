@@ -6,7 +6,7 @@ description: 게시된 이미지로 Linux 서버 한 대에 Werft를 설치하�
 Linux 서버 한 대에 Docker Compose로 Werft를 설치한다. 이미지는 직접 빌드하지 않고 게시된 것을 digest로 고정해 받는다. 이 페이지는 `/readyz`가 200을 돌려줄 때까지의 순서를 적는다. Kubernetes에 올린다면 [Kubernetes 설치](/run-server/self-hosting/kubernetes)를 읽는다.
 
 <Callout type="warn">
-이 절차는 운영 runbook의 순서를 옮긴 것으로, 게시 이미지로 처음부터 끝까지 실행해 확인하지는 않았다. 내용이 다르면 [test-ops 운영 runbook](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md)을 따른다.
+이 절차는 OrbStack의 Ubuntu(arm64) 머신에서 게시 이미지로 1~6단계와 7단계의 `key create`까지 실행해 확인했다. 7단계의 `/bootstrap` 화면으로 첫 owner를 만드는 일, `reset`, 실제 모델 호출은 확인하지 못했다. 내용이 다르면 [test-ops 운영 runbook](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md)을 따른다.
 </Callout>
 
 <Callout type="warn">
@@ -20,7 +20,7 @@ Linux 서버 한 대에 Docker Compose로 Werft를 설치한다. 이미지는 �
 | 운영체제 | Linux. `x86_64`와 `arm64` 모두 된다 |
 | Docker Engine | 28 이상 |
 | Docker Compose | 2.24.6 이상 |
-| 디스크 | Docker 데이터 루트가 XFS이고 `prjquota`로 mount돼 있다. `preflight`는 이것을 보지 않는다. 아니면 `deploy`에서 scheduler의 quota 검사가 실패해 설치가 멈춘다. Docker Desktop에서는 쓸 수 없다 |
+| 디스크 | Docker 데이터 루트가 XFS이고 `prjquota`로 mount돼 있다. `preflight`는 이것을 보지 않는다. 아니면 `deploy`에서 scheduler의 quota 검사가 실패해 설치가 멈춘다. Docker Desktop에서는 쓸 수 없다. OrbStack의 기본 머신은 btrfs라 이 조건을 맞추지 못한다. 머신 안에서 sparse 이미지 파일(60G)에 `mkfs.xfs`로 XFS를 만들고 `loop,prjquota`로 mount해 Docker의 `data-root`로 지정하면, mount 옵션에 `prjquota`가 보이고 `deploy`의 quota 검사가 통과한다(OrbStack 머신 한 대에서 한 번 해 봤고, 명령 전체는 이 페이지에 적지 않는다) |
 | 시간 | NTP 동기화. 재부팅 뒤 Docker가 자동으로 시작한다 |
 | 도구 | `git`, `jq`, `curl`, `openssl`, Bun 1.3.14, Docker Buildx 플러그인. Docker daemon에 접근할 수 있는 계정 |
 | 외부 | `ghcr.io`와 Docker Hub에서 이미지를 받을 수 있다. 패키지는 로그인 없이 받는다. 세션은 `api.anthropic.com`과 `github.com`에 나간다 |
@@ -77,7 +77,7 @@ sudo install -d -m 700 -o "$USER" /var/lib/agent-platform/test-ops
 
 값을 터미널에 출력하거나 명령 인자로 넘기지 않는다. 무작위 값은 `openssl rand -hex 32`로 만들어 편집기에 붙인다.
 
-설정 문서는 `/etc/agent-platform/settings.json`에 둔다. 세션이 쓸 모델 연결, GitHub 저장소, profile을 적는다. 값이 아니라 환경 변수 이름만 적으므로 비밀이 없다. 저장소 URL만 실제 값으로 바꾼다. 예시는 공개 저장소 기준이다. 비공개 저장소의 인증은 [API 서버 문서](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)를 따른다.
+설정 문서는 `/etc/agent-platform/settings.json`에 둔다. 세션이 쓸 모델 연결, GitHub 저장소, profile을 적는다. 값이 아니라 환경 변수 이름만 적으므로 비밀이 없다. 저장소 URL만 실제 값으로 바꾼다. 예시는 공개 저장소 기준이다. 저장소 항목에는 `"auth": { "kind": "github_app" }`가 있어야 한다. 없으면 가져올 때 그 저장소가 빠지므로 `preflight`가 설치를 막고, 이 값을 더하면 통과하는 것을 확인했다. 비공개 저장소의 인증은 [API 서버 문서](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)를 따른다.
 
 migrate 컨테이너가 읽어야 하므로 파일은 `0644`로 둔다. 빈 파일을 먼저 만들고 편집기로 아래 내용을 채운다.
 
@@ -99,6 +99,7 @@ sudo install -m 644 -o "$USER" /dev/null /etc/agent-platform/settings.json
     "sample-app": {
       "url": "https://github.com/<owner>/<repo>.git",
       "branch": "main",
+      "auth": { "kind": "github_app" },
       "profiles": ["claude-coding"]
     }
   },
@@ -202,6 +203,8 @@ scripts/test-ops.sh reset --yes
 ```
 
 `reset`은 이 설치의 컨테이너와 volume(DB, LocalStack), 세션이 만든 worker 컨테이너와 workspace volume을 지운다. 세션, checkpoint, API key도 함께 사라지므로 지우기 전에 [백업](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/backup-restore.md)을 받는다.
+
+`reset`은 volume까지 지운다. volume을 남기고 컨테이너만 내리려면 `docker compose -p agent-platform-test-ops down`을 쓴다. `-v`를 붙이지 않으므로 DB와 LocalStack의 volume은 남는다. 세션이 없는 설치에서 확인했고, 남은 volume으로 다시 `deploy`하는 동작은 확인하지 못했다.
 
 ## 다음 단계
 
