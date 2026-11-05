@@ -43,10 +43,10 @@ docker compose --profile apps --profile fake-model \
   down "${down_args[@]}" >>"$run/evidence/down.log" 2>&1 || failed=1
 
 left=$(docker ps -a --filter "label=com.docker.compose.project=$COMPOSE_PROJECT_NAME" --format '{{.Names}}') || failed=1
-workers=$(docker ps -a --filter "label=agent-platform.installation=$EXECUTION_INSTALLATION_ID" --format '{{.Names}}') || failed=1
+workers=$(docker ps -a --filter "label=werft.installation=$EXECUTION_INSTALLATION_ID" --format '{{.Names}}') || failed=1
 networks=$(
   docker network ls --filter "label=com.docker.compose.project=$COMPOSE_PROJECT_NAME" --format '{{.Name}}' &&
-    docker network ls --filter "label=agent-platform.installation=$EXECUTION_INSTALLATION_ID" --format '{{.Name}}'
+    docker network ls --filter "label=werft.installation=$EXECUTION_INSTALLATION_ID" --format '{{.Name}}'
 ) || failed=1
 if [ "$failed" = 1 ]; then
   echo "down.sh: a teardown or leftover check failed (see $run/evidence/down.log); ports.yml kept, rerun down.sh $run${keep:+ $keep}" >&2
@@ -55,9 +55,9 @@ fi
 {
   echo "\$ docker ps -a --filter label=com.docker.compose.project=$COMPOSE_PROJECT_NAME"
   echo "${left:-(none)}"
-  echo "\$ docker ps -a --filter label=agent-platform.installation=$EXECUTION_INSTALLATION_ID"
+  echo "\$ docker ps -a --filter label=werft.installation=$EXECUTION_INSTALLATION_ID"
   echo "${workers:-(none)}"
-  echo "\$ docker network ls --filter label=com.docker.compose.project=$COMPOSE_PROJECT_NAME, then label=agent-platform.installation=$EXECUTION_INSTALLATION_ID"
+  echo "\$ docker network ls --filter label=com.docker.compose.project=$COMPOSE_PROJECT_NAME, then label=werft.installation=$EXECUTION_INSTALLATION_ID"
   echo "${networks:-(none)}"
 } | tee "$run/evidence/leftovers.txt"
 if [ -n "$left$workers$networks" ]; then

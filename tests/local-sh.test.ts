@@ -724,7 +724,7 @@ case "$*" in
   "ps -aq --filter label="*) echo "worker-1" ;;
   "network ls -q --filter label="*) echo "net-1" ;;
   "volume ls -q --filter label="*) echo "ws-1" ;;
-  "network ls --filter label=agent-platform.installation="*)
+  "network ls --filter label=werft.installation="*)
     echo "$STUB_LEFT_NETWORK"
     exit "\${STUB_LEFT_EXIT:-0}" ;;
 esac
