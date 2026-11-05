@@ -24,13 +24,14 @@ import {
   Input,
   NativeSelect,
   NativeSelectOption,
+  Page,
   RowAction,
   Section,
   Skeleton,
   Text,
 } from "@werft-ai/ui";
 import { Lock, Plus } from "lucide-react";
-import { useState } from "react";
+import { type ComponentProps, useState } from "react";
 import { useHasPermission } from "../auth/guard.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
@@ -63,9 +64,12 @@ const COLUMNS = [
  */
 export function ModelConnections({
   profiles,
+  asPage = false,
 }: {
   /** The installation ceilings, to count those over each connection. */
   readonly profiles: readonly ProfileSummary[];
+  /** The settings page's own frame (h1 head) instead of the Profiles section. */
+  readonly asPage?: boolean;
 }) {
   const { t } = useI18n();
   const { client } = useWerft();
@@ -79,27 +83,27 @@ export function ModelConnections({
     profiles.filter((profile) => profile.installation?.connection_id === id)
       .length;
 
+  const head = {
+    title: t("settings.connections.title"),
+    description: t("settings.connections.description"),
+    actions: owns ? (
+      <Button
+        type="button"
+        variant="outline"
+        onClick={() => {
+          setOutcome(null);
+          setAdding(true);
+        }}
+      >
+        <Plus aria-hidden="true" />
+        {t("settings.connections.add")}
+      </Button>
+    ) : null,
+  };
+  const Frame = asPage ? Page : SectionFrame;
+
   return (
-    <Section
-      className="[&>div:first-child]:mb-4"
-      title={t("settings.connections.title")}
-      description={t("settings.connections.description")}
-      actions={
-        owns ? (
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => {
-              setOutcome(null);
-              setAdding(true);
-            }}
-          >
-            <Plus aria-hidden="true" />
-            {t("settings.connections.add")}
-          </Button>
-        ) : null
-      }
-    >
+    <Frame {...head}>
       <div className="flex flex-col gap-[var(--werft-space-block)]">
         {!owns ? (
           <Text variant="meta" className="flex items-center gap-1">
@@ -168,8 +172,12 @@ export function ModelConnections({
         />
       ) : null}
       {rows.dialogs}
-    </Section>
+    </Frame>
   );
+}
+
+function SectionFrame(props: ComponentProps<typeof Section>) {
+  return <Section className="[&>div:first-child]:mb-4" {...props} />;
 }
 
 function ConnectionRow({
