@@ -112,11 +112,18 @@ export function createPostgresPullRequestDrain(
             .orderBy(pushRequests.createdAt)
             .limit(1);
           if (!peek) return null;
-          await tx
+          // Neither lock waits: a session or request someone else holds is
+          // passed over, so one busy session never stalls the queue and two
+          // claims cannot wait on each other.
+          const [locked] = await tx
             .select({ id: sessions.id })
             .from(sessions)
             .where(eq(sessions.id, peek.sessionId))
-            .for("update");
+            .for("update", { skipLocked: true });
+          if (!locked) {
+            passed.push(peek.id);
+            continue;
+          }
           // Judged again under the locks; a row someone else holds or moved
           // is passed over for this claim.
           const [candidate] = await tx

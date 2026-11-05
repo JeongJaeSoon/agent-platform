@@ -359,6 +359,30 @@ integration("postgres pull request drain", () => {
     );
   });
 
+  test("a session someone else holds does not stall a younger request in another session", async () => {
+    const older = await due();
+    const younger = await due();
+    const holder = await pool.connect();
+    try {
+      await holder.query("BEGIN");
+      await holder.query("SELECT id FROM sessions WHERE id = $1 FOR UPDATE", [
+        older.sessionId,
+      ]);
+      const claimed = await Promise.race([
+        drain.claimNextDue(60_000),
+        new Promise<"stalled">((resolve) =>
+          setTimeout(() => resolve("stalled"), 3_000),
+        ),
+      ]);
+      expect(claimed).not.toBe("stalled");
+      expect(claimed).toMatchObject({ id: younger.id });
+      expect((await row(older.id))?.prState).toBe("due");
+    } finally {
+      await holder.query("ROLLBACK");
+      holder.release();
+    }
+  });
+
   test("a legacy request with an invalid intent is failed without a notice", async () => {
     const { id, sessionId } = await due({ title: 42 });
     await slackThread(sessionId);
