@@ -43,6 +43,19 @@ const PIN_OFF = {
   actions_allow: [],
 };
 
+/** A snapshot taken when the agent's attached push was `allow`. */
+const START_ATTACHED_ALLOW = {
+  enabled: true,
+  revision: 1,
+  settings: {
+    repositories: ["sample-app"],
+    push_approval: true,
+    features: { ...GITHUB_CEILING_NONE },
+    actions_allow: [],
+  },
+  push_attached: "allow",
+};
+
 integration("the readers of an agent's GitHub settings", () => {
   let database: TempDatabase;
   let pool: Pool;
@@ -438,6 +451,7 @@ integration("the readers of an agent's GitHub settings", () => {
       for (const narrowed of ["ask", "deny"]) {
         const { workspaceId, agentId, sessionId } = await fixture({
           source: "agent",
+          start: START_ATTACHED_ALLOW,
         });
         await settingsRow(workspaceId, agentId, {
           pushApproval: true,
@@ -479,9 +493,25 @@ integration("the readers of an agent's GitHub settings", () => {
       }
     });
 
+    test("a session with no snapshot is capped at ask even when the row now says allow", async () => {
+      const { workspaceId, agentId, sessionId } = await fixture({
+        source: "agent",
+      });
+      await settingsRow(workspaceId, agentId, {
+        pushApproval: true,
+        pushAttached: "allow",
+        updatedBy: randomUUID(),
+      });
+      expect(await pushes.findSession(workspaceId, sessionId)).toMatchObject({
+        pushAttached: "ask",
+        attachedApproval: null,
+      });
+    });
+
     test("while the row still says allow, the approved attached push is claimed", async () => {
       const { workspaceId, agentId, sessionId } = await fixture({
         source: "agent",
+        start: START_ATTACHED_ALLOW,
       });
       await settingsRow(workspaceId, agentId, {
         pushApproval: true,
@@ -762,7 +792,28 @@ integration("the readers of an agent's GitHub settings", () => {
           features: REVIEW_ON,
           actions_allow: [],
         },
+        push_attached: "ask",
       });
+    });
+
+    test("a new session's snapshot starts at the row's own push_attached, allow included", async () => {
+      const { workspaceId, agentId, releaseId } = await fixture({
+        source: "agent",
+      });
+      for (const [stored, expected] of [
+        ["allow", "allow"],
+        ["deny", "deny"],
+        [undefined, "ask"],
+      ] as const) {
+        await settingsRow(workspaceId, agentId, {
+          updatedBy: PERSON,
+          ...(stored === undefined ? {} : { pushAttached: stored }),
+        });
+        const taken = await db.transaction((tx) =>
+          captureGitHubPolicyStart(tx, releaseId),
+        );
+        expect(taken.push_attached).toBe(expected);
+      }
     });
 
     test("capturing also holds the agent's switch until the session exists", async () => {

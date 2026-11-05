@@ -596,6 +596,14 @@ describe("newSessionGitHubPolicy", () => {
     expect(newSessionGitHubPolicy(null, undefined).settings).toBeNull();
   });
 
+  test("a new session starts at the row's own push_attached, not at the cap of a session with no snapshot", () => {
+    const start = (pushAttached: string | null) =>
+      newSessionGitHubPolicy({ ...ROW, pushAttached }, PIN).pushAttached;
+    expect(start("allow")).toBe("allow");
+    expect(start("deny")).toBe("deny");
+    expect(start(null)).toBe("ask");
+  });
+
   test("a row makes the session the agent's", () => {
     const read = newSessionGitHubPolicy(ROW, PIN);
     expect(read.source).toBe("agent");

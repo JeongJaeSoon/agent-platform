@@ -691,11 +691,16 @@ export function newSessionGitHubPolicy(
   agentRow: AgentGitHubSettingsRow | null,
   releasePin: unknown,
 ): EffectiveGitHubPolicy {
-  return effectiveGitHubPolicy({
+  const policy = effectiveGitHubPolicy({
     source: agentRow === null ? "release" : "agent",
     releasePin,
     agentRow,
   });
+  // No snapshot caps an existing session at `ask`; a new session's snapshot is
+  // taken from this value, so it starts at the row's own.
+  return agentRow !== null && policy.source === "agent"
+    ? { ...policy, pushAttached: pushAttachedOf(agentRow.pushAttached) }
+    : policy;
 }
 
 /** The repository a session starts on: asked, else what its policy names. */
