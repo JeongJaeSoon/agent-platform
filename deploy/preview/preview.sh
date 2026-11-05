@@ -115,8 +115,6 @@ fi
 # differ only in case (macOS folds case) or hold characters a path should not.
 PREVIEW_HOME_ROOT="$PREVIEW_HOME"
 if [ "$PREVIEW_KUBE_CONTEXT" != orbstack ]; then
-  mkdir -p "$PREVIEW_HOME"
-  chmod 700 "$PREVIEW_HOME"
   PREVIEW_HOME="${PREVIEW_HOME}/context-$(printf '%s' "$PREVIEW_KUBE_CONTEXT" | shasum -a 256 | cut -c1-16)"
 fi
 mkdir -p "$PREVIEW_HOME"
@@ -377,22 +375,24 @@ memory_used_mi() {
 }
 
 list() {
-  local namespace head up_at memory ready
+  local namespace head up_at memory ready url
   printf '%-10s %-44s %-12s %-20s %-14s %s\n' NAMESPACE URL HEAD UP_AT MEMORY READYZ
   kubectl get namespaces -o json | jq -r "${PREVIEW_JQ}"'.items[] | select(is_preview)
     | [.metadata.name, head, (up_at | if . == "" then "-" else . end)] | @tsv' \
     | while IFS=$'\t' read -r namespace head up_at; do
-      # Memory and /readyz come from this Mac's Docker engine and Traefik,
-      # which serve OrbStack's previews only.
+      # The URL, memory and /readyz come from OrbStack's Traefik and this
+      # Mac's Docker engine, so they describe OrbStack's previews only.
       if [ "$PREVIEW_KUBE_CONTEXT" = orbstack ]; then
+        url="https://${namespace}.${PREVIEW_DOMAIN}/"
         memory="$(memory_used_mi "$namespace")Mi used"
         ready="$(readyz "${namespace}.${PREVIEW_DOMAIN}")"
       else
+        url="n/a"
         memory="n/a"
         ready="n/a"
       fi
       printf '%-10s %-44s %-12s %-20s %-14s %s\n' "$namespace" \
-        "https://${namespace}.${PREVIEW_DOMAIN}/" "${head:0:12}" "$up_at" "$memory" "$ready"
+        "$url" "${head:0:12}" "$up_at" "$memory" "$ready"
     done
   if [ "$PREVIEW_KUBE_CONTEXT" = orbstack ]; then
     local_hint "pr-<N>.${PREVIEW_DOMAIN}"

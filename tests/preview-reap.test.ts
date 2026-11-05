@@ -1,12 +1,14 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import {
+  chmod,
   mkdir,
   mkdtemp,
   readdir,
   readFile,
   readlink,
   rm,
+  stat,
   symlink,
   writeFile,
 } from "node:fs/promises";
@@ -48,7 +50,10 @@ case "$*" in
   "config view --raw --minify --context "*)
     # Only the contexts in STUB_CONTEXTS exist.
     case " \${STUB_CONTEXTS:-orbstack} " in *" $6 "*) echo "apiVersion: v1" ;; *) exit 1 ;; esac ;;
-  "get namespaces -o json") cat "${dir}/namespaces.json" ;;
+  "get namespaces -o json")
+    cat "${dir}/namespaces.json"
+    # STUB_LIST_FAIL: kubectl prints the list, then fails.
+    [ -z "\${STUB_LIST_FAIL-}" ] || exit 1 ;;
   "get namespace "*" -o json")
     # STUB_CURRENT_UP_AT is an \`up\` that ran after reap read the list.
     # STUB_CURRENT_WERFT_UP_AT is the same \`up\`, recorded under the new key.
@@ -532,6 +537,29 @@ exit 1
     ).toContain("error connecting");
   });
 
+  test("another context leaves the shared state directory's mode alone", async () => {
+    await mkdir(join(dir, "home"), { mode: 0o750 });
+    await chmod(join(dir, "home"), 0o750);
+    await reap([], {
+      PREVIEW_KUBE_CONTEXT: "kind-scratch",
+      STUB_CONTEXTS: "kind-scratch",
+    });
+    expect((await stat(join(dir, "home"))).mode & 0o777).toBe(0o750);
+    expect(
+      (await stat(join(dir, "home", contextDir("kind-scratch")))).mode & 0o777,
+    ).toBe(0o700);
+  });
+
+  test("keeps every preview when kubectl fails after printing the list", async () => {
+    const result = await reap([{ name: "pr-36", upAt: hoursAgo(100) }], {
+      STUB_LIST_FAIL: "1",
+      STUB_STATES: "36=CLOSED",
+    });
+    expect(result.exitCode).not.toBe(0);
+    expect(await deleted()).toEqual([]);
+    expect(await calls("gh-calls")).toEqual([]);
+  });
+
   test("list on another context shows no value of this Mac's Docker or Traefik", async () => {
     await writeFile(
       join(dir, "namespaces.json"),
@@ -557,6 +585,7 @@ exit 1
     expect(exitCode).toBe(0);
     expect(stdout).toContain("pr-35");
     expect(stdout).toContain("n/a");
+    expect(stdout).not.toContain("preview.94soon.dev");
     expect(stdout).not.toContain("Mi used");
     expect(stdout).not.toContain("on this Mac");
     expect(await calls("docker-calls")).toEqual([]);
