@@ -1285,6 +1285,7 @@ describe("list_repositories", () => {
               status: "available",
             },
           ],
+          next_cursor: null,
         },
       },
     });

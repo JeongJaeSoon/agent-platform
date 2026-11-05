@@ -27,11 +27,11 @@
 # and every later command uses that.
 #
 # Settings come from one env file outside the checkout, $TEST_OPS_ENV_FILE
-# (/etc/agent-platform/test-ops.env, mode 0600), which compose reads through
+# (/etc/werft/test-ops.env, mode 0600), which compose reads through
 # --env-file; this script never sources it. State — the deployed manifest,
 # upgrade approvals, backups, drill logs — goes to $TEST_OPS_STATE_DIR
-# (/var/lib/agent-platform/test-ops). The compose project is
-# $TEST_OPS_PROJECT (agent-platform-test-ops).
+# (/var/lib/werft/test-ops). The compose project is
+# $TEST_OPS_PROJECT (werft-test-ops).
 #
 # Exit codes: 2 usage, 3 upgrade refused, 1 anything else.
 #
@@ -41,9 +41,9 @@
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib/backup-lib.sh"
 
-ENV_FILE="${TEST_OPS_ENV_FILE:-/etc/agent-platform/test-ops.env}"
-STATE_DIR="${TEST_OPS_STATE_DIR:-/var/lib/agent-platform/test-ops}"
-PROJECT="${TEST_OPS_PROJECT:-agent-platform-test-ops}"
+ENV_FILE="${TEST_OPS_ENV_FILE:-/etc/werft/test-ops.env}"
+STATE_DIR="${TEST_OPS_STATE_DIR:-/var/lib/werft/test-ops}"
+PROJECT="${TEST_OPS_PROJECT:-werft-test-ops}"
 CURRENT="${STATE_DIR}/current.json"
 # The manifest of an upgrade that stopped the installation and did not finish.
 PENDING="${STATE_DIR}/pending.json"
@@ -133,7 +133,7 @@ esac
 [ -z "$APPROVED" ] || [ -r "$APPROVED" ] || die "approval file $APPROVED not found"
 case "$PROJECT" in
   ""|[!a-z0-9]*|*[!a-z0-9_-]*) die "TEST_OPS_PROJECT must match [a-z0-9][a-z0-9_-]*: '$PROJECT'" ;;
-  agent-platform) die "TEST_OPS_PROJECT agent-platform is the local stack's project" ;;
+  werft) die "TEST_OPS_PROJECT werft is the local stack's project" ;;
 esac
 umask 077
 
@@ -523,7 +523,7 @@ deploy() {
   take_lock
   [ ! -e "$CURRENT" ] || die "a release is already deployed ($CURRENT); use upgrade"
   ! project_has_resources "$PROJECT" \
-    || die "project '$PROJECT' already has containers, volumes or networks while $CURRENT names no release"
+    || die "project '$PROJECT' already has containers, volumes or networks while $CURRENT names no release; its data is not touched. If this installation was deployed under other names, set TEST_OPS_PROJECT, TEST_OPS_STATE_DIR and TEST_OPS_ENV_FILE to them"
   load_manifest "$MANIFEST"
   preflight
   in_use_by_others
