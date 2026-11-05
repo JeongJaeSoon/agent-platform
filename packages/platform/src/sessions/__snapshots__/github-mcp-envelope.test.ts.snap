@@ -127,6 +127,14 @@ exports[`tools/list every tool has a description of its fields and an outputSche
                         },
                       ],
                     },
+                    "flow": {
+                      "default": "legacy",
+                      "enum": [
+                        "legacy",
+                        "actions",
+                      ],
+                      "type": "string",
+                    },
                     "git_commit": {
                       "pattern": "^[0-9a-f]{40}$",
                       "type": "string",
@@ -143,6 +151,26 @@ exports[`tools/list every tool has a description of its fields and an outputSche
                         "intent",
                       ],
                       "type": "string",
+                    },
+                    "pr_state": {
+                      "anyOf": [
+                        {
+                          "enum": [
+                            "due",
+                            "opening",
+                            "opened",
+                            "closed_unrecorded",
+                            "uncertain",
+                            "failed",
+                            "cancelled",
+                          ],
+                          "type": "string",
+                        },
+                        {
+                          "type": "null",
+                        },
+                      ],
+                      "default": null,
                     },
                     "push_receipt_id": {
                       "anyOf": [
@@ -402,6 +430,8 @@ exports[`tools/list every tool has a description of its fields and an outputSche
                     "finished_at",
                     "push_receipt_id",
                     "origin",
+                    "flow",
+                    "pr_state",
                   ],
                   "type": "object",
                 },
