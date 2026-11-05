@@ -247,6 +247,7 @@ exec "$REAL_GIT" "$@"`);
     const result = await captured();
 
     expect(result.gitCommit).not.toBe(head);
+    expect(result.headCommit).toBe(head);
     expect(await fingerprint()).toBe(before);
     const header = headerOf(result);
     expect(header?.refs).toContainEqual({
@@ -268,6 +269,27 @@ exec "$REAL_GIT" "$@"`);
       (await git(restored, "rev-parse", `${CHECKPOINT_WORKTREE_REF}^`)).trim(),
     ).toBe(head);
   });
+
+  test("a clean tree is captured at HEAD itself", async () => {
+    const head = await commitFiles({ "a.txt": "a\n" });
+    expect(await captured()).toMatchObject({
+      gitCommit: head,
+      headCommit: head,
+    });
+  });
+
+  // Reading an untracked file needs procfs, which macOS lacks.
+  test.skipIf(!existsSync("/proc/self/fd"))(
+    "a tree with only untracked files is captured at HEAD itself",
+    async () => {
+      const head = await commitFiles({ "a.txt": "a\n" });
+      await writeFile(join(root, "scratch.txt"), "untracked\n");
+      expect(await captured()).toMatchObject({
+        gitCommit: head,
+        headCommit: head,
+      });
+    },
+  );
 
   test("stages a chmod even in a checkout told to ignore modes", async () => {
     await commitFiles({ "run.sh": "#!/bin/sh\n" });
