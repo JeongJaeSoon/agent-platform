@@ -534,6 +534,23 @@ describe("app shell", () => {
     ).toBe("https://jeongjaesoon.github.io/werft/ja/");
   });
 
+  test("the docs item is reached by arrow keys and hands focus back to the pill", async () => {
+    renderAt("/", signedIn);
+    const region = await screen.findByRole("region", { name: "사용자 메뉴" });
+    const user = await setupUser();
+    const pill = within(region).getByRole("button", { name: /Owner/ });
+    pill.focus();
+    await user.keyboard("{ArrowDown}");
+    // The first item has focus; up wraps to logout, up again is the docs item.
+    await user.keyboard("{ArrowUp}{ArrowUp}");
+    const docs = screen.getByRole("menuitem", { name: /^Werft 문서/ });
+    expect(document.activeElement === docs).toBe(true);
+
+    await user.click(docs);
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(document.activeElement === pill).toBe(true);
+  });
+
   test("following a link in the account menu puts focus on the page", async () => {
     const { history } = renderAt("/", signedIn);
     const region = await screen.findByRole("region", { name: "사용자 메뉴" });

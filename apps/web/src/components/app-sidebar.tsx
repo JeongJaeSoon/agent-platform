@@ -833,7 +833,12 @@ function UserMenu({
             data-menu="account"
             tabIndex={-1}
             className={cn(MENU_ITEM, "font-normal hover:no-underline")}
-            onClick={() => setOpen(false)}
+            // The page stays; the menu goes away with the focused item, so
+            // focus returns to the pill it opened from.
+            onClick={() => {
+              setOpen(false);
+              triggerRef.current?.focus();
+            }}
           >
             <BookOpen aria-hidden="true" className={MENU_ICON} />
             {t("shell.docs")}
