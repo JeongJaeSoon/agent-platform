@@ -1,6 +1,9 @@
-# 실행 기반과 worker 격리
+---
+title: "실행 기반과 worker 격리"
+description: reconciler·scheduler가 worker를 띄우고 회수하는 방식, worker 격리, 멈춘 세션의 복구, workspace와 worker 네트워크의 상한과 회수
+---
 
-reconciler·scheduler가 worker를 띄우고 회수하는 방식, worker 격리, 멈춘 세션의 복구, worker workspace와 worker 네트워크의 상한과 회수를 적는다. 설정값 표는 [설정 레퍼런스](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/configuration/)에, 카탈로그·자격 증명·인증은 [API 서버](api-server.md)에 있다.
+reconciler·scheduler가 worker를 띄우고 회수하는 방식, worker 격리, 멈춘 세션의 복구, worker workspace와 worker 네트워크의 상한과 회수를 적는다. 설정값 표는 [설정 레퍼런스](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/configuration/)에, 카탈로그·자격 증명·인증은 [API 서버](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)에 있다.
 
 ## reconciler·scheduler와 worker 격리
 
@@ -31,7 +34,7 @@ compose의 `apps` profile에서는 `reconciler` 서비스가 이 pass를 기본�
 
 pass의 마지막 단계는 도구 호출 투영이다. 지난 pass 뒤에 쌓인 `tool_use`·`tool_result` 이벤트를 짝지어 `tool_calls`와 일별 합계 `tool_call_days`에 적는다. 사용량 API(`GET /v1/usage/tools`)는 이벤트를 다시 파싱하지 않고 이 두 표만 읽는다. 한 트랜잭션에 이벤트 5,000개씩, pass마다 10초 동안 처리하고 남은 것은 다음 pass가 잇는다. 배치가 문장 timeout(10초)에 걸리면 배치를 10분의 1로 줄여 다시 처리하고, 줄인 크기를 `tool_call_progress.batch_size`에 바로 커밋한다. pass timeout(60초)이 pass를 끊어도 다음 pass는 그 크기에서 시작하므로 결국 한 배치는 지나간다. timeout 없이 끝난 pass는 크기를 10배씩 되돌린다(설정값에 닿으면 NULL). timeout마다 `Tool call batch timed out` 로그(`batch_size`, `retry_size`)를 바로 남기고, pass 끝의 `Tool calls projected`에는 `timed_out_batches`로 횟수를 남긴다. 진행 위치는 `tool_call_progress.applied_through`(이벤트 id)다. 이 커서는 60초보다 오래된 이벤트까지만 넘어가므로, 늦게 커밋된 낮은 id의 이벤트도 빠뜨리지 않는다. 그보다 새 이벤트는 다음 pass가 다시 읽으며, 다시 적용해도 결과는 같다. 그래서 새 호출이 API에 보이기까지는 보통 pass 하나만큼(10초 남짓) 걸린다. migration 뒤 첫 pass들은 커서 0에서 기존 이벤트를 모두 채운다(backfill). 로컬 PG16에서 이벤트 2,000만 개를 쉬지 않고 투영하는 데 약 26분이 걸렸다. pass 사이에 `RECONCILER_INTERVAL_SEC`만큼 쉬므로 실제로는 그 두 배쯤(1시간 안팎) 걸리고, 그동안 API의 도구 집계는 덜 찬 값이다. dry-run은 투영하지 않는다.
 
-scheduler pass도 one-shot이다(`main.ts scheduler --once`, package script `scheduler`). compose `scheduler` 서비스는 같은 감독 루프로 이 pass를 반복 실행한다(`main.ts scheduler`, healthcheck `main.ts scheduler --health`). 설정은 `SCHEDULER_INTERVAL_SEC`(5)·`SCHEDULER_PASS_TIMEOUT_SEC`(180, `EXECUTION_DOCKER_STOP_TIMEOUT_SEC` + `EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC`보다 커야 기동. kubernetes backend는 [Kubernetes 실행 backend](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/kubernetes-backend/))·`SCHEDULER_MAX_CONSECUTIVE_FAILURES`(3)·`SCHEDULER_HEALTH_STALE_SEC`(200, interval + timeout보다 커야 기동)·`SCHEDULER_STATUS_FILE`(`/tmp/scheduler-status.json`, compose는 넘기지 않는다)이고 의미는 위 reconciler 표와 같다. 다른 pass가 lock을 쥐고 있어 건너뛴 pass는 exit 75로 끝나며 성공도 실패도 아니다. 건너뛰기만 이어지면 성공이 없으므로 stale 시간 뒤 unhealthy가 된다. 할 일은 다 했지만 이번 pass에서 도울 수 없는 세션을 남긴 pass — launch가 backoff 중이거나(`launch_backoff_count`), 방금 quarantine됐거나(`launch_quarantined_count`), 교체 한도를 다 쓴(`replacement_exhausted_count`) 세션 — 는 exit 76(degraded)으로 끝난다. 그 상태는 DB에 있어 재시작으로 풀리지 않으므로 degraded는 연속 실패로 세지 않고 실패 streak를 끊는다. health는 최근 degraded pass를 healthy로 보되 reason에 `completed degraded`를 적고, status에는 `lastDegradedAt`으로 남는다(`lastSuccessAt`은 깨끗한 pass만). 같은 pass에 다른 실패가 하나라도 있으면 지금처럼 exit 1이다. 루프가 SIGTERM을 받으면 진행 중 pass는 다음 안전 지점(pass lock 상실 때 멈추는 자리와 같다)에서 멈춰 더 예약하지 않고, 30초 안에 끝나지 않으면 kill된다. pass가 기다리던 worker 정지는 kill돼도 daemon에서 계속된다(Engine 25부터 요청이 끊겨도 stop을 취소하지 않는다). compose `stop_grace_period`는 45s다. kill 의도(terminate, lease 만료, quarantine)를 수행할 때 pass는 worker가 turn을 drain하기를 기다리지 않는다. stop을 요청하고 5초 안에 끝나지 않으면 그 컨테이너를 `kills_stopping_count`로 세고 넘어가며, 실패로 세지 않는다. daemon은 SIGTERM 뒤 `EXECUTION_DOCKER_STOP_TIMEOUT_SEC`가 지나면 SIGKILL하고, 다음 pass가 컨테이너가 사라진 것을 확인해 slot을 돌려준다. drain 기한을 넘긴 claimed worker의 교체와 launch intent 없는 orphan 컨테이너의 정지도 같다(orphan은 `orphan_stopping_count`로 세고 사라질 때까지 slot을 차지한다). unclaimed worker의 교체는 기다린다. turn이 없어 곧 끝나고, 교체를 시도할 때마다 교체 한도를 쓰기 때문이다. 그래도 unclaimed 컨테이너를 지우고 다시 만드는 경로에서는 pass가 정지 하나를 끝까지 기다릴 수 있다. 그래서 pass timeout이 stop timeout + request timeout보다 작으면 scheduler가 기동을 거부한다. 컨테이너 create·start 요청이 `EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC` 안에 답을 받지 못하면 컨테이너가 생겼는지 알 수 없으므로 launch 실패로 세지 않는다. nonce를 폐기하지 않고 backoff도 걸지 않는다. 그 pass는 실패(exit 1)로 끝난다. 다음 pass가 inspect해서 컨테이너가 있으면 채택한다(생성만 됐으면 시작한다). 없으면 그제야 launch 실패로 센다. 이때 nonce를 폐기하고 backoff를 걸어, 끝내 생기지 않는 create가 slot을 계속 붙잡지 않고 실패 한도에서 quarantine된다. 폐기 뒤에 늦게 생긴 컨테이너는 실패한 시도로 보고 지운다. daemon이 거절로 답한 경우(4xx·5xx)는 지금처럼 launch 실패로 센다. scheduler를 멈춰도 worker는 끝나지 않는다. slot은 pass가 worker 부재를 확인한 뒤에만 반환된다. 한 pass는 ① 살아 있는 `executions` row를 Docker와 대조(컨테이너가 없으면 같은 intent로 재생성, exit했으면 `terminated` 기록 후 제거) ② launch intent 없는 관리 컨테이너를 로그 후 정지하고, 컨테이너가 사라진 worker 네트워크를 지우거나 proxy가 떨어진 네트워크에 다시 붙임 ③ `EXECUTION_SLOT_LIMIT` 안에서 unassigned session마다 intent 커밋 → 컨테이너 생성 ④ 끝난 session의 workspace volume 회수 순서로 진행한다. worker 컨테이너는 Docker socket·host HOME을 받지 않고 env는 bootstrap claim에 필요한 `WORKER_EXECUTION_ID`·`WORKER_EXECUTION_GENERATION`·`WORKER_BOOTSTRAP_NONCE`·`WORKER_GATEWAY_URL`, tmpfs를 가리키는 `HOME`, egress proxy를 가리키는 `HTTP_PROXY`·`HTTPS_PROXY`·`NO_PROXY`(대소문자 두 표기. `NO_PROXY`에는 proxy 자신의 이름이 들어간다), proxy의 credential route를 가리키는 `WORKER_EGRESS_CREDENTIAL_URL`([API 서버의 credential route 절](api-server.md#provider-키와-저장소-자격-증명은-worker에-가지-않는다)), 그리고 object store의 이름 — `S3_BUCKET`·`AWS_REGION`과 세션 prefix `WORKER_OBJECT_PREFIX`(`sessions/<sessionId>/`) — 를 받는다. scheduler는 bucket과 region이 없으면 기동하지 않는다. object store 자격 증명과 endpoint는 받지 않는다. 워커는 proxy의 object store route로만 object store에 닿으며, 경계는 그 route다(같은 절). 워커 쪽 `scopedCheckpointObjectStore`(`packages/storage`)는 prefix 밖 key를 요청 전에 거절하는 빠른 실패일 뿐이다. 워커 안에서 `@werft-ai/storage`를 import하는 파일은 `apps/worker/src/object-store.ts` 하나뿐이며 `tests/architecture.test.ts`가 이를 강제한다. Docker daemon 응답이 create 요청 본문을 되돌려 주는 경우에 대비해 backend는 오류 메시지에서 nonce를 지운다. `/tmp`·HOME tmpfs는 worker uid/gid 소유로 마운트된다. `/workspace` named volume은 Docker가 이미지의 같은 경로에서 초기화하므로 worker 이미지가 `/workspace`를 worker uid 소유로 미리 만들어 두어야 한다(이미지 계약). worker 이미지(`apps/worker/Dockerfile`)는 `WORKER_IMAGE`로 받는다. pass 전체는 Postgres session advisory lock(`scheduler:pass`)으로 직렬화되어 겹친 실행은 로그만 남기고 건너뛴다. 같은 Docker daemon을 여러 설치가 공유하면 `EXECUTION_INSTALLATION_ID`를 설치마다 다르게 준다. scheduler는 이 값이 없으면 기동하지 않는다(adapter만 테스트용 기본값 `local`을 가짐). 같은 값을 쓰는 두 설치가 daemon을 공유하면 서로의 컨테이너를 orphan으로 회수한다.
+scheduler pass도 one-shot이다(`main.ts scheduler --once`, package script `scheduler`). compose `scheduler` 서비스는 같은 감독 루프로 이 pass를 반복 실행한다(`main.ts scheduler`, healthcheck `main.ts scheduler --health`). 설정은 `SCHEDULER_INTERVAL_SEC`(5)·`SCHEDULER_PASS_TIMEOUT_SEC`(180, `EXECUTION_DOCKER_STOP_TIMEOUT_SEC` + `EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC`보다 커야 기동. kubernetes backend는 [Kubernetes 실행 backend](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/kubernetes-backend/))·`SCHEDULER_MAX_CONSECUTIVE_FAILURES`(3)·`SCHEDULER_HEALTH_STALE_SEC`(200, interval + timeout보다 커야 기동)·`SCHEDULER_STATUS_FILE`(`/tmp/scheduler-status.json`, compose는 넘기지 않는다)이고 의미는 위 reconciler 표와 같다. 다른 pass가 lock을 쥐고 있어 건너뛴 pass는 exit 75로 끝나며 성공도 실패도 아니다. 건너뛰기만 이어지면 성공이 없으므로 stale 시간 뒤 unhealthy가 된다. 할 일은 다 했지만 이번 pass에서 도울 수 없는 세션을 남긴 pass — launch가 backoff 중이거나(`launch_backoff_count`), 방금 quarantine됐거나(`launch_quarantined_count`), 교체 한도를 다 쓴(`replacement_exhausted_count`) 세션 — 는 exit 76(degraded)으로 끝난다. 그 상태는 DB에 있어 재시작으로 풀리지 않으므로 degraded는 연속 실패로 세지 않고 실패 streak를 끊는다. health는 최근 degraded pass를 healthy로 보되 reason에 `completed degraded`를 적고, status에는 `lastDegradedAt`으로 남는다(`lastSuccessAt`은 깨끗한 pass만). 같은 pass에 다른 실패가 하나라도 있으면 지금처럼 exit 1이다. 루프가 SIGTERM을 받으면 진행 중 pass는 다음 안전 지점(pass lock 상실 때 멈추는 자리와 같다)에서 멈춰 더 예약하지 않고, 30초 안에 끝나지 않으면 kill된다. pass가 기다리던 worker 정지는 kill돼도 daemon에서 계속된다(Engine 25부터 요청이 끊겨도 stop을 취소하지 않는다). compose `stop_grace_period`는 45s다. kill 의도(terminate, lease 만료, quarantine)를 수행할 때 pass는 worker가 turn을 drain하기를 기다리지 않는다. stop을 요청하고 5초 안에 끝나지 않으면 그 컨테이너를 `kills_stopping_count`로 세고 넘어가며, 실패로 세지 않는다. daemon은 SIGTERM 뒤 `EXECUTION_DOCKER_STOP_TIMEOUT_SEC`가 지나면 SIGKILL하고, 다음 pass가 컨테이너가 사라진 것을 확인해 slot을 돌려준다. drain 기한을 넘긴 claimed worker의 교체와 launch intent 없는 orphan 컨테이너의 정지도 같다(orphan은 `orphan_stopping_count`로 세고 사라질 때까지 slot을 차지한다). unclaimed worker의 교체는 기다린다. turn이 없어 곧 끝나고, 교체를 시도할 때마다 교체 한도를 쓰기 때문이다. 그래도 unclaimed 컨테이너를 지우고 다시 만드는 경로에서는 pass가 정지 하나를 끝까지 기다릴 수 있다. 그래서 pass timeout이 stop timeout + request timeout보다 작으면 scheduler가 기동을 거부한다. 컨테이너 create·start 요청이 `EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC` 안에 답을 받지 못하면 컨테이너가 생겼는지 알 수 없으므로 launch 실패로 세지 않는다. nonce를 폐기하지 않고 backoff도 걸지 않는다. 그 pass는 실패(exit 1)로 끝난다. 다음 pass가 inspect해서 컨테이너가 있으면 채택한다(생성만 됐으면 시작한다). 없으면 그제야 launch 실패로 센다. 이때 nonce를 폐기하고 backoff를 걸어, 끝내 생기지 않는 create가 slot을 계속 붙잡지 않고 실패 한도에서 quarantine된다. 폐기 뒤에 늦게 생긴 컨테이너는 실패한 시도로 보고 지운다. daemon이 거절로 답한 경우(4xx·5xx)는 지금처럼 launch 실패로 센다. scheduler를 멈춰도 worker는 끝나지 않는다. slot은 pass가 worker 부재를 확인한 뒤에만 반환된다. 한 pass는 ① 살아 있는 `executions` row를 Docker와 대조(컨테이너가 없으면 같은 intent로 재생성, exit했으면 `terminated` 기록 후 제거) ② launch intent 없는 관리 컨테이너를 로그 후 정지하고, 컨테이너가 사라진 worker 네트워크를 지우거나 proxy가 떨어진 네트워크에 다시 붙임 ③ `EXECUTION_SLOT_LIMIT` 안에서 unassigned session마다 intent 커밋 → 컨테이너 생성 ④ 끝난 session의 workspace volume 회수 순서로 진행한다. worker 컨테이너는 Docker socket·host HOME을 받지 않고 env는 bootstrap claim에 필요한 `WORKER_EXECUTION_ID`·`WORKER_EXECUTION_GENERATION`·`WORKER_BOOTSTRAP_NONCE`·`WORKER_GATEWAY_URL`, tmpfs를 가리키는 `HOME`, egress proxy를 가리키는 `HTTP_PROXY`·`HTTPS_PROXY`·`NO_PROXY`(대소문자 두 표기. `NO_PROXY`에는 proxy 자신의 이름이 들어간다), proxy의 credential route를 가리키는 `WORKER_EGRESS_CREDENTIAL_URL`([API 서버의 credential route 절](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md#provider-키와-저장소-자격-증명은-worker에-가지-않는다)), 그리고 object store의 이름 — `S3_BUCKET`·`AWS_REGION`과 세션 prefix `WORKER_OBJECT_PREFIX`(`sessions/<sessionId>/`) — 를 받는다. scheduler는 bucket과 region이 없으면 기동하지 않는다. object store 자격 증명과 endpoint는 받지 않는다. 워커는 proxy의 object store route로만 object store에 닿으며, 경계는 그 route다(같은 절). 워커 쪽 `scopedCheckpointObjectStore`(`packages/storage`)는 prefix 밖 key를 요청 전에 거절하는 빠른 실패일 뿐이다. 워커 안에서 `@werft-ai/storage`를 import하는 파일은 `apps/worker/src/object-store.ts` 하나뿐이며 `tests/architecture.test.ts`가 이를 강제한다. Docker daemon 응답이 create 요청 본문을 되돌려 주는 경우에 대비해 backend는 오류 메시지에서 nonce를 지운다. `/tmp`·HOME tmpfs는 worker uid/gid 소유로 마운트된다. `/workspace` named volume은 Docker가 이미지의 같은 경로에서 초기화하므로 worker 이미지가 `/workspace`를 worker uid 소유로 미리 만들어 두어야 한다(이미지 계약). worker 이미지(`apps/worker/Dockerfile`)는 `WORKER_IMAGE`로 받는다. pass 전체는 Postgres session advisory lock(`scheduler:pass`)으로 직렬화되어 겹친 실행은 로그만 남기고 건너뛴다. 같은 Docker daemon을 여러 설치가 공유하면 `EXECUTION_INSTALLATION_ID`를 설치마다 다르게 준다. scheduler는 이 값이 없으면 기동하지 않는다(adapter만 테스트용 기본값 `local`을 가짐). 같은 값을 쓰는 두 설치가 daemon을 공유하면 서로의 컨테이너를 orphan으로 회수한다.
 
 ```bash
 DATABASE_URL=postgres://postgres:dev@127.0.0.1:5432/sessions \
@@ -55,13 +58,13 @@ worker 컨테이너는 scheduler가 execution마다 만드는 **전용 네트워
 
 공개 패키지 레지스트리(npm·RubyGems·Go module proxy와 Go checksum DB)는 forward 목록이 아니라 credential route의 `packages` route로 연다. SNI만 보는 forward 허용은 CDN 뒤의 다른 목적지로 새는 것을 막지 못하기 때문이다. worker는 `GET`·`HEAD /packages/<registry>/<경로>`를 `WORKER_EGRESS_CREDENTIAL_URL`로 보낸다. `<registry>`는 `npm`(`https://registry.npmjs.org`)·`rubygems`(`https://rubygems.org`)·`go`(`https://proxy.golang.org`)·`gosum`(`https://sum.golang.org`) 넷이다. `proxy.golang.org`은 `/sumdb/` 프록시 요청에 404로 답하므로 checksum DB는 따로 둔다. 요청에는 attempt마다 발급하는 `packages` 전용 egress token(접두사 `wek_`)을 `Authorization: Bearer`로, URL userinfo의 비밀번호(Basic)로, 또는 경로 세그먼트 `/packages/<registry>/_token/<token>/<경로>`로 싣는다. Go는 http 프록시 URL의 userinfo로는 자격 증명을 보내지 않으므로(`refusing to pass credentials to insecure URL`) 경로 세그먼트를 쓴다. proxy는 이 세그먼트를 떼어 낸 경로만 upstream에 보내고 로그에도 남기지 않는다. 헤더와 경로에 token이 함께 오면 `401`이다. 세션 안에서 이 token이 보이는 범위는 다른 매니저의 설정 파일과 같고, Go 오류 메시지에 URL이 찍히면 token도 함께 찍힐 수 있다(worker의 출력 scrubber가 가린다). Bundler와 Go는 bearer를 보낼 수 없어서 Basic도 받는다. authorizer는 token의 attempt가 아직 세션을 가지고 있는지만 보고 레지스트리 주소를 돌려준다. 자격 증명은 붙이지 않는다. 다른 method(`PUT`·`POST`·`DELETE` 등, 즉 publish·unpublish)는 route가 없어 `404`이고 authorizer에 묻지도 않는다. 경로에 `.`·`..`로 풀리는 segment가 있어도 `404`다.
 
-어느 레지스트리를 열지는 proxy 전역 설정으로 정한다. 네 host를 `EGRESS_CREDENTIAL_ALLOWLIST`에 두면 열리고 빼면 모든 세션에서 닫힌다. compose·helm·`.env.example` 기본값은 `api.anthropic.com:443,registry.npmjs.org:443,rubygems.org:443,proxy.golang.org:443,sum.golang.org:443`이다. 목록에 없는 레지스트리 요청은 `403 egress denied`다. 지금까지 레지스트리를 열려고 이 host들을 `EGRESS_ALLOWLIST`에 넣어 두었다면 업그레이드할 때 그 값을 지운다. 새 기본값과 겹치면 proxy가 기동을 거부한다. profile이나 에이전트마다 다르게 여는 기능은 아직 없다. 레지스트리가 다른 host로 redirect하면 `packages` route만 `EGRESS_PACKAGES_REDIRECT_ALLOWLIST`(`host:port`, 쉼표 구분, public 주소만, 기본값 비어 있음)에 있는 host에 한해 proxy가 서버 쪽에서 따라간다(한 요청에 최대 5번). 따라갈 때는 worker가 보낸 `Authorization`도, authorizer가 레지스트리 요청에 붙인 헤더도 싣지 않는다. 목록 밖 host, `http`·`https`가 아닌 위치, userinfo가 든 위치, 다섯 번을 넘는 redirect는 `502`다. 같은 레지스트리 host 안에서 경로만 바꾸는 redirect도 그 host가 redirect 목록에 있어야 따라간다. 캐시 재검증에 대한 `304`는 redirect가 아니므로 그대로 worker에 돌려준다. 다른 route의 redirect는 지금처럼 따라가지 않고 `502`다. 저장소 route의 Git LFS 객체도 이 목록의 host에서만 자격 없이 받는다. GitHub 저장소의 LFS를 쓰려면 `github-cloud.githubusercontent.com:443`을 더한다([API 서버](./api-server.md)의 LFS 항목). redirect 목록의 host가 forward 목록에도 있으면 proxy는 기동을 거부한다. 2026-11-01에 npm metadata·tarball, RubyGems `versions`·`info`·`.gem`, Go proxy `list`·`.mod`·`.zip`을 실제로 받아 보니 redirect가 없었다. 그래서 기본값은 비어 있다.
+어느 레지스트리를 열지는 proxy 전역 설정으로 정한다. 네 host를 `EGRESS_CREDENTIAL_ALLOWLIST`에 두면 열리고 빼면 모든 세션에서 닫힌다. compose·helm·`.env.example` 기본값은 `api.anthropic.com:443,registry.npmjs.org:443,rubygems.org:443,proxy.golang.org:443,sum.golang.org:443`이다. 목록에 없는 레지스트리 요청은 `403 egress denied`다. 지금까지 레지스트리를 열려고 이 host들을 `EGRESS_ALLOWLIST`에 넣어 두었다면 업그레이드할 때 그 값을 지운다. 새 기본값과 겹치면 proxy가 기동을 거부한다. profile이나 에이전트마다 다르게 여는 기능은 아직 없다. 레지스트리가 다른 host로 redirect하면 `packages` route만 `EGRESS_PACKAGES_REDIRECT_ALLOWLIST`(`host:port`, 쉼표 구분, public 주소만, 기본값 비어 있음)에 있는 host에 한해 proxy가 서버 쪽에서 따라간다(한 요청에 최대 5번). 따라갈 때는 worker가 보낸 `Authorization`도, authorizer가 레지스트리 요청에 붙인 헤더도 싣지 않는다. 목록 밖 host, `http`·`https`가 아닌 위치, userinfo가 든 위치, 다섯 번을 넘는 redirect는 `502`다. 같은 레지스트리 host 안에서 경로만 바꾸는 redirect도 그 host가 redirect 목록에 있어야 따라간다. 캐시 재검증에 대한 `304`는 redirect가 아니므로 그대로 worker에 돌려준다. 다른 route의 redirect는 지금처럼 따라가지 않고 `502`다. 저장소 route의 Git LFS 객체도 이 목록의 host에서만 자격 없이 받는다. GitHub 저장소의 LFS를 쓰려면 `github-cloud.githubusercontent.com:443`을 더한다([API 서버](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)의 LFS 항목). redirect 목록의 host가 forward 목록에도 있으면 proxy는 기동을 거부한다. 2026-11-01에 npm metadata·tarball, RubyGems `versions`·`info`·`.gem`, Go proxy `list`·`.mod`·`.zip`을 실제로 받아 보니 redirect가 없었다. 그래서 기본값은 비어 있다.
 
 proxy 로그의 `Credential route` 줄에 `purpose: packages`, `registry`, `session_id`, `attempt_id`, upstream host와 status가 남는다. 따라간 redirect는 `Credential route redirect followed`(`to_host`·`to_port`), 거절한 redirect는 `Credential route redirect refused` 또는 `Credential route denied`로 남는다.
 
 #### GitHub Packages(사설 npm·gem)
 
-조직의 사설 npm·gem은 `<registry>` `github-npm`(`https://npm.pkg.github.com`)과 `github-rubygems`(`https://rubygems.pkg.github.com`)로 받는다. 공개 레지스트리와 달리 authorizer가 워크스페이스 관리자가 등록한 bot classic PAT를 `Authorization: Bearer`로 붙여 준다. 이 값은 worker에 가지 않는다. 등록·허용 목록·감사의 설계는 [결정: GitHub Packages bot token](../contributing/decisions/github-packages-bot-token.md)에 있다. 운영자가 할 일은 셋이다.
+조직의 사설 npm·gem은 `<registry>` `github-npm`(`https://npm.pkg.github.com`)과 `github-rubygems`(`https://rubygems.pkg.github.com`)로 받는다. 공개 레지스트리와 달리 authorizer가 워크스페이스 관리자가 등록한 bot classic PAT를 `Authorization: Bearer`로 붙여 준다. 이 값은 worker에 가지 않는다. 등록·허용 목록·감사의 설계는 [결정: GitHub Packages bot token](https://github.com/JeongJaeSoon/werft/blob/main/docs/contributing/decisions/github-packages-bot-token.md)에 있다. 운영자가 할 일은 셋이다.
 
 1. `EGRESS_CREDENTIAL_ALLOWLIST`에 `npm.pkg.github.com:443,rubygems.pkg.github.com:443`을 더한다. 빠져 있으면 등록해 둔 token이 있어도 요청이 `403 egress denied`다.
 2. `EGRESS_PACKAGES_REDIRECT_ALLOWLIST`에 `pkg-npm.githubusercontent.com:443,rubygemsregistryv2prod.blob.core.windows.net:443`을 더한다. GitHub는 tarball과 `.gem`을 이 host로 302 redirect한다(2026-10-31 실측). proxy는 이 redirect를 token 없이 따라간다.
@@ -83,7 +86,7 @@ worker는 claim을 받을 때마다 engine의 HOME(tmpfs)에 user 수준 설정�
 
 `GOPROXY`에 `direct`를 두지 않으므로 Go가 VCS host로 직접 나가지 않는다. `GONOSUMDB`·`GOPRIVATE`·`GONOSUMCHECK`는 두지 않아 모든 모듈이 checksum DB 검증을 받는다. 이 파일은 token이 들어 있어 0600이고, claim에 `packages`가 없는 옛 API를 만나면 지운다. 세션 안에서 사용자가 `go env -w`나 `npm config set`으로 바꿀 수는 있지만 경계는 proxy이므로 바꿔도 다른 곳에 닿지 않는다.
 
-lockfile 밖 버전을 막는 일은 proxy가 하지 않는다. proxy는 lockfile을 모른다. 세션에서는 frozen 설치(`npm ci`, `bundle install --deployment` 또는 `BUNDLE_FROZEN=true`, `go mod download`와 `-mod=readonly`)를 쓴다. 저장소의 npm 설정이 registry를 고정할 때의 동작과 E2E 결과는 [이미지와 공급망 § worker 안의 패키지 도구](images-and-supply-chain.md#worker-안의-패키지-도구)에 있다.
+lockfile 밖 버전을 막는 일은 proxy가 하지 않는다. proxy는 lockfile을 모른다. 세션에서는 frozen 설치(`npm ci`, `bundle install --deployment` 또는 `BUNDLE_FROZEN=true`, `go mod download`와 `-mod=readonly`)를 쓴다. 저장소의 npm 설정이 registry를 고정할 때의 동작과 E2E 결과는 [이미지와 공급망 § worker 안의 패키지 도구](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/images-and-supply-chain/#worker-안의-패키지-도구)에 있다.
 
 CONNECT 터널은 TLS만 나른다. proxy는 `200 Connection Established`를 쓴 뒤 클라이언트의 첫 바이트를 upstream에 흘리기 전에 TLS ClientHello로 읽어, DNS 이름 authority면 `server_name`이 그 authority와(대소문자만 무시하고) 같아야 하고, allowlist에 명시된 IP literal authority면 `server_name`이 없어야 한다. `encrypted_client_hello`(0xfe0d)는 GREASE 여부와 관계없이 거부한다 — proxy는 둘을 구별할 수 없고, 진짜 ECH는 검사 대상인 이름을 숨긴다. handshake가 아닌 첫 레코드, host_name이 둘인 hello, 최초 16KiB(record header 포함) 또는 15초(`handshakeTimeoutMs`) 안에 완성되지 않는 hello는 전부 연결을 끊는다. 거부는 200 뒤에 일어나므로 클라이언트에는 handshake 도중 연결 종료로 보인다.
 
@@ -147,14 +150,15 @@ claim되지 않은 stale 컨테이너는 전처럼 곧바로 교체된다.
 - 시작 예산이 끝날 때까지 장애가 계속되면 그 worker 종료를 시작 실패 1회로 센다. 다음 generation은 30초, 60초의 세션 backoff 뒤에만 뜨고 세 번째 실패에서 `recovery_required`로 멈춘다. 따라서 저장소 장애가 worker의 무제한 즉시 재기동으로 바뀌지 않는다. `WORKER_STARTUP_TIMEOUT_SEC`는 scheduler가 worker에 별도 값을 넘기지 않으므로 현재 배포에서는 코드 기본값으로 고정이다.
 - 객체가 실제로 없거나(404/`NoSuchKey`), 401·403으로 거절되거나, checksum·digest가 맞지 않는 경우는 일시 장애가 아니다. manifest나 manifest가 가리키는 객체가 없으면 `CHECKPOINT_UNAVAILABLE`이며 재시작으로 복구됐다고 간주하지 않는다. bucket 전체가 비었는데 DB pointer가 남은 경우는 API 기동 검사가 먼저 막는다. `restore_refused`는 저장소 경로가 아니라 checkpoint의 영구 손상·불일치 쪽을 조사하라는 신호다.
 - 원인이 세션 밖에 있었다면(프록시의 전송 중 손상, 저장소 경로 설정 오류) 그것을 고친 뒤 `retry_restore`로 같은 checkpoint를 다시 복원한다. 횟수가 0으로 돌아가고 queued 입력이 다시 신호된다. 다음 worker는 실패하던 worker와 같은 pointer에서 복원 계획을 다시 받는다.
-  ```sh
-  # KEY: sessions:recover scope가 있는 API 키
-  curl -X POST "$API/v1/sessions/$SESSION/recovery-decisions" \
-    -H "Authorization: Bearer $KEY" -H "Idempotency-Key: $(uuidgen)" \
-    -H 'Content-Type: application/json' \
-    -d '{"decision":"retry_restore","expected_revision":<revision>,"reason":"proxy fixed"}'
-  ```
-  한도에 닿아 멈춘 세션에만 받는다. backoff 중이거나 다른 이유(context gap, unknown turn, 복원 없는 `STARTUP_FAILED`)로 멈춘 세션은 409 `REQUEST_STALE`이다.
+```sh
+# KEY: sessions:recover scope가 있는 API 키
+curl -X POST "$API/v1/sessions/$SESSION/recovery-decisions" \
+  -H "Authorization: Bearer $KEY" -H "Idempotency-Key: $(uuidgen)" \
+  -H 'Content-Type: application/json' \
+  -d '{"decision":"retry_restore","expected_revision":<revision>,"reason":"proxy fixed"}'
+```
+
+한도에 닿아 멈춘 세션에만 받는다. backoff 중이거나 다른 이유(context gap, unknown turn, 복원 없는 `STARTUP_FAILED`)로 멈춘 세션은 409 `REQUEST_STALE`이다.
 - checkpoint를 포기해도 되면 `start_fresh`로 이어간다. checkpoint 없이 새 engine session이 시작된다.
 - 세션을 끝내려면 `close`를 쓴다.
 
@@ -180,23 +184,26 @@ worker 로그의 `worker.turn.interrupt.stage`를 같은 `session_id`·`turn_id`
 1. `abandon`·`confirm_completed`는 worker가 사라진 것이 확인된 뒤에만 받는다. 그 전에는 409 `RECOVERY_REQUIRED`(`The previous execution has not been confirmed gone`)다. 다음 scheduler pass가 컨테이너 부재를 확인하면 받는다. `close`는 기다리지 않는다. 남은 execution에 종료를 요청하고 바로 받는다.
 2. 그 turn의 도구가 바깥에 한 일을 확인한다. 파일 쓰기, push, 외부 호출은 되돌려지지 않는다.
 3. 결정을 보낸다.
-   ```sh
-   # KEY: sessions:recover scope가 있는 API 키
-   curl -X POST "$API/v1/sessions/$SESSION/recovery-decisions" \
-     -H "Authorization: Bearer $KEY" -H "Idempotency-Key: $(uuidgen)" \
-     -H 'Content-Type: application/json' \
-     -d '{"decision":"abandon","expected_revision":<revision>,"reason":"interrupt had no confirmed effect","target_turn_id":"<turn_id>"}'
-   ```
-   - `abandon`: turn을 `cancelled`로 닫는다.
-   - `confirm_completed`: 커밋된 checkpoint가 그 turn까지 덮을 때만 받는다(`evidence_ref` 필수). `interrupt_checkpoint_unavailable`은 대개 그런 checkpoint가 없으므로 409 `CHECKPOINT_UNAVAILABLE`이다.
-   - `close`: 세션을 끝낸다. 되돌릴 수 없다.
+
+```sh
+# KEY: sessions:recover scope가 있는 API 키
+curl -X POST "$API/v1/sessions/$SESSION/recovery-decisions" \
+  -H "Authorization: Bearer $KEY" -H "Idempotency-Key: $(uuidgen)" \
+  -H 'Content-Type: application/json' \
+  -d '{"decision":"abandon","expected_revision":<revision>,"reason":"interrupt had no confirmed effect","target_turn_id":"<turn_id>"}'
+```
+
+- `abandon`: turn을 `cancelled`로 닫는다.
+- `confirm_completed`: 커밋된 checkpoint가 그 turn까지 덮을 때만 받는다(`evidence_ref` 필수). `interrupt_checkpoint_unavailable`은 대개 그런 checkpoint가 없으므로 409 `CHECKPOINT_UNAVAILABLE`이다.
+- `close`: 세션을 끝낸다. 되돌릴 수 없다.
+
 4. `abandon`·`confirm_completed` 뒤 세션은 `stopped`다. 결정 receipt의 `result.resumable`이 `true`면 resume한다. `false`면 이어받을 checkpoint가 없거나, 마지막 checkpoint 뒤에 돈 turn이 있어 그 context를 이어받을 수 없다는 뜻이다(세션 상세 attention `CONTEXT_GAP`). `start_fresh`로 그 context 없이 이어가거나 `close`한다.
 
 ## worker workspace의 상한과 회수
 
 세션마다 `ap-ws-<installationId>-<sessionId>-<접미사>` volume 하나가 `/workspace`에 붙는다. 이 volume은 세대(generation)를 넘어 살아남는다 — 컨테이너를 교체해도 세션의 작업 트리는 그대로여야 하기 때문이다. 그래서 **컨테이너를 지우는 `terminate`는 volume을 건드리지 않고**, 회수는 pass의 ④단계가 따로 한다.
 
-volume이 없어져도 세션은 마지막으로 commit된 checkpoint에서 이어 간다. 무엇이 남고 무엇이 사라지는지는 [workspace volume을 잃었을 때 남는 것](api-server.md#workspace-volume을-잃었을-때-남는-것)에 있다.
+volume이 없어져도 세션은 마지막으로 commit된 checkpoint에서 이어 간다. 무엇이 남고 무엇이 사라지는지는 [workspace volume을 잃었을 때 남는 것](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md#workspace-volume을-잃었을-때-남는-것)에 있다.
 
 volume은 이제 backend가 `POST /volumes/create`로 **명시적으로** 만든다. mount spec에 이름만 적으면 Docker가 label도 상한도 없는 volume을 알아서 만들어 버리기 때문이다. 만들 때 `agent-platform.managed`·`.installation`·`.session-id`·`.workspace-quota` label을 찍고, GC는 이름을 파싱하지 않고 이 label만 본다.
 
@@ -222,16 +229,16 @@ CPU·메모리·PID·tmpfs와 달리 `/workspace`에는 상한이 없었다. `EX
 
 checkout 전의 고정 비용은 bundle 상한 2배 + untracked 상한, 곧 768 MiB다. 1024 MiB는 여기에 pack index와 여유를 더한 값이다. incremental thin pack을 채우는 delta base 사본도 이 여유에 들어간다. checkout 뒤의 T는 세션의 작업 트리 자체라 상한이 없다. 그래서 최솟값은 세션과 무관한 checkout 전 비용만 보장한다. checkout 뒤의 W + I + T + U는 같은 quota 안에서 capture할 때 그 세션이 이미 쓰던 양과 비슷하다. capture 때는 workspace `.git`, 작업 트리, untracked, scratch 저장소의 snapshot 객체, bundle 파일(≤B)이 함께 있었다. I는 B 이하다. quota를 낮춘 뒤 새 volume에 복원하는 경우는 이 보장 밖이다. 이때는 복원이 checkout 중 ENOSPC로 실패할 수 있다.
 
-기존 workspace를 다시 쓰는 fresh fetch(checkpoint 없이 재개하는 reuse)는 복원과 달리 root를 비우지 않는다. 워커는 origin 전체를 bare mirror로 받아 거기서 branch를 복사한다. mirror는 `.git/agent-platform-fetch-*` 아래에 만들고 fetch가 끝나면 지운다. `/tmp`와 HOME은 tmpfs라 컨테이너 메모리를 쓰기 때문이다. 표의 기호에 더해 M은 mirror가 디스크에서 차지하는 최대치다. origin 저장소의 pack 전체에 index·ref, 받는 동안의 임시 pack 파일이 더해진다. Δ는 workspace `.git`에 새로 들어오는 객체다. 아래 최대치는 이 추정을 더한 값이다.
+기존 workspace를 다시 쓰는 fresh fetch(checkpoint 없이 재개하는 reuse)는 복원과 달리 root를 비우지 않는다. 워커는 origin 전체를 bare mirror로 받아 거기서 branch를 복사한다. mirror는 `.git/werft-fetch-*` 아래에 만들고 fetch가 끝나면 지운다. `/tmp`와 HOME은 tmpfs라 컨테이너 메모리를 쓰기 때문이다. 표의 기호에 더해 M은 mirror가 디스크에서 차지하는 최대치다. origin 저장소의 pack 전체에 index·ref, 받는 동안의 임시 pack 파일이 더해진다. Δ는 workspace `.git`에 새로 들어오는 객체다. 아래 최대치는 이 추정을 더한 값이다.
 
 | 단계 | 동시에 차지하는 것 | 최대 |
 | --- | --- | --- |
 | mirror clone과 로컬 fetch | 기존 W, I, T, U + mirror M + Δ | 세션 사용량 + M + Δ |
 | fetch 뒤 | W + Δ, I, T, U (mirror는 지운다) | 세션 사용량 + Δ |
 
-M에는 상한이 없다. M만큼 quota 여유가 있어야 reuse가 성공하고, 모자라면 fetch가 ENOSPC로 실패한다. 처음 clone(`clone`·`recreate`)은 mirror 없이 root에 바로 받으므로 W + T만 쓴다. 워커가 도중에 죽어 남긴 scratch(fetch·capture·publish의 `.git/agent-platform-<용도>-XXXXXX`)는 다음 reuse가 fetch 전에 지운다. `agent-platform-checkpoint`는 남긴다. checkout이 다른 곳의 객체를 빌려 쓰면(`objects/info/alternates`, `commondir`, 링크인 `objects`) 그 대상일 수 있으므로 지우지 않는다.
+M에는 상한이 없다. M만큼 quota 여유가 있어야 reuse가 성공하고, 모자라면 fetch가 ENOSPC로 실패한다. 처음 clone(`clone`·`recreate`)은 mirror 없이 root에 바로 받으므로 W + T만 쓴다. 워커가 도중에 죽어 남긴 scratch(fetch·capture·publish의 `.git/werft-<용도>-XXXXXX`)는 다음 reuse가 fetch 전에 지운다. `werft-checkpoint`는 남긴다. checkout이 다른 곳의 객체를 빌려 쓰면(`objects/info/alternates`, `commondir`, 링크인 `objects`) 그 대상일 수 있으므로 지우지 않는다.
 
-복원 뒤 `.git/agent-platform-checkpoint/checkpoint.git`에는 instructions commit이 닿는 객체(I)만 남는다. engine이 그 commit을 prune해도 다음 capture가 bundle할 수 있게 하려는 저장소다. 그 뒤의 commit, 커밋하지 않은 변경의 snapshot, 사슬의 이전 snapshot은 남기지 않는다. 단, instructions commit이 HEAD와 같으면 I는 committed 이력 전체다. engine이 커밋하지 않은 세션이 그렇다. 이때 줄어드는 것은 snapshot 몫뿐이다.
+복원 뒤 `.git/werft-checkpoint/checkpoint.git`에는 instructions commit이 닿는 객체(I)만 남는다. engine이 그 commit을 prune해도 다음 capture가 bundle할 수 있게 하려는 저장소다. 그 뒤의 commit, 커밋하지 않은 변경의 snapshot, 사슬의 이전 snapshot은 남기지 않는다. 단, instructions commit이 HEAD와 같으면 I는 committed 이력 전체다. engine이 커밋하지 않은 세션이 그렇다. 이때 줄어드는 것은 snapshot 몫뿐이다.
 
 이 축소에는 대가가 있다. 다음 incremental capture는 사슬의 tip 중 아직 있는 것만 제외 대상으로 삼는다. 이전 base bundle만의 snapshot commit은 이제 남지 않는다. 마지막 bundle의 snapshot도 workspace `.git`에 참조 없이 들어 있을 뿐이다. 보통의 `git gc`는 2주 동안 이것을 지우지 않는다. 하지만 engine이 `git gc --prune=now`를 돌리면 사라진다. 그러면 남은 tip(이력에 남은 HEAD commit, instructions commit)을 기준으로 bundle을 만든다. 그 결과 bundle이 커지거나 전체 bundle로 되돌아갈 수 있다. 올바름은 그대로다. 전체 bundle이 상한을 넘는 저장소는 사슬이 32개나 상한에 닿아 재시작할 때도 어차피 거절된다.
 
@@ -356,12 +363,4 @@ docker compose -f infra/compose.yml up -d --wait --build egress-proxy   # checko
 docker compose -f infra/compose.yml exec -T egress-proxy bun run /app/src/healthcheck.ts
 docker network ls --filter label=agent-platform.worker-network=true \
   --format '{{.Name}} {{.Labels}}'
-```
-
-실제 Docker daemon 대상 테스트는 `DOCKER_BACKEND_TEST=1`로 opt-in한다(`busybox:1.36`을 sleep으로 띄움). local-docker의 `test:docker`는 패키지의 `*.integration.test.ts` 전부를 돌리므로 파일을 더해도 스크립트를 고치지 않는다. egress suite는 backend가 띄운 worker 셋(설치 둘)으로 worker 사이 차단과 proxy 재부착·orphan 네트워크 회수를 보고, internal 네트워크·바깥 네트워크·upstream 두 개·host `openssl`로 만든 인증서를 쓰는 TLS upstream·그 인증서로 LocalStack 앞에 세운 TLS front(https S3 endpoint)·`oven/bun:1.3.14`로 띄운 proxy를 직접 만들어 컨테이너 안에서 `wget`·`nc`·`curlimages/curl`로 확인하며 인터넷을 쓰지 않는다(이미지 pull 제외). scheduler의 15 세션 → 컨테이너 ≤ 10 검증은 `QUEUE_DATABASE_URL`까지 있어야 실행된다.
-
-```bash
-DOCKER_BACKEND_TEST=1 bun run --cwd packages/adapters/execution/local-docker test:docker
-DOCKER_BACKEND_TEST=1 QUEUE_DATABASE_URL=postgres://postgres:dev@127.0.0.1:5432/sessions \
-  bun test apps/control-host/src/scheduler/main.integration.test.ts
 ```
