@@ -64,8 +64,17 @@ const PLAIN_COMMAND = /^[\w./=@%+,:'"-]+(?: [\w./=@%+,:'"-]+)*$/;
 /** The engine reads a first word such as `certified:` as syntax of its own. */
 const FIRST_WORD_COLON = /^[^ ]*:(?: |$)/;
 
+/** A first word that starts or continues a shell construct, not a command. */
+const SHELL_KEYWORD =
+  /^(?:if|then|else|elif|fi|for|while|until|do|done|case|esac|select|function|coproc|time)(?: |$)/;
+
 const isPlain = (text: string) =>
-  PLAIN_COMMAND.test(text) && !FIRST_WORD_COLON.test(text);
+  PLAIN_COMMAND.test(text) &&
+  !FIRST_WORD_COLON.test(text) &&
+  !SHELL_KEYWORD.test(text) &&
+  // An open quote makes the engine split the line into several pieces.
+  (text.match(/'/g)?.length ?? 0) % 2 === 0 &&
+  (text.match(/"/g)?.length ?? 0) % 2 === 0;
 
 /**
  * True when a Bash rule is the command itself or a prefix rule over a
