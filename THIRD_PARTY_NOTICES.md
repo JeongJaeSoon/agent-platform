@@ -2,7 +2,7 @@
 
 배포 이미지(control-host·worker·egress-proxy)에 들어가는 제3자 구성요소와 그 라이선스다. npm 패키지의 라이선스 전문은 패키지가 싣고 있으면 이미지 안 `/app/node_modules/<패키지>/`에 함께 들어 있다. 싣지 않은 패키지는 아래 "라이선스 파일이 없는 npm 패키지" 절이 전문을 대신 싣는다.
 
-이 파일은 `bun scripts/third-party-notices.ts`가 `bun.lock`에서 만든다. 손으로 고치지 않는다. CI의 `check (licenses)`가 `--check`로 최신인지 확인한다.
+이 파일은 `bun scripts/third-party-notices.ts`가 `bun.lock`에서 만든다. 손으로 고치지 않는다. CI의 `check (static)`이 `--check`로 최신인지 확인한다.
 
 ## 베이스 이미지와 OS 패키지
 
