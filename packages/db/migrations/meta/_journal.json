@@ -1009,6 +1009,13 @@
       "when": 1793881927439,
       "tag": "0234_session_github_policy_start",
       "breakpoints": true
+    },
+    {
+      "idx": 235,
+      "version": "7",
+      "when": 1793902813182,
+      "tag": "0235_connection_replaces_auth",
+      "breakpoints": true
     }
   ]
 }
