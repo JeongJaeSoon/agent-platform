@@ -176,7 +176,7 @@ integration("sessions.github_policy_start and the repository cap", () => {
     // A part-way failure leaves the statements before it committed: the file
     // run a second time changes nothing.
     const sql = await readFile(
-      join(MIGRATIONS, "0232_session_github_policy_start.sql"),
+      join(MIGRATIONS, "0233_session_github_policy_start.sql"),
       "utf8",
     );
     for (const statement of sql.split("--> statement-breakpoint")) {
