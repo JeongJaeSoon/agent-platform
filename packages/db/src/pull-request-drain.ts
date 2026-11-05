@@ -14,7 +14,9 @@ import { findPullRequest, savePullRequestIn } from "./pull-requests.ts";
 import type { Database } from "./queries.ts";
 import { pushRequests, sessions } from "./schema.ts";
 
-const due = sql`(${pushRequests.prState} = 'due' AND (${pushRequests.prNextAttemptAt} IS NULL OR ${pushRequests.prNextAttemptAt} <= now())) OR (${pushRequests.prState} = 'opening' AND (${pushRequests.prLeaseExpiresAt} IS NULL OR ${pushRequests.prLeaseExpiresAt} < now()))`;
+// Parenthesized as a whole: it sits inside `and(...)`, where a bare top-level
+// OR binds looser than its neighbours and lets its other branch ignore them.
+const due = sql`((${pushRequests.prState} = 'due' AND (${pushRequests.prNextAttemptAt} IS NULL OR ${pushRequests.prNextAttemptAt} <= now())) OR (${pushRequests.prState} = 'opening' AND (${pushRequests.prLeaseExpiresAt} IS NULL OR ${pushRequests.prLeaseExpiresAt} < now())))`;
 
 const cleared = {
   prClaimToken: null,
