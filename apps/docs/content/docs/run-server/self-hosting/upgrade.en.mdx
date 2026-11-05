@@ -12,7 +12,7 @@ There is no `v` tag yet. For now, upgrade to the chart `0.1.0-main-<12>` and the
 ## Kubernetes
 
 <Callout type="warn">
-UNVERIFIED. These Kubernetes upgrade steps are copied from the operator document and have not been run in this order on a cluster. CI does not test the new control-host with the previous worker image, so try them on a test install before a real server. If they differ, follow [Kubernetes install (Helm chart)](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#게시-chart를-올리기).
+UNVERIFIED. These Kubernetes upgrade steps are copied from the operator document and have not been run in this order on a cluster. CI does not test the new control-host with the previous worker image, so try them on a test install before a real server. If they differ, follow [Kubernetes install (Helm chart)](/run-server/self-hosting/operate/kubernetes-deployment#upgrading-the-published-chart).
 </Callout>
 
 These steps use `jq` too. The published chart carries the new worker image but not the previous one, because the previous image differs per installation. An upgrade that changes the worker image stops with `refused` unless `images.workerPrevious` is the image deployed now, and an approval cannot get past that. So save the current image to a file and pass it along. Do not use `--reuse-values`: the old chart's values override the new chart's images.
@@ -70,7 +70,7 @@ kubectl -n werft logs job/werft-upgrade-check
 | `refused` | Stops. The picked sessions differ from the approved list, or the worker image changes and `images.workerPrevious` is not the image deployed now. The second case cannot be approved. Even when the worker image stays, dropping or replacing the previous image deployed now compares the sessions, so the upgrade can stop here. That case can be approved |
 | `check_failed` | Stops. The database or the image combination could not be read |
 
-If it is acceptable that the picked sessions do not resume, pass the `affected` list as `--set-json 'upgrade.approvedSessions=["<sessionId>", ...]'` and run the same upgrade again. The approved list stays in the release values, so reset it to `[]` on each upgrade and read the list again. The verdict table and its exceptions are in [Kubernetes install (Helm chart)](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#업그레이드-전-검사).
+If it is acceptable that the picked sessions do not resume, pass the `affected` list as `--set-json 'upgrade.approvedSessions=["<sessionId>", ...]'` and run the same upgrade again. The approved list stays in the release values, so reset it to `[]` on each upgrade and read the list again. The verdict table and its exceptions are in [Kubernetes install (Helm chart)](/run-server/self-hosting/operate/kubernetes-deployment#pre-upgrade-check).
 
 ### 4. Check
 
@@ -90,7 +90,7 @@ kill "$PF"
 
 ### Roll back
 
-`helm rollback` runs no hooks, so the pre-upgrade check does not run either. For a rollback that reverts the worker image, the check you run by hand beforehand is usually `refused`; roll forward first. The check command for a rollback and its limits are in the `helm rollback` item of [Kubernetes install (Helm chart)](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#업그레이드-전-검사).
+`helm rollback` runs no hooks, so the pre-upgrade check does not run either. For a rollback that reverts the worker image, the check you run by hand beforehand is usually `refused`; roll forward first. The check command for a rollback and its limits are in the `helm rollback` item of [Kubernetes install (Helm chart)](/run-server/self-hosting/operate/kubernetes-deployment#pre-upgrade-check).
 
 ## Single server (Docker Compose)
 

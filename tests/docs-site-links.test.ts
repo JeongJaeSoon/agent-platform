@@ -62,7 +62,6 @@ const ALLOWED: Record<string, string> = {
     "held: pins line numbers to a commit and has an open decisions section",
   "docs/operator/execution.md": "held: no site page yet",
   "docs/operator/images-and-supply-chain.md": "held: no site page yet",
-  "docs/operator/kubernetes-deployment.md": "held: no site page yet",
   "docs/operator/monitoring-datadog.md": "held: no site page yet",
   "docs/operator/server-deployment.md": "held: no site page yet",
   "docs/operator/test-ops.md":
