@@ -276,6 +276,22 @@ export function renderPullRequestBody(input: {
             text: redactRow(row.text),
           })),
         };
+  // The validation judged the comment boundaries on the text as read. A row
+  // inside or at the edge of a comment that redaction rewrote may have lost
+  // its `-->` (or its `<!--`), so the checked structure no longer holds.
+  if (
+    template !== null &&
+    input.template != null &&
+    input.template.rows.some(
+      (row, at) =>
+        row.text !== template?.rows[at]?.text &&
+        (row.startsInComment ||
+          row.text.includes("<!--") ||
+          row.text.includes("-->")),
+    )
+  ) {
+    template = null;
+  }
   const related: string[] = [];
   let relatedDropped = 0;
   for (const item of fields.related ?? []) {

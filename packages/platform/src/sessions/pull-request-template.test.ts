@@ -546,14 +546,12 @@ const FRAGMENTS = [
   "- [ ] checkbox\n",
   "@octocat Fixes #1 acme/other#2\n",
   "```\n## Summary\n```\n",
-  "<details>\n",
   "<!-- werft:slot summary -->\n",
   "<!-- werft:slot testing -->\n",
-  "text with `code` and <b>html</b>\n",
+  "text with `code` and a lone \\< sign\n",
   "\n",
   "Co-authored-by: x <x@y.z>\n",
-  "a".repeat(400),
-  "\\<!-- escaped\n",
+  `${"a".repeat(400)}\n`,
   "    indented\n",
 ];
 
@@ -699,15 +697,18 @@ describe("the length of a body", () => {
     const next = random(20261105);
     const max = 65_536;
     const redact = (line: string) => line;
+    let accepted = 0;
     for (let round = 0; round < 80; round += 1) {
       let text = "";
       const target = Math.floor(next() * TEMPLATE_MAX_BYTES);
       while (text.length < target) {
-        text += FRAGMENTS[Math.floor(next() * FRAGMENTS.length)] ?? "";
+        const fragment = FRAGMENTS[Math.floor(next() * FRAGMENTS.length)] ?? "";
+        if (text.length + fragment.length > TEMPLATE_MAX_BYTES) break;
+        text += fragment;
       }
-      text = text.slice(0, TEMPLATE_MAX_BYTES);
       const template = prepareTemplate(text);
       if (template === null) continue;
+      accepted += 1;
       const field = (limit: number) =>
         "@user Fixes #1 ".repeat(Math.floor((next() * limit) / 15));
       const rendered = renderPullRequestBody({
@@ -738,6 +739,26 @@ describe("the length of a body", () => {
       ).toHaveLength(1);
       expect(rendered.body).not.toMatch(/[\ud800-\udbff](?![\udc00-\udfff])/);
     }
+    // A generator that the allowlist rejects would make every assertion above
+    // vacuous.
+    expect(accepted).toBeGreaterThan(40);
+  });
+
+  test("redaction that rewrites a comment's closing row sends the template back to the default layout", () => {
+    const template = prepared(
+      "## Summary\n<!-- guidance\nend SECRET -->\n- [ ] review",
+    );
+    const out = renderPullRequestBody({
+      fields: { summary: "REAL SUMMARY" },
+      locale: "en",
+      tail: TAIL,
+      maxLength: 65_536,
+      redact: (line) => (line.includes("SECRET") ? "[REDACTED]" : line),
+      repository: { id: "app", repositories: {} },
+      template,
+    });
+    expect(out.templateUsed).toBe(false);
+    expect(out.body).toContain("REAL SUMMARY");
   });
 
   test("a template too long beside the fields gives way to the default layout", () => {
