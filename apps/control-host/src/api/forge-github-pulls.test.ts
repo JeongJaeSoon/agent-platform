@@ -96,6 +96,14 @@ describe("GitHub pull requests", () => {
 
     expect(await forge.findPullRequestForBranch(head)).toEqual(pull);
     expect(await forge.findPullRequestForBranch("agent/none")).toBeNull();
+    expect(await forge.findPullRequestsForBranch("agent/none")).toEqual([]);
+    expect(await forge.findPullRequestsForBranch(head)).toEqual([
+      expect.objectContaining({
+        ...pull,
+        body: "What the session did.",
+        headRepository: "acme/app",
+      }),
+    ]);
     // GitHub answers 422 for the open head; the one it names is answered,
     // as not created by this call.
     expect(

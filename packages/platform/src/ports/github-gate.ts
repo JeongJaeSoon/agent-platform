@@ -14,6 +14,7 @@ import type {
   ForgeComment,
   ForgePullRequest,
   ForgePullRequestDetail,
+  ForgePullRequestWithBody,
   ForgeRepository,
   GitCredential,
   RepoRef,
@@ -83,6 +84,15 @@ export interface GitHubApi {
   readonly maxBodyLength: number;
   getRepository(): Promise<ForgeRepository>;
   findPullRequestForBranch(branch: string): Promise<ForgePullRequest | null>;
+  /**
+   * Every pull request whose head is the branch, in any state, newest first
+   * (at most `limit`, default 10). The drain reads this to tell a pull
+   * request it opened but could not record from one a person closed.
+   */
+  findPullRequestsForBranch(
+    branch: string,
+    options?: { limit?: number },
+  ): Promise<ForgePullRequestWithBody[]>;
   /**
    * `created` is false when GitHub refused to create one because the head
    * already has an open pull request, and that one is answered instead.

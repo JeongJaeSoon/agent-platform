@@ -1,0 +1,205 @@
+import { randomUUID } from "node:crypto";
+import { openPullRequestRequestSchema } from "@werft-ai/contracts";
+import type {
+  PullRequestDrainOutcome,
+  PullRequestDrainStore,
+  PullRequestJob,
+  PullRequestSettled,
+} from "@werft-ai/platform";
+import { and, eq, sql } from "drizzle-orm";
+import { findPullRequest, savePullRequestIn } from "./pull-requests.ts";
+import type { Database } from "./queries.ts";
+import { pushRequests, sessions } from "./schema.ts";
+
+/** When the drain looks once more for a second pull request after `opened`. */
+const DUP_CHECK_DELAY_SECONDS = 120;
+
+const due = sql`(${pushRequests.prState} = 'due' AND (${pushRequests.prNextAttemptAt} IS NULL OR ${pushRequests.prNextAttemptAt} <= now())) OR (${pushRequests.prState} = 'opening' AND (${pushRequests.prLeaseExpiresAt} IS NULL OR ${pushRequests.prLeaseExpiresAt} < now()))`;
+
+const cleared = {
+  prClaimToken: null,
+  prLeaseExpiresAt: null,
+} as const;
+
+/**
+ * The pull request drain's claim and settle. A claim is a token written with
+ * the lease; every settle is conditioned on the token while the row is
+ * `opening`, so a claim whose lease lapsed cannot write over its successor.
+ */
+export function createPostgresPullRequestDrain(
+  db: Database,
+): PullRequestDrainStore {
+  return {
+    claimNextDue(leaseMs): Promise<PullRequestJob | null> {
+      return db.transaction(async (tx) => {
+        // A row whose intent no longer parses leaves the candidates, so
+        // this ends.
+        for (;;) {
+          const [candidate] = await tx
+            .select()
+            .from(pushRequests)
+            .where(and(eq(pushRequests.state, "pushed"), due))
+            .orderBy(pushRequests.createdAt)
+            .limit(1)
+            .for("update", { skipLocked: true });
+          if (!candidate) return null;
+          const parsed =
+            candidate.pullRequestIntent === null
+              ? { success: true as const, data: null }
+              : openPullRequestRequestSchema.safeParse(
+                  candidate.pullRequestIntent,
+                );
+          if (!parsed.success) {
+            await tx
+              .update(pushRequests)
+              .set({
+                prState: "failed",
+                prError: "intent_invalid",
+                prNextAttemptAt: null,
+                ...cleared,
+              })
+              .where(eq(pushRequests.id, candidate.id));
+            continue;
+          }
+          const claimToken = randomUUID();
+          const [row] = await tx
+            .update(pushRequests)
+            .set({
+              prState: "opening",
+              prClaimToken: claimToken,
+              prAttempts: sql`${pushRequests.prAttempts} + 1`,
+              prLeaseExpiresAt: sql`now() + make_interval(secs => ${leaseMs / 1000})`,
+            })
+            .where(eq(pushRequests.id, candidate.id))
+            .returning();
+          if (!row?.prLeaseExpiresAt) {
+            throw new Error("push request update returned no row");
+          }
+          return {
+            id: row.id,
+            ownerId: row.ownerId,
+            sessionId: row.sessionId,
+            repositoryId: row.repositoryId,
+            repositoryBinding: row.repositoryBinding,
+            targetBranch: row.targetBranch,
+            gitCommit: row.gitCommit,
+            intent: parsed.data,
+            claimToken,
+            attempt: row.prAttempts,
+            leaseExpiresAt: row.prLeaseExpiresAt,
+          };
+        }
+      });
+    },
+
+    settle(job, outcome): Promise<PullRequestSettled> {
+      return db.transaction(async (tx) => {
+        // The session first, then the request: the order every writer of a
+        // session's push requests takes.
+        await tx
+          .select({ id: sessions.id })
+          .from(sessions)
+          .where(eq(sessions.id, job.sessionId))
+          .for("update");
+        const [row] = await tx
+          .select()
+          .from(pushRequests)
+          .where(
+            and(
+              eq(pushRequests.id, job.id),
+              eq(pushRequests.prState, "opening"),
+              eq(pushRequests.prClaimToken, job.claimToken),
+            ),
+          )
+          .limit(1)
+          .for("update");
+        if (!row) return { result: "fenced" };
+        return await write(tx, job, outcome);
+      });
+    },
+  };
+}
+
+async function write(
+  tx: Database,
+  job: PullRequestJob,
+  outcome: PullRequestDrainOutcome,
+): Promise<PullRequestSettled> {
+  const fence = and(
+    eq(pushRequests.id, job.id),
+    eq(pushRequests.prClaimToken, job.claimToken),
+  );
+  if (outcome.kind === "retry") {
+    await tx
+      .update(pushRequests)
+      .set({
+        prState: "due",
+        prError: outcome.error,
+        prNextAttemptAt: sql`now() + make_interval(secs => ${outcome.delayMs / 1000})`,
+        ...cleared,
+      })
+      .where(fence);
+    return { result: "settled" };
+  }
+  if (outcome.kind === "stop") {
+    await tx
+      .update(pushRequests)
+      .set({
+        prState: outcome.stage,
+        prError: outcome.error,
+        prErrorDetails: outcome.details ?? null,
+        prNextAttemptAt: null,
+        ...cleared,
+      })
+      .where(fence);
+    return { result: "settled" };
+  }
+  const opened = outcome.pullRequest;
+  const recorded = await findPullRequest(tx, job.ownerId, job.id);
+  if (recorded !== null && recorded.number !== opened.number) {
+    await tx
+      .update(pushRequests)
+      .set({
+        prState: "uncertain",
+        prError: "duplicate_pull_request",
+        prErrorDetails: {
+          recorded: { number: recorded.number, url: recorded.url },
+          forge: { number: opened.number, url: opened.url },
+        },
+        prNextAttemptAt: null,
+        ...cleared,
+      })
+      .where(fence);
+    return {
+      result: "duplicate",
+      recorded: { number: recorded.number, url: recorded.url },
+    };
+  }
+  await savePullRequestIn(tx, {
+    ownerId: job.ownerId,
+    sessionId: job.sessionId,
+    pushRequestId: job.id,
+    actor: null,
+    repositoryId: job.repositoryId,
+    number: opened.number,
+    url: opened.url,
+    title: opened.title,
+    head: opened.head,
+    base: opened.base,
+    created: opened.created,
+  });
+  await tx
+    .update(pushRequests)
+    .set({
+      prState: "opened",
+      prError: null,
+      prErrorDetails: null,
+      prNextAttemptAt: null,
+      prVerifiedNumber: opened.number,
+      prVerifiedHeadSha: opened.headSha,
+      dupCheckAt: sql`now() + make_interval(secs => ${DUP_CHECK_DELAY_SECONDS})`,
+      ...cleared,
+    })
+    .where(fence);
+  return { result: "settled" };
+}

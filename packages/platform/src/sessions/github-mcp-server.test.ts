@@ -122,6 +122,7 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
     maxBodyLength: 65_536,
     getRepository: unused,
     findPullRequestForBranch: unused,
+    findPullRequestsForBranch: unused,
     createPullRequest: unused,
     getPullRequest: async (number) => ({
       pullRequest: {

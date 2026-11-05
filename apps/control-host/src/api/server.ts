@@ -34,6 +34,7 @@ import {
   createPostgresMcpEgressStore,
   createPostgresMemberStore,
   createPostgresPendingRequests,
+  createPostgresPullRequestDrain,
   createPostgresPullRequests,
   createPostgresPushFollowUpStore,
   createPostgresPushRequests,
@@ -97,6 +98,7 @@ import {
   createOutcomeRefresher,
   createPendingRequestService,
   createProfileRegistry,
+  createPullRequestDrain,
   createPullRequestService,
   createPushExecutor,
   createPushRequestService,
@@ -965,6 +967,14 @@ const pushExecutor = createPushExecutor({
   attributions: commitAttributions,
   logger,
 }).start();
+// The pull request drain of the control-host's action-broker starts whether
+// or not AGENT_ACTION_FLOWS is on: a stage left from before a restart with
+// the setting off is still finished.
+const pullRequestDrain = createPullRequestDrain({
+  store: createPostgresPullRequestDrain(db),
+  opener: pullRequests,
+  logger,
+}).start();
 // Each replica reads the state of the pull requests sessions opened; the
 // rate-limit budget is shared through the database (§10).
 const sessionOutcomes = createPostgresSessionOutcomes(db);
@@ -1337,6 +1347,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
         : [server, authorizerListener],
       [
         { name: "push-executor", close: () => pushExecutor.stop() },
+        { name: "pull-request-drain", close: () => pullRequestDrain.stop() },
         { name: "outcome-refresher", close: () => outcomeRefresher.stop() },
         { name: "achievement-judge", close: () => achievementJudge.stop() },
         { name: "event-listener", close: () => notifier.close() },

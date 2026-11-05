@@ -68,6 +68,7 @@ const LINKED: SessionAttributionRecord = {
 const TAIL = [
   "---",
   PULL_REQUEST_TAIL_MARKER,
+  `<!-- agent-platform:push-request ${PUSH} -->`,
   `Opened in a Werft session · [session](<https://console.example.com/sessions/${SESSION}>) · commit \`aaaaaaa\``,
   "",
   "<details><summary>Details</summary>",
@@ -200,6 +201,7 @@ function harness(
     getWorkflowRun: unused,
     rerunWorkflow: unused,
     submitReview: unused,
+    findPullRequestsForBranch: unused,
     findPullRequestForBranch: async (branch) => {
       calls.push(`find ${branch}`);
       fail();

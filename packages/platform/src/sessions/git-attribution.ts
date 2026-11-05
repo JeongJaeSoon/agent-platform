@@ -115,6 +115,32 @@ export const PULL_REQUEST_TAIL_MARKER = "<!-- werft:pr-tail -->";
 export const PULL_REQUEST_TAIL_END_MARKER = "<!-- /werft:pr-tail -->";
 
 /**
+ * The hidden line naming the push request a pull request was opened for.
+ * Anyone may write it into a body, so the drain only uses it to find a
+ * candidate and still checks the repository, head, base and commit.
+ */
+export function pushRequestMarker(pushRequestId: string): string {
+  return `<!-- agent-platform:push-request ${pushRequestId} -->`;
+}
+
+const PUSH_REQUEST_MARKER_LINE =
+  /^<!-- agent-platform:push-request [A-Za-z0-9_-]{1,64} -->$/;
+
+/** The push request id a body's marker names; the last one wins. */
+export function pushRequestMarkerOf(body: string): string | null {
+  let found: string | null = null;
+  for (const line of body.split(/\r?\n/)) {
+    if (PUSH_REQUEST_MARKER_LINE.test(line.trimEnd())) {
+      found = line.slice(
+        "<!-- agent-platform:push-request ".length,
+        -" -->".length,
+      );
+    }
+  }
+  return found;
+}
+
+/**
  * The pull request body's tail (decision 5): how to find the session again.
  * The body is anyone's to edit, so this is a pointer, never evidence.
  */
@@ -147,6 +173,7 @@ export function pullRequestTail(input: {
   const lines = [
     "---",
     PULL_REQUEST_TAIL_MARKER,
+    pushRequestMarker(input.pushRequestId),
     `Opened in a Werft session${link} · commit \`${input.commit.slice(0, 7)}\``,
     "",
     "<details><summary>Details</summary>",
@@ -180,6 +207,8 @@ type TailShape = {
 const TAIL_SHAPES: readonly TailShape[] = [
   {
     lines: [
+      // Absent from tails written before the drain.
+      { line: PUSH_REQUEST_MARKER_LINE, optional: true },
       {
         line: /^Opened in a Werft session(?: · \[session\]\(<\S+>\))? · commit `[0-9a-f]{7}`$/,
       },
