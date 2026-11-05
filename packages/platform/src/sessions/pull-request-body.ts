@@ -139,9 +139,16 @@ const ZWSP = "​";
  * block that takes the rest of the line as its info string and hides the text.
  */
 function oneLine(item: string): string {
-  return item
-    .replace(/\s*\n\s*/g, " ")
-    .replace(/`{3,}|~{3,}/g, (run) => [...run].join(ZWSP));
+  return (
+    item
+      .replace(/\s*\n\s*/g, " ")
+      .replace(/`{3,}|~{3,}/g, (run) => [...run].join(ZWSP))
+      // `<` would start an HTML block, comment or CDATA section that hides the
+      // item's text.
+      .replace(/</g, "&lt;")
+      // `- ---` is a thematic break, not an item with text.
+      .replace(/^([-*_])(?:\s*\1){2,}\s*$/, "\\$&")
+  );
 }
 
 // Slack for the closing text a cut may add.

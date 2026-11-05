@@ -134,6 +134,27 @@ describe("the default template", () => {
     expect(body.endsWith(PULL_REQUEST_TAIL_END_MARKER)).toBe(true);
   });
 
+  test("a change item that looks like an HTML start or a thematic break stays text", () => {
+    const items = [
+      "<?example",
+      "<![CDATA[example",
+      "---",
+      "***",
+      "___",
+      "- - -",
+    ];
+    const { body } = render({ changes: [...items, "SECOND"] });
+    const html = Bun.markdown.html(body);
+    // The one rule is the tail's own.
+    expect(html.match(/<hr/g)?.length).toBe(1);
+    expect(html).not.toContain("<?");
+    expect(html).not.toContain("<![CDATA[");
+    expect(html.match(/<li>/g)?.length).toBe(items.length + 1);
+    expect(html).toContain("SECOND");
+    expect(html).toContain("example");
+    expect(body.endsWith(PULL_REQUEST_TAIL_END_MARKER)).toBe(true);
+  });
+
   test("an open code fence in one field does not swallow the next section or the references", () => {
     const { body } = render({
       summary: "```text\nexample",
