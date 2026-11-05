@@ -13,15 +13,23 @@ import {
   stripEngineSignatures,
 } from "./pull-request-text.ts";
 
-// What a template may not link on its own: `#12`, `GH-12`, and the address of
-// an issue or pull request. (`&#12;` is an entity, not a reference.)
-const LOCAL_REFERENCE = /(^|[^\w/&#-])(#|GH-)(?=\d)/gi;
-const ISSUE_ADDRESS = /(https?:\/\/)(?=[^\s<>()[\]]*\/(?:issues|pull)\/\d)/gi;
+// What a template may not link on its own: `#12`, `GH-12`, a commit, and the
+// address of an issue, pull request or commit. (`&#12;` is an entity.) An
+// address is broken in its path, whatever its scheme or host is written as:
+// a host is normalised by a URL parser, a path is not.
+const LOCAL_REFERENCE = /(^|[^\w&])(#|GH-)(?=\d)/gi;
+const NUMBERED_PATH = /(\/(?:issues|pull)\/)(?=\d)/gi;
+const COMMIT_PATH = /(\/commit\/)(?=[0-9a-f]{7})/gi;
+const COMMIT_REFERENCE = /(^|[^\w/.-])([\w.-]+\/[\w.-]+@)(?=[0-9a-f]{7})/gi;
+const COMMIT_HASH = /\b([0-9a-f]{7})(?=[0-9a-f]{33}\b)/gi;
 
 function breakLinks(text: string): string {
   return text
     .replace(LOCAL_REFERENCE, `$1$2${ZWSP}`)
-    .replace(ISSUE_ADDRESS, `$1${ZWSP}`);
+    .replace(NUMBERED_PATH, `$1${ZWSP}`)
+    .replace(COMMIT_PATH, `$1${ZWSP}`)
+    .replace(COMMIT_REFERENCE, `$1$2${ZWSP}`)
+    .replace(COMMIT_HASH, `$1${ZWSP}`);
 }
 
 export const SECTION_NAMES = [
@@ -277,9 +285,24 @@ const RAW_ELEMENTS: ReadonlySet<string> = new Set([
   "textarea",
   "script",
   "style",
+  "title",
+  "xmp",
+  "noembed",
+  "noframes",
+  "noscript",
+  "iframe",
 ]);
-const ELEMENT =
-  /<(\/?)(details|pre|div|table|blockquote|section|textarea|script|style)\b[^>]*>/gi;
+const ELEMENT_NAMES =
+  "details|pre|div|table|blockquote|section|textarea|script|style|title|xmp|noembed|noframes|noscript|iframe|template";
+// Markup that has no end the scan could follow: a declaration, a processing
+// instruction, a CDATA section, a malformed comment opener, `<plaintext>`.
+const OPEN_ENDED = /<(?:[!?](?!--)|plaintext(?![\w-]))/gi;
+const ELEMENT_ANY = new RegExp(`<(/?)(${ELEMENT_NAMES})(?![\\w-])`, "gi");
+// A tag whose attributes are bare words or `name=value` with a plain value.
+const ELEMENT_SIMPLE = new RegExp(
+  `^<(?:/?)(?:${ELEMENT_NAMES})(?:\\s+[\\w:-]+(?:=(?:"[^"<>\`]*"|'[^'<>\`]*'|[^\\s"'<>\`=]+))?)*\\s*/?>`,
+  "i",
+);
 // A comment the platform reads or whose text it writes itself: its own tail
 // markers, and the identifiers it may add later. A template's comment cannot
 // pass for one of them. The identifier is changed, not the comment's syntax, so
@@ -423,15 +446,52 @@ function scan(text: string): Scanned {
       .join(" ");
     // A tag split over lines hides what follows it from every line-wise scan.
     if (endsInsideTag(seen)) unbalanced = true;
-    for (const [, closeTag, name] of seen.matchAll(ELEMENT)) {
-      const tag = (name ?? "").toLowerCase();
-      if (closeTag === "") open.push(tag);
+    for (const match of seen.matchAll(OPEN_ENDED)) {
+      if (!escaped(seen, match.index)) unbalanced = true;
+    }
+    // Whether text in a code span or fence is code or markup depends on the
+    // renderer's block rules; an element named there is not judged, it rejects.
+    const code = row.parts
+      .filter((part) => !part.comment)
+      .map((part) => (part.text.match(/(`+)[^`]*?\1/g) ?? []).join(" "))
+      .join(" ");
+    if (mentionsElement(code)) unbalanced = true;
+    const tags = elementsIn(seen);
+    if (tags === null) unbalanced = true;
+    for (const [closing, tag] of tags ?? []) {
+      if (!closing) open.push(tag);
       else if (open.lastIndexOf(tag) !== -1) {
         open.splice(open.lastIndexOf(tag), 1);
       }
     }
   }
-  return { rows, unbalanced: unbalanced || inComment };
+  const fenced = rows.some(
+    (row) => row.code && row.parts.some((part) => mentionsElement(part.text)),
+  );
+  // An element the template leaves open would take the platform's text in.
+  return {
+    rows,
+    unbalanced: unbalanced || inComment || open.length > 0 || fenced,
+  };
+}
+
+function mentionsElement(text: string): boolean {
+  return new RegExp(ELEMENT_ANY).test(text);
+}
+
+/**
+ * The elements `text` opens and closes, or null when one is written in a way
+ * the scan does not follow (a quote or `>` inside the tag, anything after
+ * the attributes).
+ */
+function elementsIn(text: string): Array<[boolean, string]> | null {
+  const found: Array<[boolean, string]> = [];
+  for (const match of text.matchAll(ELEMENT_ANY)) {
+    if (escaped(text, match.index)) continue;
+    if (!ELEMENT_SIMPLE.test(text.slice(match.index))) return null;
+    found.push([match[1] === "/", (match[2] ?? "").toLowerCase()]);
+  }
+  return found;
 }
 
 /** Whether an HTML tag opened in `text` is still open at its end (quotes honoured). */
@@ -441,7 +501,13 @@ function endsInsideTag(text: string): boolean {
   for (let i = 0; i < text.length; i += 1) {
     const char = text[i] ?? "";
     if (!inTag) {
-      if (char === "<" && /[A-Za-z/]/.test(text[i + 1] ?? "")) inTag = true;
+      if (
+        char === "<" &&
+        /[A-Za-z/]/.test(text[i + 1] ?? "") &&
+        !escaped(text, i)
+      ) {
+        inTag = true;
+      }
     } else if (quote !== null) {
       if (char === quote) quote = null;
     } else if (char === '"' || char === "'") {

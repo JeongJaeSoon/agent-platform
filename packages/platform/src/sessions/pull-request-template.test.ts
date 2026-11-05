@@ -514,9 +514,9 @@ describe("laying fields into a template", () => {
     expect(out.match(/\nS\n/g)).toHaveLength(1);
   });
 
-  test("an element the template leaves open is closed before the platform's sections", () => {
-    const out = filled("## Notes\n<details>\nfold", { summary: "S" });
-    expect(out).toBe("## Notes\n<details>\nfold\n</details>\n\n## 요약\nS");
+  test("a fence the template leaves open is closed before the platform's sections", () => {
+    const out = filled("## Notes\n```\nfold", { summary: "S" });
+    expect(out).toBe("## Notes\n```\nfold\n```\n\n## 요약\nS");
   });
 
   test("a template with no heading and no slot goes below the default layout", () => {
@@ -591,7 +591,7 @@ describe("markup the scan and a renderer could read differently", () => {
     }
     expect(
       prepareTemplate(
-        '<details open><summary>a > b</summary>\n<a href="x">y</a>',
+        '<details open><summary>a > b</summary>\n<a href="x">y</a></details>',
       ),
     ).not.toBeNull();
   });
@@ -629,9 +629,61 @@ describe("markup the scan and a renderer could read differently", () => {
     const out = inert(
       "See #12, GH-3, https://github.com/acme/app/issues/13 and [x](https://ghe.example.com/acme/app/pull/4).\nDocs: https://example.com/docs &#35; ## not a ref",
     );
-    expect(out).not.toMatch(/(?<!&)#\d|GH-\d|https:\/\/(?:github|ghe)/);
+    expect(out).not.toMatch(/(?<!&)#\d|GH-\d|\/(?:issues|pull)\/\d/);
     expect(out).toContain("https://example.com/docs");
     expect(out).toContain("&#35;");
+  });
+
+  test("an address is broken in its path whatever its scheme or host is written as, and so is a commit", () => {
+    const sha = "a5c3785ed8d6a35868bc169f07e40e889087fd2e";
+    const out = inert(
+      [
+        "[issue]: //github.com/acme/app/issues/12",
+        "[t](https&#58;//github.com/acme/app/issues/13)",
+        "www.github.com/acme/app/issues/14",
+        `https://github.com/acme/app/commit/${sha}`,
+        `acme/app@${sha}`,
+        sha,
+      ].join("\n"),
+    );
+    expect(out).not.toMatch(
+      /\/(?:issues|pull)\/\d|commit\/[0-9a-f]|@[0-9a-f]{7}/,
+    );
+    expect(out).not.toMatch(/\b[0-9a-f]{40}\b/);
+    expect(inert("x-#12 a/#13 ##14")).not.toMatch(/(?<!&)#\d/);
+  });
+
+  test("an element named where its role is unclear, or left open, rejects the template", () => {
+    for (const text of [
+      // A code span inside an HTML block is not code.
+      '<details>\n`<details title="`\n">\n</details>\n\n## Summary',
+      // A quoted `>` and a closing tag inside an attribute.
+      '## Notes\n<details title="> </details>">\n\n## Summary',
+      "<details>\n\n## Summary",
+      "```html\n<div>\n```\n## Summary",
+      "## Summary\nuse `</details>` to close",
+      // Openers with no end the scan can follow, and elements it cannot close.
+      "## Testing\n\n<?x\n",
+      "## Testing\n\n<!DOCTYPE x\n",
+      "## Testing\n\n<![CDATA[ x\n",
+      "## Testing\n\n<!- x\n",
+      "## Testing\n\n<plaintext>\n",
+      "## Testing\n\n<xmp>\n",
+      "## Testing\n\n<title>\n",
+      "## Testing\n\n<noscript>\n",
+      "## Testing\n\n<iframe>\n",
+      "## Testing\n\n<template>\n",
+    ]) {
+      expect(prepareTemplate(text)).toBeNull();
+    }
+    for (const text of [
+      "<details>\n<summary>More</summary>\n\n- [ ] a\n</details>\n\n## Summary",
+      '<div align="center">\n\n![logo](x.png)\n</div>\n## Summary',
+      "## Summary\nUse \\<Type here and <br> too.",
+      "## Summary\nA \\<?x and \\<!x are text.",
+    ]) {
+      expect(prepareTemplate(text)).not.toBeNull();
+    }
   });
 });
 
