@@ -41,7 +41,7 @@ report=$(jq -n -r --argjson pools "${pools:-null}" --argjson needed "$needed" --
   # however many subnets share it, all of them when one subnet covers several.
   | [$networks[]
       | (.Labels // {}) as $l
-      | ($l["com.docker.compose.project"] // $l["agent-platform.installation"] // .Name) as $owner
+      | ($l["com.docker.compose.project"] // $l["werft.installation"] // .Name) as $owner
       | (.IPAM.Config // [])[] | .Subnet // "" | select(ipv4) | cidr
       | {start, end: (.start + pow(2; 32 - .len))} as $s
       | range($p | length) as $i | $p[$i]

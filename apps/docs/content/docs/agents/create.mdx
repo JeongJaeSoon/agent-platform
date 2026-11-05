@@ -33,7 +33,7 @@ read -rs WERFT_PASSWORD
 WERFT_COOKIE=$(curl -sS -o /dev/null -D - "$API/v1/auth/login" \
   -H 'Content-Type: application/json' -H 'X-Requested-With: werft-web' \
   -d "$(jq -nc --arg e 'owner@example.test' --arg p "$WERFT_PASSWORD" '{email: $e, password: $p}')" \
-  | sed -n 's/^[Ss]et-[Cc]ookie: \(__Host-ap_session=[^;]*\).*/\1/p')
+  | sed -n 's/^[Ss]et-[Cc]ookie: \(__Host-werft_session=[^;]*\).*/\1/p')
 ```
 
 로그인 cookie는 `__Host-` 이름이고 `Secure`라서 http에서는 curl의 cookie jar가 저장하지 않는다. 그래서 응답 헤더에서 꺼내 `Cookie` 헤더로 보낸다. 상태를 바꾸는 요청에는 `X-Requested-With: werft-web`이 필요하다.

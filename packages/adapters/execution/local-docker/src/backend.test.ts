@@ -21,6 +21,7 @@ import {
   NO_PROXY_VALUE,
   networkNameFor,
   stateOf,
+  volumeLabelsOf,
   WorkspaceQuotaError,
   WorkspaceQuotaUnsupportedError,
   workerEnvironmentFor,
@@ -849,6 +850,8 @@ function configFor(host: string): LocalDockerBackendConfig {
     tmpfsSizeBytes: 64 * 1024 * 1024,
     user: "1000:1000",
     workspaceDir: "/workspace",
+    volumeLabelNamespace: "werft",
+    volumeNamePrefix: "werft-ws-",
     workspaceGcMinAgeMs: 0,
     workspaceQuota: {
       helperImage: "worker:test",
@@ -858,6 +861,16 @@ function configFor(host: string): LocalDockerBackendConfig {
     },
   };
 }
+
+function naming(installationId: string) {
+  return {
+    installationId,
+    volumeLabelNamespace: "werft",
+    volumeNamePrefix: "werft-ws-",
+  };
+}
+
+const VOLUME_LABELS = volumeLabelsOf(naming("test-a"));
 
 beforeEach(() => {
   docker = new FakeDocker();
@@ -875,7 +888,10 @@ function legacyWorkspaceName(
   sessionId: string,
   installationId: string,
 ): string {
-  return workspaceVolumePrefixFor(sessionId, installationId).slice(0, -1);
+  return workspaceVolumePrefixFor(sessionId, naming(installationId)).slice(
+    0,
+    -1,
+  );
 }
 
 /** The bounded volume a container's create left behind on the daemon. */
@@ -891,7 +907,7 @@ function seedMountedWorkspace(
       [LABELS.installation]: "test-a",
       [LABELS.managed]: "true",
       [LABELS.sessionId]: sessionId,
-      [LABELS.workspaceQuota]: `enforced:${QUOTA_BYTES}`,
+      [VOLUME_LABELS.workspaceQuota]: `enforced:${QUOTA_BYTES}`,
     },
     { size: String(QUOTA_BYTES) },
   );
@@ -910,7 +926,7 @@ function workspaceNameOf(
   sessionId: string,
   installationId: string,
 ): string | undefined {
-  const prefix = workspaceVolumePrefixFor(sessionId, installationId);
+  const prefix = workspaceVolumePrefixFor(sessionId, naming(installationId));
   return [...docker.volumes.keys()].find((name) => name.startsWith(prefix));
 }
 
@@ -1038,7 +1054,7 @@ describe("LocalDockerBackend.ensureExecution", () => {
         {
           Source: expect.stringMatching(
             new RegExp(
-              `^${workspaceVolumePrefixFor(intent.sessionId, "test-a")}`,
+              `^${workspaceVolumePrefixFor(intent.sessionId, naming("test-a"))}`,
             ),
           ),
           Target: "/workspace",
@@ -1637,7 +1653,7 @@ describe("LocalDockerBackend.inspect", () => {
         [LABELS.installation]: "test-a",
         [LABELS.managed]: "true",
         [LABELS.sessionId]: intent.sessionId,
-        [LABELS.workspaceQuota]: `enforced:${QUOTA_BYTES}`,
+        [VOLUME_LABELS.workspaceQuota]: `enforced:${QUOTA_BYTES}`,
       },
       { size: String(QUOTA_BYTES) },
     );
@@ -1661,7 +1677,7 @@ describe("LocalDockerBackend.inspect", () => {
         [LABELS.installation]: "test-a",
         [LABELS.managed]: "true",
         [LABELS.sessionId]: intent.sessionId,
-        [LABELS.workspaceQuota]: `enforced:${QUOTA_BYTES}`,
+        [VOLUME_LABELS.workspaceQuota]: `enforced:${QUOTA_BYTES}`,
       },
       { size: String(QUOTA_BYTES) },
     );
@@ -1683,7 +1699,7 @@ describe("LocalDockerBackend.inspect", () => {
         [LABELS.installation]: "test-a",
         [LABELS.managed]: "true",
         [LABELS.sessionId]: intent.sessionId,
-        [LABELS.workspaceQuota]: `enforced:${QUOTA_BYTES}`,
+        [VOLUME_LABELS.workspaceQuota]: `enforced:${QUOTA_BYTES}`,
       },
       { size: String(QUOTA_BYTES) },
     );
@@ -3023,7 +3039,7 @@ describe("LocalDockerBackend.reconcileNetworks", () => {
   });
 
   test("a labelled network that names no execution is reported, not guessed at", async () => {
-    const mystery = docker.addNetwork("ap-net-test-a-mystery", {
+    const mystery = docker.addNetwork("werft-net-test-a-mystery", {
       labels: {
         [LABELS.installation]: "test-a",
         [LABELS.workerNetwork]: "true",
@@ -3040,10 +3056,10 @@ describe("LocalDockerBackend.reconcileNetworks", () => {
         error: expect.stringMatching(
           /names no execution.*egress proxy was detached/,
         ),
-        id: "ap-net-test-a-mystery",
+        id: "werft-net-test-a-mystery",
       },
     ]);
-    expect(docker.networks.has("ap-net-test-a-mystery")).toBe(true);
+    expect(docker.networks.has("werft-net-test-a-mystery")).toBe(true);
     expect(mystery.attached.has(PROXY)).toBe(false);
     expect(mystery.attached.has(stranger.id)).toBe(true);
   });
@@ -3078,11 +3094,13 @@ describe("names", () => {
     expect(
       containerNameFor({ executionId: "exec-1", generation: 2 }, "test-a"),
     ).toBe("ap-worker-test-a-exec-1-g2");
-    expect(workspaceVolumePrefixFor("s-1", "test-a")).toBe("ap-ws-test-a-s-1-");
+    expect(workspaceVolumePrefixFor("s-1", naming("test-a"))).toBe(
+      "werft-ws-test-a-s-1-",
+    );
     expect(() =>
       containerNameFor({ executionId: "../x", generation: 1 }, "test-a"),
     ).toThrow();
-    expect(() => workspaceVolumePrefixFor("a b", "test-a")).toThrow();
+    expect(() => workspaceVolumePrefixFor("a b", naming("test-a"))).toThrow();
   });
 });
 
@@ -3228,7 +3246,7 @@ describe("LocalDockerBackend workspace volumes", () => {
   /** A workspace under the name sessions derived before names were single-use. */
   const legacyName = legacyWorkspaceName(intentFor().sessionId, "test-a");
   /** One this host made: found by its labels, whatever the suffix says. */
-  const ourName = `${workspaceVolumePrefixFor(intentFor().sessionId, "test-a")}0f1e2d3c`;
+  const ourName = `${workspaceVolumePrefixFor(intentFor().sessionId, naming("test-a"))}0f1e2d3c`;
 
   function backendWith(
     overrides: Partial<LocalDockerBackendConfig>,
@@ -3246,7 +3264,7 @@ describe("LocalDockerBackend workspace volumes", () => {
       [LABELS.installation]: "test-a",
       [LABELS.managed]: "true",
       [LABELS.sessionId]: intentFor().sessionId,
-      [LABELS.workspaceQuota]: `enforced:${QUOTA_BYTES}`,
+      [VOLUME_LABELS.workspaceQuota]: `enforced:${QUOTA_BYTES}`,
     });
     // Naming a volume in `Mounts` is enough for Docker to conjure an
     // unlabelled, unbounded one, so the order is the whole point.
@@ -3273,7 +3291,7 @@ describe("LocalDockerBackend workspace volumes", () => {
         [LABELS.installation]: "test-a",
         [LABELS.managed]: "true",
         [LABELS.sessionId]: intentFor().sessionId,
-        [LABELS.workspaceQuota]: "enforced:123",
+        [VOLUME_LABELS.workspaceQuota]: "enforced:123",
       },
       { size: "123" },
     );
@@ -3287,7 +3305,7 @@ describe("LocalDockerBackend workspace volumes", () => {
       [LABELS.installation]: "test-a",
       [LABELS.managed]: "true",
       [LABELS.sessionId]: intentFor().sessionId,
-      [LABELS.workspaceQuota]: `enforced:${QUOTA_BYTES}`,
+      [VOLUME_LABELS.workspaceQuota]: `enforced:${QUOTA_BYTES}`,
     });
     await expect(backend.ensureExecution(intentFor())).rejects.toThrow(
       "driver option size=<none>",
@@ -3298,7 +3316,7 @@ describe("LocalDockerBackend workspace volumes", () => {
     docker.addVolume(legacyName, {
       [LABELS.installation]: "test-b",
       [LABELS.managed]: "true",
-      [LABELS.workspaceQuota]: `enforced:${QUOTA_BYTES}`,
+      [VOLUME_LABELS.workspaceQuota]: `enforced:${QUOTA_BYTES}`,
     });
     await expect(backend.ensureExecution(intentFor())).rejects.toThrow(
       "belongs to installation test-b",
@@ -3315,7 +3333,7 @@ describe("LocalDockerBackend workspace volumes", () => {
         [LABELS.installation]: "test-a",
         [LABELS.managed]: "true",
         [LABELS.sessionId]: "some-other-session",
-        [LABELS.workspaceQuota]: `enforced:${QUOTA_BYTES}`,
+        [VOLUME_LABELS.workspaceQuota]: `enforced:${QUOTA_BYTES}`,
       },
       { size: String(QUOTA_BYTES) },
     );
@@ -3331,7 +3349,7 @@ describe("LocalDockerBackend workspace volumes", () => {
       {
         [LABELS.installation]: "test-a",
         [LABELS.sessionId]: intentFor().sessionId,
-        [LABELS.workspaceQuota]: `enforced:${QUOTA_BYTES}`,
+        [VOLUME_LABELS.workspaceQuota]: `enforced:${QUOTA_BYTES}`,
       },
       { size: String(QUOTA_BYTES) },
     );
@@ -3347,7 +3365,7 @@ describe("LocalDockerBackend workspace volumes", () => {
       workspaceNameOf(docker, intentFor().sessionId, "test-a") ?? "",
     );
     expect(volume?.options).toBeNull();
-    expect(volume?.labels[LABELS.workspaceQuota]).toBe("off");
+    expect(volume?.labels[VOLUME_LABELS.workspaceQuota]).toBe("off");
   });
 
   test("a labelled workspace beside the legacy one refuses the launch", async () => {
@@ -3359,9 +3377,9 @@ describe("LocalDockerBackend workspace volumes", () => {
       {
         [LABELS.installation]: "test-a",
         [LABELS.managed]: "true",
-        [LABELS.migratedFrom]: legacyName,
+        [VOLUME_LABELS.migratedFrom]: legacyName,
         [LABELS.sessionId]: intentFor().sessionId,
-        [LABELS.workspaceQuota]: `enforced:${QUOTA_BYTES}`,
+        [VOLUME_LABELS.workspaceQuota]: `enforced:${QUOTA_BYTES}`,
       },
       { size: String(QUOTA_BYTES) },
     );
@@ -3445,19 +3463,21 @@ describe("LocalDockerBackend workspace inode limit", () => {
     // Its label only ever recorded bytes, which is all it had; the inode
     // limit can be set in place, so the volume is not refused for lacking it.
     docker.addVolume(
-      `${workspaceVolumePrefixFor(sessionId, "test-a")}0ld0ld00`,
+      `${workspaceVolumePrefixFor(sessionId, naming("test-a"))}0ld0ld00`,
       {
         [LABELS.installation]: "test-a",
         [LABELS.managed]: "true",
         [LABELS.sessionId]: sessionId,
-        [LABELS.workspaceQuota]: `enforced:${QUOTA_BYTES}`,
+        [VOLUME_LABELS.workspaceQuota]: `enforced:${QUOTA_BYTES}`,
       },
       { size: String(QUOTA_BYTES) },
     );
     await backend.ensureExecution(intentFor());
     expect(
       docker.inodeHelperRuns.map((run) => run.HostConfig.Mounts[0]?.Source),
-    ).toEqual([`${workspaceVolumePrefixFor(sessionId, "test-a")}0ld0ld00`]);
+    ).toEqual([
+      `${workspaceVolumePrefixFor(sessionId, naming("test-a"))}0ld0ld00`,
+    ]);
   });
 
   test("a limit that does not hold refuses the launch and starts no worker", async () => {
@@ -3589,7 +3609,7 @@ describe("LocalDockerBackend.verifyWorkspaceQuota", () => {
       `${probePrefix}aaaaaaaa`,
       {
         [LABELS.installation]: "test-a",
-        [LABELS.quotaProbe]: "true",
+        [VOLUME_LABELS.quotaProbe]: "true",
       },
       { size: String(QUOTA_BYTES) },
     );
@@ -3604,7 +3624,7 @@ describe("LocalDockerBackend.verifyWorkspaceQuota", () => {
     // outside the pass lock, so a young one may still be in use.
     const labels = {
       [LABELS.installation]: "test-a",
-      [LABELS.quotaProbe]: "true",
+      [VOLUME_LABELS.quotaProbe]: "true",
     };
     docker.addVolume(`${probePrefix}old00000`, labels);
     docker.addVolume(
@@ -3635,7 +3655,7 @@ describe("LocalDockerBackend.verifyWorkspaceQuota", () => {
     });
     docker.addVolume(
       `${probePrefix}slow0000`,
-      { [LABELS.installation]: "test-a", [LABELS.quotaProbe]: "true" },
+      { [LABELS.installation]: "test-a", [VOLUME_LABELS.quotaProbe]: "true" },
       null,
       new Date(Date.now() - 15 * 60_000).toISOString(),
     );
@@ -3683,7 +3703,7 @@ describe("LocalDockerBackend.verifyWorkspaceQuota", () => {
     const theirs = "ap-quota-probe-test-b-bbbbbbbb";
     docker.addVolume(theirs, {
       [LABELS.installation]: "test-b",
-      [LABELS.quotaProbe]: "true",
+      [VOLUME_LABELS.quotaProbe]: "true",
     });
     await expect(backend.verifyWorkspaceQuota()).resolves.toBeUndefined();
     expect(docker.volumes.has(theirs)).toBe(true);
@@ -3729,14 +3749,14 @@ describe("LocalDockerBackend workspace GC", () => {
   };
 
   test("lists only this installation's managed volumes", async () => {
-    docker.addVolume("ap-ws-test-a-session-1", ours);
-    docker.addVolume("ap-ws-test-b-session-2", {
+    docker.addVolume("werft-ws-test-a-session-1", ours);
+    docker.addVolume("werft-ws-test-b-session-2", {
       ...ours,
       [LABELS.installation]: "test-b",
     });
     docker.addVolume("someone-elses", {});
     const listed = await backend.listWorkspaces();
-    expect(listed.map((w) => w.id)).toEqual(["ap-ws-test-a-session-1"]);
+    expect(listed.map((w) => w.id)).toEqual(["werft-ws-test-a-session-1"]);
     expect(listed[0]?.sessionId).toBe("session-1");
   });
 
@@ -3745,15 +3765,20 @@ describe("LocalDockerBackend workspace GC", () => {
       ...configFor(docker.host),
       workspaceGcMinAgeMs: 60_000,
     });
-    docker.addVolume("ap-ws-test-a-old", ours);
-    docker.addVolume("ap-ws-test-a-new", ours, null, new Date().toISOString());
+    docker.addVolume("werft-ws-test-a-old", ours);
+    docker.addVolume(
+      "werft-ws-test-a-new",
+      ours,
+      null,
+      new Date().toISOString(),
+    );
     expect((await young.listWorkspaces()).map((w) => w.id)).toEqual([
-      "ap-ws-test-a-old",
+      "werft-ws-test-a-old",
     ]);
   });
 
   test("a volume with no session label is reported, not judged by its name", async () => {
-    docker.addVolume("ap-ws-test-a-session-9", {
+    docker.addVolume("werft-ws-test-a-session-9", {
       [LABELS.installation]: "test-a",
       [LABELS.managed]: "true",
     });
@@ -3761,40 +3786,40 @@ describe("LocalDockerBackend workspace GC", () => {
   });
 
   test("removing reports removed, absent, in use and not ours", async () => {
-    docker.addVolume("ap-ws-test-a-session-1", ours);
-    expect(await backend.removeWorkspace("ap-ws-test-a-session-1")).toEqual({
+    docker.addVolume("werft-ws-test-a-session-1", ours);
+    expect(await backend.removeWorkspace("werft-ws-test-a-session-1")).toEqual({
       outcome: "removed",
     });
-    expect(await backend.removeWorkspace("ap-ws-test-a-gone")).toEqual({
+    expect(await backend.removeWorkspace("werft-ws-test-a-gone")).toEqual({
       outcome: "absent",
     });
-    docker.addVolume("ap-ws-test-a-session-2", ours);
-    docker.volumesInUse.add("ap-ws-test-a-session-2");
-    expect(await backend.removeWorkspace("ap-ws-test-a-session-2")).toEqual({
+    docker.addVolume("werft-ws-test-a-session-2", ours);
+    docker.volumesInUse.add("werft-ws-test-a-session-2");
+    expect(await backend.removeWorkspace("werft-ws-test-a-session-2")).toEqual({
       outcome: "in_use",
     });
-    docker.addVolume("ap-ws-test-b-session-3", {
+    docker.addVolume("werft-ws-test-b-session-3", {
       ...ours,
       [LABELS.installation]: "test-b",
     });
-    expect(await backend.removeWorkspace("ap-ws-test-b-session-3")).toEqual({
+    expect(await backend.removeWorkspace("werft-ws-test-b-session-3")).toEqual({
       outcome: "not_ours",
     });
-    expect(docker.volumes.has("ap-ws-test-b-session-3")).toBe(true);
+    expect(docker.volumes.has("werft-ws-test-b-session-3")).toBe(true);
   });
 
   const legacySession = "0b1c2d3e-4f50-4617-8293-a4b5c6d7e8f9";
-  const legacyVolume = `ap-ws-test-a-${legacySession}`;
+  const legacyVolume = `werft-ws-test-a-${legacySession}`;
 
   test("lists a legacy volume by the session its name derives from", async () => {
     docker.addVolume(legacyVolume, {});
-    docker.addVolume("ap-ws-test-a-session-1", ours);
+    docker.addVolume("werft-ws-test-a-session-1", ours);
     // Not legacy: another installation's, a single-use name, not a uuid,
     // or labelled for another session.
-    docker.addVolume(`ap-ws-test-b-${legacySession}`, {});
-    docker.addVolume(`ap-ws-test-a-${legacySession}-0f1e2d3c`, {});
-    docker.addVolume("ap-ws-test-a-not-a-session", {});
-    docker.addVolume(`ap-ws-test-a-${legacySession.replace("0b", "1b")}`, {
+    docker.addVolume(`werft-ws-test-b-${legacySession}`, {});
+    docker.addVolume(`werft-ws-test-a-${legacySession}-0f1e2d3c`, {});
+    docker.addVolume("werft-ws-test-a-not-a-session", {});
+    docker.addVolume(`werft-ws-test-a-${legacySession.replace("0b", "1b")}`, {
       [LABELS.sessionId]: "someone-else",
     });
 
@@ -3804,28 +3829,28 @@ describe("LocalDockerBackend workspace GC", () => {
       listed.map((w) => [w.id, w.sessionId, w.sessionFrom ?? "label"]).sort(),
     ).toEqual([
       [legacyVolume, legacySession, "name"],
-      ["ap-ws-test-a-session-1", "session-1", "label"],
+      ["werft-ws-test-a-session-1", "session-1", "label"],
     ]);
   });
 
   test("neither side of an unfinished migration is listed for GC", async () => {
-    const copy = `ap-ws-test-a-${legacySession}-0f1e2d3c`;
+    const copy = `werft-ws-test-a-${legacySession}-0f1e2d3c`;
     docker.addVolume(legacyVolume, {});
     docker.addVolume(copy, {
       [LABELS.installation]: "test-a",
       [LABELS.managed]: "true",
-      [LABELS.migratedFrom]: legacyVolume,
+      [VOLUME_LABELS.migratedFrom]: legacyVolume,
       [LABELS.sessionId]: legacySession,
     });
-    docker.addVolume("ap-ws-test-a-session-1", ours);
+    docker.addVolume("werft-ws-test-a-session-1", ours);
     expect((await backend.listWorkspaces()).map((w) => w.id)).toEqual([
-      "ap-ws-test-a-session-1",
+      "werft-ws-test-a-session-1",
     ]);
 
     // Finished: the source is gone, and the copy is an ordinary workspace.
     docker.volumes.delete(legacyVolume);
     expect((await backend.listWorkspaces()).map((w) => w.id).sort()).toEqual(
-      [copy, "ap-ws-test-a-session-1"].sort(),
+      [copy, "werft-ws-test-a-session-1"].sort(),
     );
   });
 
@@ -3855,17 +3880,161 @@ describe("LocalDockerBackend workspace GC", () => {
   });
 
   test("a removal asked for one session leaves another session's volume", async () => {
-    docker.addVolume("ap-ws-test-a-session-1", ours);
+    docker.addVolume("werft-ws-test-a-session-1", ours);
     expect(
-      await backend.removeWorkspace("ap-ws-test-a-session-1", {
+      await backend.removeWorkspace("werft-ws-test-a-session-1", {
         sessionId: "session-2",
       }),
     ).toEqual({ outcome: "not_ours" });
-    expect(docker.volumes.has("ap-ws-test-a-session-1")).toBe(true);
+    expect(docker.volumes.has("werft-ws-test-a-session-1")).toBe(true);
     expect(
-      await backend.removeWorkspace("ap-ws-test-a-session-1", {
+      await backend.removeWorkspace("werft-ws-test-a-session-1", {
         sessionId: "session-1",
       }),
     ).toEqual({ outcome: "removed" });
+  });
+});
+
+describe("LocalDockerBackend volume naming settings", () => {
+  const OTHER = {
+    volumeLabelNamespace: "other-ns",
+    volumeNamePrefix: "other-ws-",
+  };
+  const otherKeys = volumeLabelsOf(OTHER);
+  const sessionId = intentFor().sessionId;
+  const otherName = `${OTHER.volumeNamePrefix}test-a-${sessionId}-0f1e2d3c`;
+  const ownName = `werft-ws-test-a-${sessionId}-0f1e2d3c`;
+
+  function addWorkspace(name: string, keys: typeof VOLUME_LABELS) {
+    docker.addVolume(
+      name,
+      {
+        [keys.installation]: "test-a",
+        [keys.managed]: "true",
+        [keys.sessionId]: sessionId,
+        [keys.workspaceQuota]: `enforced:${QUOTA_BYTES}`,
+      },
+      { size: String(QUOTA_BYTES) },
+    );
+  }
+
+  function configuredBackend(): LocalDockerBackend {
+    return new LocalDockerBackend({ ...configFor(docker.host), ...OTHER });
+  }
+
+  test("unset, only the default names are listed, removed and mounted", async () => {
+    addWorkspace(otherName, otherKeys);
+    addWorkspace(ownName, VOLUME_LABELS);
+    expect((await backend.listWorkspaces()).map((w) => w.id)).toEqual([
+      ownName,
+    ]);
+    expect(await backend.removeWorkspace(otherName, { sessionId })).toEqual({
+      outcome: "not_ours",
+    });
+    expect(docker.volumes.has(otherName)).toBe(true);
+    await backend.ensureExecution(intentFor());
+    const [container] = [...docker.containers.values()];
+    expect(mountedWorkspaceOf(container?.body as ContainerCreateBody)).toBe(
+      ownName,
+    );
+  });
+
+  test("a volume under other names is invisible to the defaults, so the session gets a new one beside it", async () => {
+    addWorkspace(otherName, otherKeys);
+    await backend.ensureExecution(intentFor());
+    const created = workspaceNameOf(docker, sessionId, "test-a");
+    expect(created?.startsWith("werft-ws-test-a-")).toBe(true);
+    expect(docker.volumes.has(otherName)).toBe(true);
+  });
+
+  test("set, only those names are listed, removed and mounted", async () => {
+    const configured = configuredBackend();
+    addWorkspace(otherName, otherKeys);
+    addWorkspace(ownName, VOLUME_LABELS);
+    expect((await configured.listWorkspaces()).map((w) => w.id)).toEqual([
+      otherName,
+    ]);
+    expect(await configured.removeWorkspace(ownName, { sessionId })).toEqual({
+      outcome: "not_ours",
+    });
+    expect(docker.volumes.has(ownName)).toBe(true);
+    await configured.ensureExecution(intentFor());
+    const [container] = [...docker.containers.values()];
+    expect(mountedWorkspaceOf(container?.body as ContainerCreateBody)).toBe(
+      otherName,
+    );
+    expect(docker.volumes.size).toBe(2);
+  });
+
+  test("a new volume made under the settings carries exactly those names", async () => {
+    await configuredBackend().ensureExecution(intentFor());
+    const name = workspaceNameOf(docker, sessionId, "test-a");
+    expect(name).toBeUndefined();
+    const created = [...docker.volumes.values()].find((volume) =>
+      volume.name.startsWith(OTHER.volumeNamePrefix),
+    );
+    expect(created?.labels).toEqual({
+      [otherKeys.installation]: "test-a",
+      [otherKeys.managed]: "true",
+      [otherKeys.sessionId]: sessionId,
+      [otherKeys.workspaceQuota]: `enforced:${QUOTA_BYTES}`,
+    });
+  });
+
+  test("a container's labels do not follow the volume setting", async () => {
+    await configuredBackend().ensureExecution(intentFor());
+    const [container] = [...docker.containers.values()];
+    expect(Object.keys(container?.body.Labels ?? {}).sort()).toEqual(
+      Object.values({
+        bootstrapFingerprint: LABELS.bootstrapFingerprint,
+        executionId: LABELS.executionId,
+        generation: LABELS.generation,
+        installation: LABELS.installation,
+        isolation: LABELS.isolation,
+        managed: LABELS.managed,
+        operationId: LABELS.operationId,
+        sessionId: LABELS.sessionId,
+      }).sort(),
+    );
+  });
+
+  describe("an install made before the rename", () => {
+    // Literal on purpose: these are the keys and the prefix those volumes carry.
+    const PREVIOUS = {
+      volumeLabelNamespace: "agent-platform",
+      volumeNamePrefix: "ap-ws-",
+    };
+    const previousKeys = {
+      installation: "agent-platform.installation",
+      managed: "agent-platform.managed",
+      migratedFrom: "agent-platform.migration-source",
+      migrationSourceCreatedAt: "agent-platform.migration-source-created-at",
+      quotaProbe: "agent-platform.quota-probe",
+      sessionId: "agent-platform.session-id",
+      workspaceQuota: "agent-platform.workspace-quota",
+    };
+    const previousName = `ap-ws-test-a-${sessionId}-0f1e2d3c`;
+
+    test("the setting derives all seven previous volume label keys exactly", () => {
+      expect(volumeLabelsOf(PREVIOUS)).toEqual(previousKeys);
+    });
+
+    test("set to those values, its volume is listed and mounted; unset, it is not", async () => {
+      addWorkspace(previousName, previousKeys);
+      expect((await backend.listWorkspaces()).map((w) => w.id)).toEqual([]);
+      const previous = new LocalDockerBackend({
+        ...configFor(docker.host),
+        ...PREVIOUS,
+      });
+      expect((await previous.listWorkspaces()).map((w) => w.id)).toEqual([
+        previousName,
+      ]);
+      await previous.ensureExecution(intentFor());
+      const [container] = [...docker.containers.values()];
+      expect(mountedWorkspaceOf(container?.body as ContainerCreateBody)).toBe(
+        previousName,
+      );
+      expect(docker.volumes.size).toBe(1);
+    });
   });
 });

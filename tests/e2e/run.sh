@@ -136,7 +136,8 @@ export EGRESS_PROXY_IMAGE="werft-egress-proxy:${project}"
 # The first owner's, for firstOwnerCookie in tests/e2e/client.ts:
 # infra/compose.core.yml passes it to the API.
 export BOOTSTRAP_TOKEN="$(openssl rand -hex 24)"
-label="agent-platform.installation=${EXECUTION_INSTALLATION_ID}"
+label="werft.installation=${EXECUTION_INSTALLATION_ID}"
+volume_label="${EXECUTION_VOLUME_LABEL_NAMESPACE:-werft}.installation=${EXECUTION_INSTALLATION_ID}"
 # E2E_COMPOSE_OVERRIDE: one more overlay after ours; CI passes
 # tests/e2e/compose.ci-mirror.yml to pull from its image mirror.
 dc() {
@@ -158,7 +159,7 @@ cleanup() {
     [ -z "$ids" ] || docker rm -f $ids >/dev/null 2>&1 || true
     ids="$(docker network ls -q --filter "label=${label}")"
     [ -z "$ids" ] || docker network rm $ids >/dev/null 2>&1 || true
-    ids="$(docker volume ls -q --filter "label=${label}")"
+    ids="$(docker volume ls -q --filter "label=${volume_label}")"
     [ -z "$ids" ] || docker volume rm -f $ids >/dev/null 2>&1 || true
     docker image rm "$API_IMAGE" "$WORKER_IMAGE" "$EGRESS_PROXY_IMAGE" >/dev/null 2>&1 || true
   fi

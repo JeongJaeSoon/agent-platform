@@ -119,6 +119,9 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
   const api: GitHubApi = {
     maxBodyLength: 65_536,
     getRepository: unused,
+    getBranchHead: unused,
+    readTree: unused,
+    readBlob: unused,
     findPullRequestForBranch: unused,
     createPullRequest: unused,
     getPullRequest: async (number) => ({
