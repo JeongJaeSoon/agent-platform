@@ -98,7 +98,10 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
     runStatus: string;
     /** How long reading the session's state takes. */
     stateDelayMs: number;
+    /** A read of a workflow run that never answers. */
+    hangRun: boolean;
   } = {
+    hangRun: false,
     stateDelayMs: 0,
     runStatus: "completed",
     pushRefusal: null,
@@ -121,14 +124,17 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
       id: 42,
       html_url: "https://github.com/acme/app/actions/runs/42",
     }),
-    getWorkflowRun: async (runId) => ({
-      id: runId,
-      path: ".github/workflows/ci.yml",
-      head_branch: "main",
-      status: control.runStatus,
-      conclusion: control.runStatus === "completed" ? "success" : null,
-      html_url: `https://github.com/acme/app/actions/runs/${runId}`,
-    }),
+    getWorkflowRun: async (runId) => {
+      if (control.hangRun) return new Promise<never>(() => {});
+      return {
+        id: runId,
+        path: ".github/workflows/ci.yml",
+        head_branch: "main",
+        status: control.runStatus,
+        conclusion: control.runStatus === "completed" ? "success" : null,
+        html_url: `https://github.com/acme/app/actions/runs/${runId}`,
+      };
+    },
     rerunWorkflow: unused,
     submitReview: unused,
   };
@@ -1142,6 +1148,21 @@ describe("get_workflow_run", () => {
     expect(answer.body.result).toMatchObject({ final: false });
     expect(took).toBeGreaterThanOrEqual(900);
     expect(took).toBeLessThan(1_300);
+  });
+
+  test("a budget spent before the service starts still ends at the deadline", async () => {
+    const h = actionsOn();
+    h.control.stateDelayMs = 1_100;
+    h.control.hangRun = true;
+    const started = performance.now();
+    const answer = payload(
+      await h.call("get_workflow_run", { run_id: 7, wait_seconds: 1 }),
+    );
+    expect(answer.body.refusal).toMatchObject({
+      code: "backend_unavailable",
+      retryable: true,
+    });
+    expect(performance.now() - started).toBeLessThan(1_800);
   });
 
   test("a wait over the cap is refused, and concurrent waits answer alike", async () => {

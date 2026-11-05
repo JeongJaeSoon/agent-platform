@@ -316,11 +316,18 @@ export function createGitHubMcpServer(deps: {
     const services = deps.services(sessionBoundAuthorization(grant.sessionId));
     const { sessionId } = grant;
     // What is left of `seconds` counted from the start of the whole call, so
-    // the state read and the validation above are inside the wait.
-    const waitLeft = (seconds: number | undefined) =>
-      seconds === undefined
-        ? 0
-        : Math.max(0, seconds * 1000 - (performance.now() - startedAt));
+    // the state read and the validation above are inside the wait. No wait
+    // asked for (omitted or 0) leaves the option out; a spent budget is
+    // `waitMs: 0`, which the services treat as a deadline already passed.
+    const waitLeft = (seconds: number | undefined): { waitMs?: number } =>
+      seconds === undefined || seconds === 0
+        ? {}
+        : {
+            waitMs: Math.max(
+              0,
+              seconds * 1000 - (performance.now() - startedAt),
+            ),
+          };
     let turnAtCall: number | null = null;
     try {
       if (tool === "list_repositories") {
@@ -335,7 +342,7 @@ export function createGitHubMcpServer(deps: {
           attemptId: grant.attemptId,
           actor: state.actor,
           repositoryId: repository_id,
-          waitMs: waitLeft(wait_seconds),
+          ...waitLeft(wait_seconds),
         });
         return done({ ...attachment, final: attachment.status !== "pending" });
       }
@@ -530,7 +537,7 @@ async function run(
   sessionId: string,
   tool: GitHubMcpTool,
   args: unknown,
-  waitLeft: (seconds: number | undefined) => number,
+  waitLeft: (seconds: number | undefined) => { waitMs?: number },
 ): Promise<unknown> {
   switch (tool) {
     case "request_push":
@@ -588,9 +595,12 @@ async function run(
       const { run_id, wait_seconds } = args as z.infer<
         (typeof GITHUB_MCP_TOOL_ARGUMENTS)["get_workflow_run"]
       >;
-      const view = await services.githubWork.getRun(actor, sessionId, run_id, {
-        waitMs: waitLeft(wait_seconds),
-      });
+      const view = await services.githubWork.getRun(
+        actor,
+        sessionId,
+        run_id,
+        waitLeft(wait_seconds),
+      );
       return { ...view, final: view.status === "completed" };
     }
     case "rerun_workflow": {

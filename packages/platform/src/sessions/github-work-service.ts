@@ -222,12 +222,13 @@ export function createGitHubWorkService(deps: {
       runId: number,
       options: { waitMs?: number } = {},
     ): Promise<GitHubWorkflowRunView> {
-      const waitMs = options.waitMs ?? 0;
-      const deadline = now() + waitMs;
+      const { waitMs } = options;
+      const deadline = now() + (waitMs ?? 0);
       // A waiting call must answer by its deadline even when the grant or
-      // the first read is slow; one that waits for nothing is left as it was.
+      // the first read is slow, and a spent budget (0) is a deadline that has
+      // passed; one that asked for no wait (undefined) is left as it was.
       const bounded = async <T>(work: Promise<T>): Promise<T> => {
-        if (waitMs <= 0) return await work;
+        if (waitMs === undefined) return await work;
         work.catch(() => {});
         let timer: ReturnType<typeof setTimeout> | undefined;
         try {

@@ -362,19 +362,24 @@ describe("reading a run", () => {
   });
 
   test("reads once and does not wait when no wait is asked for", async () => {
-    for (const waitMs of [undefined, 0]) {
-      const { service, calls, elapsedMs } = harness({
-        statuses: ["in_progress"],
-      });
-      const run = await service.getRun(
-        actor,
-        SESSION,
-        7,
-        waitMs === undefined ? {} : { waitMs },
+    const { service, calls, elapsedMs } = harness({
+      statuses: ["in_progress"],
+    });
+    const run = await service.getRun(actor, SESSION, 7);
+    expect(run.status).toBe("in_progress");
+    expect(calls).toEqual(["run 7"]);
+    expect(elapsedMs()).toBe(0);
+  });
+
+  test("a spent budget is a deadline that has passed, not a call that never waits", async () => {
+    for (const hang of ["read", "grant"] as const) {
+      const { service } = harness({ hang });
+      const started = performance.now();
+      const error = await refusal(
+        service.getRun(actor, SESSION, 7, { waitMs: 0 }),
       );
-      expect(run.status).toBe("in_progress");
-      expect(calls).toEqual(["run 7"]);
-      expect(elapsedMs()).toBe(0);
+      expect(error.code).toBe("BACKEND_UNAVAILABLE");
+      expect(performance.now() - started).toBeLessThan(1_000);
     }
   });
 
