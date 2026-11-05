@@ -124,7 +124,7 @@ scrapeのたびにDBを読んで値を集計します。scrapeの間隔を短く
 
 ## composeのメトリクスとの対応
 
-composeのDatadog overlayは、PostgreSQLのcustom queryで似た値を出します([Datadog監視基準](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/monitoring-datadog.md)、`infra/datadog/conf.d/postgres.d/conf.yaml`)。Kubernetesのインストールでは、このメトリクスを読みます。
+composeのDatadog overlayは、PostgreSQLのcustom queryで似た値を出します([Datadog監視基準](/run-server/self-hosting/operate/monitoring-datadog)、`infra/datadog/conf.d/postgres.d/conf.yaml`)。Kubernetesのインストールでは、このメトリクスを読みます。
 
 | compose(DB query) | このメトリクス |
 |---|---|

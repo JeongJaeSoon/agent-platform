@@ -7,6 +7,8 @@
     "kubernetes-backend",
     "metrics",
     "session-data-flow",
+    "images-and-supply-chain",
+    "monitoring-datadog",
     "sdk-sample"
   ]
 }

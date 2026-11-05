@@ -256,7 +256,7 @@ unset API_IMAGE WORKER_IMAGE EGRESS_PROXY_IMAGE
 
 ### 게시된 이미지를 쓸 때
 
-`main` 머지마다 Images workflow(`.github/workflows/images.yml`)가 세 이미지를 `ghcr.io/jeongjaesoon/werft-<app>:main-<12>`로 게시한다. `v*` 릴리스는 아직 없고, 생기면 GitHub Release에 `release-manifest.json`이 붙는다. 설치하는 운영자는 태그를 달지 않는다. 태그와 게시는 [저장소 관리자의 절차](images-and-supply-chain.md#저장소-관리자-v-태그로-게시)다. 게시본은 `linux/amd64`와 `linux/arm64`를 담는 index다.
+`main` 머지마다 Images workflow(`.github/workflows/images.yml`)가 세 이미지를 `ghcr.io/jeongjaesoon/werft-<app>:main-<12>`로 게시한다. `v*` 릴리스는 아직 없고, 생기면 GitHub Release에 `release-manifest.json`이 붙는다. 설치하는 운영자는 태그를 달지 않는다. 태그와 게시는 [저장소 관리자의 절차](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/images-and-supply-chain/#저장소-관리자-v-태그로-게시)다. 게시본은 `linux/amd64`와 `linux/arm64`를 담는 index다.
 
 릴리스(`v*` 태그)를 쓸 때는 그 GitHub Release의 `release-manifest.json`에서 읽는다. 아래 명령이 이 문서의 manifest 이미지 줄과 `source_commit`을 채운다. `settings_digest`는 위 `settings-digest`의 출력을 더한다. 저장소 checkout은 필요 없다.
 
@@ -269,7 +269,7 @@ jq '{source_commit: .commit, images: {
   egress_proxy: (.images["egress-proxy"] | "\(.image)@\(.digest)")}}' "$TAG/release-manifest.json"
 ```
 
-릴리스가 없을 때(`main` 머지)는 [`main-<12>`를 읽는 명령](images-and-supply-chain.md#main-머지마다-게시되는-이미지)이나 `docker buildx imagetools inspect ghcr.io/jeongjaesoon/werft-worker:<tag>`로 digest를 읽고, manifest에는 digest로 적는다. `staged-digests`와 `arch-digest-*` artifact는 promote를 거치지 않은 후보이므로 쓰지 않는다. registry가 비공개면 호스트에서 `docker login ghcr.io`를 먼저 한다.
+릴리스가 없을 때(`main` 머지)는 [`main-<12>`를 읽는 명령](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/images-and-supply-chain/#main-머지마다-게시되는-이미지)이나 `docker buildx imagetools inspect ghcr.io/jeongjaesoon/werft-worker:<tag>`로 digest를 읽고, manifest에는 digest로 적는다. `staged-digests`와 `arch-digest-*` artifact는 promote를 거치지 않은 후보이므로 쓰지 않는다. registry가 비공개면 호스트에서 `docker login ghcr.io`를 먼저 한다.
 
 ## 배포
 
@@ -474,4 +474,4 @@ scripts/test-ops.sh status
 - scheduler: `Workspace quota preflight failed; …`, `Network isolation preflight failed; …`, `Database connection lost; …`, `Worker workspaces have no disk or inode quota`(quota가 꺼진 채 떴다는 뜻이다)
 - checkpoint GC: `Checkpoint GC failed for a session`
 
-OpenTelemetry 지표는 아직 없다. 관측은 위 상태 파일, DB 쿼리, 구조화 로그이며, 선택형 Datadog Agent·초기 monitor·계측 공백의 정본은 [monitoring-datadog.md](monitoring-datadog.md)다.
+OpenTelemetry 지표는 아직 없다. 관측은 위 상태 파일, DB 쿼리, 구조화 로그이며, 선택형 Datadog Agent·초기 monitor·계측 공백의 정본은 [Datadog 감시 기준](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/monitoring-datadog/)다.

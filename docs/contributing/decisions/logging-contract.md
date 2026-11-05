@@ -6,7 +6,7 @@
 
 ## 무엇을 골랐나
 
-1. **레코드 모양은 하나다.** 플랫폼 logger의 모양 `{timestamp, level, event?, message, <context>, fields?}`를 표준으로 삼는다. 운영 문서([monitoring-datadog.md](../../operator/monitoring-datadog.md))와 Datadog 정의가 이미 이 모양을 기대한다. proxy는 이미 이 모양이고, worker만 다르다(필드를 최상위에 펼친다).
+1. **레코드 모양은 하나다.** 플랫폼 logger의 모양 `{timestamp, level, event?, message, <context>, fields?}`를 표준으로 삼는다. 운영 문서([Datadog 감시 기준](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/monitoring-datadog/))와 Datadog 정의가 이미 이 모양을 기대한다. proxy는 이미 이 모양이고, worker만 다르다(필드를 최상위에 펼친다).
 2. **공통 구현이 아니라 계약 테스트로 맞춘다.** 세 logger는 각자 남는다. 저장소 테스트 하나가 세 logger를 같은 입력으로 돌려 나온 줄을 한 검사 함수로 확인한다. proxy 이미지는 지금처럼 workspace 의존성 없이 자기 디렉터리만 싣는다.
 3. **worker 줄의 모양을 바꾼다.** 이미 있는 로그 줄의 필드가 바뀌는 단계는 이것뿐이다(6절 L4는 stderr 평문 대신 JSON 줄을 새로 쓴다). worker의 필드를 `fields` 아래로 옮기고 `message`를 더한다. 지금 Datadog의 worker checkpoint metric 열한 개 중 아홉은 `@fields.*` 값을 재는데 worker 줄에는 `fields`가 없어 값이 비어 있다(2절). 이 단계가 그것을 고친다.
 4. **에러는 로그에 문자열로 남긴다.** `messageOf(error)`로 만든 문자열을 필드에 넣는다. `Error` 객체를 그대로 넣으면 `{}`로 찍힌다(3.3절 실측).

@@ -1,0 +1,101 @@
+---
+title: "Datadog monitoring baseline"
+description: The signals the Datadog Agent collects, the initial monitor thresholds, the DB check queries, and how to apply and verify the definitions
+---
+
+This document is the minimum monitoring baseline to check on a server deployment. The metrics the platform emits on a Kubernetes (Helm) install are in [metrics.md](https://jeongjaesoon.github.io/werft/en/run-server/self-hosting/operate/metrics/). The app does not include the Datadog SDK or OTel. The Datadog Agent collects Docker's JSON stdout logs, `/readyz`, read-only PostgreSQL queries and host metrics. The definitions are version-controlled only in [`infra/datadog/definitions`](https://github.com/JeongJaeSoon/werft/tree/main/infra/datadog/definitions), and no tool or CI in this repository calls the Datadog API.
+
+Every threshold is **an initial value to tune during the first 7 days after the server deployment**. Do not treat a monitor tagged `threshold_stage:first-week-tuning` as a long-term baseline without the first week's data. Gaps already filled are marked `None`, and items outside that scope whose priority will be set again after the server deployment are marked `Decide after deployment`.
+
+## Startup and secret handling
+
+The Agent is created only by the optional [`infra/compose.datadog.yml`](https://github.com/JeongJaeSoon/werft/blob/main/infra/compose.datadog.yml). The default stack, which does not name this file, gets no Agent, mount, label or required environment variable at all. The Agent image is pinned to `gcr.io/datadoghq/agent:7.83.3`.
+
+Do not put `DD_API_KEY` or the PostgreSQL password for Datadog in the repository or in shell history. On the server, the operator creates `/etc/agent-platform/datadog.env` and checks that its mode is 600. Change it with `DATADOG_ENV_FILE` only when you must use a different absolute path. The values are example placeholders, so do not copy real values into documents, tickets or logs.
+
+```dotenv
+DD_API_KEY=<operator-supplied>
+DD_SITE=datadoghq.com
+DD_ENV=alpha
+DD_VERSION=<release-sha>
+DD_POSTGRES_PASSWORD=<read-only-role-password>
+```
+
+```bash
+sudo chown root:root /etc/agent-platform/datadog.env
+sudo chmod 600 /etc/agent-platform/datadog.env
+stat -c '%a %U:%G' /etc/agent-platform/datadog.env
+```
+
+The Agent service reads this absolute path only as an `env_file`. The compose YAML has no interpolation of the name or value of `DD_API_KEY`, so an ambient `DD_API_KEY` cannot bypass it. `DD_ENV` and `DD_VERSION` are read from the same file as compose's second `--env-file` and used for the unified tags of the product containers.
+
+The PostgreSQL role is allowed only `SELECT` on `queue_messages`, `sessions`, `turns`, `attempts` and `provider_usage`, and its default transaction is fixed to read-only. The server operator runs the commands below once on an admin connection.
+
+```sql
+CREATE ROLE datadog LOGIN PASSWORD :'datadog_password';
+ALTER ROLE datadog SET default_transaction_read_only = on;
+GRANT CONNECT ON DATABASE sessions TO datadog;
+GRANT USAGE ON SCHEMA public TO datadog;
+GRANT SELECT ON TABLE queue_messages, sessions, turns, attempts, provider_usage TO datadog;
+```
+
+Keep the layers of the existing deploy command as they are, add only this overlay as the last `-f`, and give the file above as one more `--env-file`. Added on top of the entry file `infra/compose.yml`, it looks like this.
+
+```bash
+docker compose \
+  --env-file /etc/agent-platform/datadog.env \
+  -f infra/compose.yml \
+  -f infra/compose.datadog.yml \
+  --profile apps up -d
+```
+
+This form was checked as far as `docker compose config` with the repository's compose files. Adding the overlay only adds one service, `datadog-agent`, to the service list; the existing services stay the same. Without `DD_ENV` or `DD_VERSION`, the render is refused. Running `up` on a real server and the Agent reporting to Datadog were not checked (NOT VERIFIED).
+
+The Agent mounts the Docker socket and the container log directory read-only and reads the host PID and cgroup namespaces. With `DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL=true`, it also collects dynamic workers. Compose services get the `service`, `env` and `version` labels. For dynamic workers, `service` is derived from the container short-image, `env` comes from the Agent's global `DD_ENV`, and `version` from the global `DD_TAGS`. `session_id` and `turn_id` are kept only as log attributes for investigation and are not made into metric tags or facets.
+
+## Signals and initial monitors
+
+The original record of the structured logger is `timestamp`, `level`, the machine-readable `event`, the human-readable `message`, the optional `fields`, and context (`session_id` and so on). The log pipeline parses the JSON and uses `message` as a fallback only when an older record has no `event`. Detailed values are under `fields.*`. The metric names in the queries are the names made by [`log-metrics.json`](https://github.com/JeongJaeSoon/werft/blob/main/infra/datadog/definitions/log-metrics.json) and the PostgreSQL custom queries.
+
+| Risk | Current signal (log event and fields, DB query, readyz) | Datadog monitor (query, threshold, window) | Runbook on alert | Instrumentation gap |
+| --- | --- | --- | --- | --- |
+| interrupt effect exceeds 5 seconds | `fields.operation:interrupt`, `effect_ms`, `outcome`, `reason_code`, `control_id` of `control.result` → `werft.control.effect.duration_ms`. For per-stage diagnosis, use `worker.turn.interrupt.stage` with the same `control_id` | p95 `avg(last_5m):p95:werft.control.effect.duration_ms{operation:interrupt} > 5000`; unknown result `> 0/5m` | [Turns whose result is unknown after an interrupt](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/execution.md#interrupt-뒤-결과를-알-수-없는-turn) | None |
+| terminate and control acceptance latency | `api.request.completed` for every completed `/v1` request (`route_template`, `method`, `status`, `duration_ms`, `request_id`). A terminate 202 is made into `werft.terminate.acceptance.duration_ms` and correlated with the control transaction stages of the same `request_id` | p95 `avg(last_5m):p95:werft.terminate.acceptance.duration_ms{*} > 200` | [terminate instrumentation in API settings](https://jeongjaesoon.github.io/werft/en/run-server/self-hosting/operate/configuration/#api-settings) | None |
+| session creation p95 | `route_template:/v1/sessions`, `method:POST`, `duration_ms` of `api.request.completed` → `werft.session.create.duration_ms` | Set the threshold after observing p95 on the dashboard in the first week of deployment | [API settings](https://jeongjaesoon.github.io/werft/en/run-server/self-hosting/operate/configuration/#api-settings) | None. Choosing the threshold is separate from an instrumentation gap |
+| checkpoint failure | `worker.checkpoint.failed` (`fields.stage`, `fields.reason`, `fields.revision`) → `werft.checkpoint.failed` | `sum(last_5m):sum:werft.checkpoint.failed{*}.as_count() > 0` | [Sessions whose checkpoint restore keeps failing](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/execution.md#checkpoint-복원이-계속-실패하는-세션) | None |
+| checkpoint pending reason and age | `sessions.checkpoint_pending_reason`; custom query `werft.checkpoint.pending_age_seconds` | `max(last_5m):max:werft.checkpoint.pending_age_seconds{*} > 300` | [Sessions whose checkpoint restore keeps failing](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/execution.md#checkpoint-복원이-계속-실패하는-세션) | `sessions.updated_at` is a conservative proxy for the start of pending; the exact start time is **Decide after deployment** |
+| capture latency, PUT count, bytes and manifest size | For each success, rejection and failure, one `worker.checkpoint.result` records `duration_ms`, `durations_ms`, `put_count`, `uploaded_bytes`, `manifest_bytes`, `reused_count`, `conflict_count`, `outcome` and `reason_code`. The bundle and untracked sizes of `worker.checkpoint.published` and `worker.checkpoint.late` are also kept | capture p95 `> 20,000 ms/5m`; late count `> 0/5m`; bundle and untracked `> 214,748,364 bytes/15m`; manifest `> 6,710,886 bytes/15m` | [Sessions whose checkpoint restore keeps failing](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/execution.md#checkpoint-복원이-계속-실패하는-세션) | None |
+| S3 5xx and stall | The `outcome`, `reason_code` and per-stage `durations_ms` of the checkpoint result tell capture results apart, but the S3 response itself is not structured | No monitor defined, because there is no reliable S3 status query | [Choosing an object store](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/backup-restore.md#object-store-고르기) | S3 operation/status/duration is **Decide after deployment** |
+| repeated worker launch/exit | `Launching execution failed; intent kept for retry`, `Execution resource exited right after launch`, `Launch attempt failed; retrying after a backoff` → `werft.launch.failed`; `Execution exited; resource reclaimed`, `Claimed execution resource vanished; binding released` → `werft.execution.exited` | launch: `sum(last_10m):sum:werft.launch.failed{*}.as_count() > 3`; exit: `sum(last_10m):sum:werft.execution.exited{*}.as_count() > 5` | [Sessions that keep dying at startup](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/execution.md#시작-단계에서-계속-죽는-세션) | None |
+| convergence after a storage outage | `Execution launched`, the launch/exit events above, `fields.requeued_count` and `fields.blocked_count` of `Orphan session reconciliation completed` | The repeated launch/exit monitors detect the symptom | [reconciler and scheduler](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/execution.md#reconcilerscheduler와-worker-격리) | The time from the start of the outage until every session converges, and the number of sessions that did not converge, are **Decide after deployment** |
+| lease lost | `Expired lease reconciliation completed` (`fields.fenced_count`, `fields.ended_count`); custom query `werft.lease.stale_count` | `max(last_5m):max:werft.lease.stale_count{*} > 0` | [reconciler and scheduler](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/execution.md#reconcilerscheduler와-worker-격리) | None |
+| queue oldest age | Minimum of unclaimed, visible `queue_messages.created_at` → `werft.queue.oldest_age_seconds` | `max(last_5m):max:werft.queue.oldest_age_seconds{*} > 30` | [reconciler and scheduler](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/execution.md#reconcilerscheduler와-worker-격리) | None |
+| readyz availability | Agent HTTP check `werft-readyz` → `http.can_connect` | Failure in the last 3 checks, 5 minutes of no data | [API settings](https://jeongjaesoon.github.io/werft/en/run-server/self-hosting/operate/configuration/#api-settings) | None |
+| provider 429 and 5xx | The proxy records only upstream connect failures and does not record the provider response status | No monitor defined, because there is no reliable status query | [provider and egress settings](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md#provider-키와-저장소-자격-증명은-worker에-가지-않는다) | Provider status and retry results are **Decide after deployment** |
+| provider cost and fallback pricing | 1-hour totals of `provider_usage` → `werft.provider.cost_usd_1h`, `werft.provider.fallback_pricing_count_1h`, `werft.provider.unmetered_tokens_1h` | cost `> 20 USD/1h`; fallback count `> 0/1h` | [Installation limits](https://jeongjaesoon.github.io/werft/en/run-server/self-hosting/operate/configuration/#installation-limits) | None. The cost threshold must be tuned to the installation's budget in the first week |
+| disk, inode and XFS quota | Agent host `system.disk.in_use`, `system.fs.inodes.in_use`; `xfs_quota` currently checked by hand | host disk and inode `> 0.8` for 10m | [Limits and reclaiming of worker workspaces](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/execution.md#worker-workspace의-상한과-회수) | A per-workspace XFS project quota usage metric is **Decide after deployment** |
+| growth of legal holds and orphans | No checkpoint inventory metric today | No monitor defined | [Versions and holds of checkpoint objects](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/backup-restore.md#checkpoint-객체의-version-복원-뒤-재고정) | Decide monitoring again after the inventory metric is implemented |
+| backup failure | The exit of `scripts/backup.sh` and the operations history do not reach Docker JSON stdout | No monitor defined | [Backup](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/backup-restore.md#백업) | Structuring backup run results is **Decide after deployment** |
+
+## DB check query contract
+
+The `custom_queries` in [`infra/datadog/conf.d/postgres.d/conf.yaml`](https://github.com/JeongJaeSoon/werft/blob/main/infra/datadog/conf.d/postgres.d/conf.yaml) are the source of truth. Every query is a single `SELECT` and does not change any table.
+
+- queue oldest age: compares the oldest `created_at` of messages not yet claimed and already visible with the DB clock.
+- checkpoint pending age: uses the oldest `updated_at` among sessions with `checkpoint_pending_reason IS NOT NULL`. Updates to the same session unrelated to the checkpoint can move this time, so it is a lower-bound proxy, not an exact SLI.
+- `outcome_unknown`: the number of `turns.outcome_unknown = true` rows created in the last 5 minutes.
+- stale lease: the number of attempts that are not `exited` or `lost` with `lease_expires_at < clock_timestamp()`.
+- provider cost: the total `cost_usd` over the last hour and the number of `priced_by = 'fallback'` rows. `werft.provider.unmetered_tokens_1h` is the token total (input, output, cache write, cache read) of `priced_by = 'unmetered'` rows over the same hour. A `billing: none` profile leaves cost at 0, so these token counts are the only place where a wrongly declared paid upstream shows up. No monitor is defined, because the normal value depends on the installation's local model usage.
+
+No query returns `session_id`. The group-by in [`log-metrics.json`](https://github.com/JeongJaeSoon/werft/blob/main/infra/datadog/definitions/log-metrics.json) also uses only `service`, `env` and low-cardinality states. `session_id` is used only to narrow down the original logs or the DB during an incident.
+
+## Applying and verifying the definitions
+
+The definitions are not applied automatically. After reviewing the JSON, the operator applies the `requests` entries one by one to the `endpoint` of each file. [`log-facets.json`](https://github.com/JeongJaeSoon/werft/blob/main/infra/datadog/definitions/log-facets.json) is the list of facets to create in the UI and the high-cardinality attributes not to create. [`dashboard.json`](https://github.com/JeongJaeSoon/werft/blob/main/infra/datadog/definitions/dashboard.json) is the dashboard create body. Do not create monitors, dashboards or log pipelines that are already applied again; edit the names, queries and filters of the existing ones to match the new definitions. Creating them again leaves two copies of the same definition.
+
+On the server deployment, check the following.
+
+1. When the default stack is rendered and started without the overlay, the service list and settings are the same as before.
+2. `docker compose config` with the overlay refuses a missing `DD_ENV` or `DD_VERSION`, the Agent's Docker socket mount is `ro`, and it reads only `/etc/agent-platform/datadog.env`.
+3. In the Agent status, the Docker logs, `http_check:werft-readyz` and the PostgreSQL custom queries all succeed.
+4. On the server, make `/readyz` fail briefly and check that the service check changes and recovers. Local verification evidence does not replace an actual long-running stack run or monitor notification delivery.

@@ -5,7 +5,7 @@ description: 세션 이벤트가 저장되는 곳, 비밀값을 가리는 곳, �
 
 worker가 엔진에서 받은 세션 데이터(모델 답변, 도구 호출과 결과, 권한 요청, 상태 변화)는 DB의 `events` 표로 간다. 이 표가 기능이 기대는 정본이다. 이 문서는 이 표가 무엇을 담고, 끊기면 무엇이 깨지는지, 비밀값을 어디서 가리는지, 누가 내용을 볼 수 있는지를 적고, Langfuse 수집기 예제를 띄우는 법을 적는다. 내용마다 근거 파일을 함께 적는다.
 
-지금의 감시(stdout JSON 로그, `/readyz`, DB query를 Datadog Agent가 수집)는 [Datadog 감시 기준](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/monitoring-datadog.md)에 있다. 앱에는 OpenTelemetry(OTel) 의존성도 trace exporter도 없다. 로그의 `trace_id`는 `packages/observability/src/index.ts`의 `ObservabilityContext`에 필드만 있고 채우는 곳이 없다.
+지금의 감시(stdout JSON 로그, `/readyz`, DB query를 Datadog Agent가 수집)는 [Datadog 감시 기준](/run-server/self-hosting/operate/monitoring-datadog)에 있다. 앱에는 OpenTelemetry(OTel) 의존성도 trace exporter도 없다. 로그의 `trace_id`는 `packages/observability/src/index.ts`의 `ObservabilityContext`에 필드만 있고 채우는 곳이 없다.
 
 ## 한눈에
 
