@@ -888,6 +888,19 @@ describe("tools/call", () => {
       expect(h.control.marks).toEqual([]);
     });
 
+    test("with the flow on, pull_request is still refused before an intent is stored", async () => {
+      const h = harness();
+      h.control.actionFlows = true;
+      for (const pull_request of [{ title: "Fix" }, {}]) {
+        const answer = payload(await h.call("request_push", { pull_request }));
+        expect(answer.body.refusal).toMatchObject({
+          code: "pull_request_needs_tool_call",
+        });
+      }
+      expect(h.control.intents).toEqual([]);
+      expect(h.pushes).toEqual([]);
+    });
+
     test("with the flow off it takes the legacy path and writes no intent", async () => {
       const h = harness();
       await h.call("request_push", {});

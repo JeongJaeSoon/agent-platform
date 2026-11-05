@@ -8,7 +8,7 @@ import {
   type PullRequestJob,
   type PullRequestSettled,
 } from "@werft-ai/platform";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, notInArray, sql } from "drizzle-orm";
 import { enqueueActionNotice } from "./action-notices.ts";
 import { findPullRequest, savePullRequestIn } from "./pull-requests.ts";
 import type { Database } from "./queries.ts";
@@ -90,15 +90,51 @@ export function createPostgresPullRequestDrain(
       return await db.transaction(async (tx) => {
         // A row whose intent no longer parses leaves the candidates, so
         // this ends.
+        // The session row is locked before the request row, the order every
+        // writer takes: a failure notice below inserts a row that references
+        // the session, and a schedule holding the session while it waits for
+        // this request would otherwise deadlock with it.
+        const passed: string[] = [];
         for (;;) {
+          const [peek] = await tx
+            .select({ id: pushRequests.id, sessionId: pushRequests.sessionId })
+            .from(pushRequests)
+            .where(
+              and(
+                eq(pushRequests.state, "pushed"),
+                due,
+                notExhausted,
+                passed.length === 0
+                  ? undefined
+                  : notInArray(pushRequests.id, passed),
+              ),
+            )
+            .orderBy(pushRequests.createdAt)
+            .limit(1);
+          if (!peek) return null;
+          await tx
+            .select({ id: sessions.id })
+            .from(sessions)
+            .where(eq(sessions.id, peek.sessionId))
+            .for("update");
+          // Judged again under the locks; a row someone else holds or moved
+          // is passed over for this claim.
           const [candidate] = await tx
             .select()
             .from(pushRequests)
-            .where(and(eq(pushRequests.state, "pushed"), due, notExhausted))
-            .orderBy(pushRequests.createdAt)
-            .limit(1)
+            .where(
+              and(
+                eq(pushRequests.id, peek.id),
+                eq(pushRequests.state, "pushed"),
+                due,
+                notExhausted,
+              ),
+            )
             .for("update", { skipLocked: true });
-          if (!candidate) return null;
+          if (!candidate) {
+            passed.push(peek.id);
+            continue;
+          }
           const parsed =
             candidate.pullRequestIntent === null
               ? { success: true as const, data: null }

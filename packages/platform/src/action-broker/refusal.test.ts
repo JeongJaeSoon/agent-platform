@@ -190,7 +190,12 @@ describe("a person's reason survives the tool answer", () => {
         // `open_pull_request` goes through the schedule; this fake refuses it
         // the way the open path does.
         schedule(actor, sessionId, ref, input) {
-          return this.open(actor, sessionId, ref.pushRequestId as string, input);
+          return this.open(
+            actor,
+            sessionId,
+            ref.pushRequestId as string,
+            input,
+          );
         },
         open: async () => {
           throw new SessionServiceError("PUSH_NOT_PUSHED", "x", undefined, {

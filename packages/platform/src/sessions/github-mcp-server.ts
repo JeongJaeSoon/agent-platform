@@ -387,6 +387,17 @@ export function createGitHubMcpServer(deps: {
             retryable: false,
           });
         }
+        // Before anything is written, in either flow: no PR tool is trusted
+        // to run unseen yet, so a pull request cannot ride along with the
+        // push, and the actions flow must not store an intent for it either.
+        if ((body as { pull_request?: unknown }).pull_request !== undefined) {
+          throw new SessionServiceError(
+            "BAD_REQUEST",
+            "pull_request needs a tool call",
+            undefined,
+            { refusal: "pull_request_needs_tool_call" },
+          );
+        }
         if (deps.actionFlows?.() === true) {
           if (turnAtCall === null) {
             return refused({
@@ -616,16 +627,6 @@ async function run(
 ): Promise<unknown> {
   switch (tool) {
     case "request_push":
-      // Before anything is created: no PR tool is trusted to run unseen yet,
-      // so a pull request cannot ride along with the push.
-      if ((args as { pull_request?: unknown }).pull_request !== undefined) {
-        throw new SessionServiceError(
-          "BAD_REQUEST",
-          "pull_request needs a tool call",
-          undefined,
-          { refusal: "pull_request_needs_tool_call" },
-        );
-      }
       return services.pushRequests.create(actor, sessionId, {
         idempotencyKey: `mcp-${randomUUID()}`,
         body: args as z.infer<
