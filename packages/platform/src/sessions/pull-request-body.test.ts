@@ -169,6 +169,17 @@ describe("the default template", () => {
     expect(lone).toContain("<hr />");
   });
 
+  test("a field that opens with a processing instruction, CDATA or declaration cannot swallow the rest", () => {
+    for (const summary of ["<?example", "<![CDATA[example", "<!DOCTYPE x"]) {
+      const { body } = render({ summary, changes: ["SECOND"] });
+      const html = Bun.markdown.html(body);
+      expect(html).toContain("<li>");
+      expect(html).toContain("SECOND");
+      expect(html.match(/<hr/g)?.length).toBe(1);
+      expect(html).not.toContain("## ");
+    }
+  });
+
   test("an open code fence in one field does not swallow the next section or the references", () => {
     const { body } = render({
       summary: "```text\nexample",

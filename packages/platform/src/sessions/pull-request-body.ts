@@ -159,7 +159,14 @@ function cleanAll(
     ),
     Number.MAX_SAFE_INTEGER,
     redact,
-  ).map((text) => text.trim());
+  ).map((text) =>
+    text
+      .trim()
+      // A processing instruction, CDATA section or declaration at the start of
+      // a line is an HTML block that runs to `?>`, `]]>` or `>`, past the next
+      // section and the tail.
+      .replace(/^( {0,3})<(?=\?|!\[CDATA\[|![A-Za-z])/gm, `$1<${ZWSP}`),
+  );
 }
 
 /**
