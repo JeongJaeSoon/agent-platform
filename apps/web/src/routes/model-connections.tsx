@@ -382,6 +382,7 @@ function AddConnection({
         <Input
           name="endpoint"
           type="url"
+          aria-required={fallback === undefined || undefined}
           aria-invalid={endpointMissing || undefined}
           autoComplete="off"
           spellCheck={false}
