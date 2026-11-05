@@ -173,7 +173,7 @@ commit `95b0e7b5`부터 worker는 직전 checkpoint의 bundle 사슬 위에 새 
 - **옛 worker 이미지.** 복원할 때 manifest decode가 `Invalid Claude checkpoint manifest: workspace Unrecognized key: "baseBundles"`로 실패한다. 이 실패는 workspace를 비우거나 bundle을 받기 전에 나므로 반쯤 복원된 workspace는 남지 않는다. 대신 manifest가 고정돼 있어 다시 launch해도 같은 이유로 `worker.failed`가 된다.
 - **옛 control-host.** 복원 계획이 `CHECKPOINT_UNAVAILABLE`로 거절되고, 앞 revision으로 물러나지 않는다. finalize도 incremental manifest를 거절해 pointer가 오르지 않는다. 새 worker와 섞여 있으면 첫 checkpoint처럼 홀로 선 bundle만 commit된다. 옛 GC는 decode되지 않는 세션을 건너뛰므로 base bundle을 지우지는 않는다.
 - **영향 세션 찾기.** DB에는 manifest 내용이 없다. `sessions.checkpoint_revision`이 가리키는 `checkpoints` 행(`collected_at IS NULL`)의 `manifest_ref`·`manifest_version`으로 object store에서 manifest를 받아 `jq -e '.workspace.baseBundles | length > 0'`로 가른다. 복원이 `parent_revision`을 따라 물러날 수도 있으므로 부모 행도 같이 본다. worker 로그 `worker.checkpoint.published`의 `base_bundles`가 0보다 크면 incremental로 올린 것이다.
-- **롤백 전에 할 일.** 영향 세션이 있으면 롤백하지 말고 롤포워드한다. 새 전체 bundle로 다시 checkpoint하게 하는 운영 수단(환경 변수·설정·CLI)은 아직 없다. worker는 사슬이 없거나 끊겼거나, 길이 32(`MAX_BUNDLE_CHAIN`)나 bundle 상한에 닿았을 때만 스스로 전체 bundle을 올린다. 그래서 롤백이 꼭 필요하면 영향 세션은 롤백 동안 복원되지 않는다. 롤포워드하면 그대로 복원된다.
+- **롤백 전에 할 일.** 영향 세션이 있으면 롤백하지 말고 롤포워드한다. 새 전체 bundle로 다시 checkpoint하게 하는 운영 수단(환경 변수·설정·CLI)은 아직 없다. worker는 사슬이 없거나 끊겼거나, 길이 32(`MAX_WORKSPACE_BUNDLE_CHAIN`)나 bundle 상한에 닿았을 때만 스스로 전체 bundle을 올린다. 그래서 롤백이 꼭 필요하면 영향 세션은 롤백 동안 복원되지 않는다. 롤포워드하면 그대로 복원된다.
 
 ### control-host 롤백 하한: release 도구로 실행
 

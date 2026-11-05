@@ -173,7 +173,7 @@ commit `95b0e7b5`から、workerは直前のcheckpointのbundleチェーンの�
 - **古いworkerイメージ。** 復元時にmanifestのdecodeが`Invalid Claude checkpoint manifest: workspace Unrecognized key: "baseBundles"`で失敗します。この失敗はworkspaceを空にしたりbundleを取得したりする前に起きるので、半分だけ復元されたworkspaceは残りません。その代わりmanifestは固定されているので、再びlaunchしても同じ理由で`worker.failed`になります。
 - **古いcontrol-host。** 復元計画が`CHECKPOINT_UNAVAILABLE`で拒否され、前のrevisionに戻りません。finalizeもincremental manifestを拒否するので、pointerが上がりません。新しいworkerと混在していれば、最初のcheckpointのように単独のbundleだけがcommitされます。古いGCはdecodeできないセッションをスキップするので、base bundleを削除することはありません。
 - **影響セッションを探す。** DBにはmanifestの内容がありません。`sessions.checkpoint_revision`が指す`checkpoints`行(`collected_at IS NULL`)の`manifest_ref`・`manifest_version`でobject storeからmanifestを取得し、`jq -e '.workspace.baseBundles | length > 0'`で振り分けます。復元が`parent_revision`をたどって戻ることもあるので、親の行も一緒に見ます。workerログ`worker.checkpoint.published`の`base_bundles`が0より大きければ、incrementalで載せたものです。
-- **ロールバック前にすること。** 影響セッションがあれば、ロールバックせずにロールフォワードします。新しい完全なbundleで再度checkpointさせる運用手段(環境変数・設定・CLI)はまだありません。workerは、チェーンがない、途切れている、または長さ32(`MAX_BUNDLE_CHAIN`)やbundle上限に達したときにだけ、自分で完全なbundleを載せます。そのため、どうしてもロールバックが必要なら、影響セッションはロールバックの間は復元されません。ロールフォワードすれば、そのまま復元されます。
+- **ロールバック前にすること。** 影響セッションがあれば、ロールバックせずにロールフォワードします。新しい完全なbundleで再度checkpointさせる運用手段(環境変数・設定・CLI)はまだありません。workerは、チェーンがない、途切れている、または長さ32(`MAX_WORKSPACE_BUNDLE_CHAIN`)やbundle上限に達したときにだけ、自分で完全なbundleを載せます。そのため、どうしてもロールバックが必要なら、影響セッションはロールバックの間は復元されません。ロールフォワードすれば、そのまま復元されます。
 
 ### control-hostのロールバック下限: releaseのツールで実行
 
