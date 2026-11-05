@@ -18,7 +18,7 @@
       "name": "[Werft] queue oldest age",
       "type": "metric alert",
       "query": "max(last_5m):max:werft.queue.oldest_age_seconds{*} > 30",
-      "message": "Input queue is not draining. Inspect scheduler health and capacity in docs/operator/execution.md#reconcilerscheduler와-worker-격리.",
+      "message": "Input queue is not draining. Inspect scheduler health and capacity in https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/execution/#reconcilerscheduler와-worker-격리.",
       "tags": ["service:scheduler", "threshold_stage:first-week-tuning"],
       "options": {
         "thresholds": { "critical": 30 },
@@ -40,7 +40,7 @@
       "name": "[Werft] unknown turn outcome",
       "type": "metric alert",
       "query": "max(last_5m):max:werft.turn.outcome_unknown_count{*} > 0",
-      "message": "A turn outcome is unknown. Follow docs/operator/execution.md#interrupt-뒤-결과를-알-수-없는-turn.",
+      "message": "A turn outcome is unknown. Follow https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/execution/#interrupt-뒤-결과를-알-수-없는-turn.",
       "tags": ["service:worker", "threshold_stage:first-week-tuning"],
       "options": {
         "thresholds": { "critical": 0 },
@@ -51,7 +51,7 @@
       "name": "[Werft] interrupt effect latency",
       "type": "metric alert",
       "query": "avg(last_5m):p95:werft.control.effect.duration_ms{operation:interrupt} > 5000",
-      "message": "Interrupt effect p95 exceeded 5 s. Correlate control.result and worker.turn.interrupt.stage by control_id; see docs/operator/execution.md#interrupt-뒤-결과를-알-수-없는-turn.",
+      "message": "Interrupt effect p95 exceeded 5 s. Correlate control.result and worker.turn.interrupt.stage by control_id; see https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/execution/#interrupt-뒤-결과를-알-수-없는-turn.",
       "tags": ["service:worker", "threshold_stage:first-week-tuning"],
       "options": {
         "thresholds": { "critical": 5000 },
@@ -62,7 +62,7 @@
       "name": "[Werft] checkpoint pending",
       "type": "metric alert",
       "query": "max(last_5m):max:werft.checkpoint.pending_age_seconds{*} > 300",
-      "message": "Checkpoint state has remained pending. Follow docs/operator/execution.md#checkpoint-복원이-계속-실패하는-세션.",
+      "message": "Checkpoint state has remained pending. Follow https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/execution/#checkpoint-복원이-계속-실패하는-세션.",
       "tags": ["service:worker", "threshold_stage:first-week-tuning"],
       "options": {
         "thresholds": { "critical": 300 },
@@ -73,7 +73,7 @@
       "name": "[Werft] checkpoint failure",
       "type": "metric alert",
       "query": "sum(last_5m):sum:werft.checkpoint.failed{*}.as_count() > 0",
-      "message": "Checkpoint capture or finalize failed. Follow docs/operator/execution.md#checkpoint-복원이-계속-실패하는-세션.",
+      "message": "Checkpoint capture or finalize failed. Follow https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/execution/#checkpoint-복원이-계속-실패하는-세션.",
       "tags": ["service:worker", "threshold_stage:first-week-tuning"],
       "options": {
         "thresholds": { "critical": 0 },
@@ -84,7 +84,7 @@
       "name": "[Werft] checkpoint capture late",
       "type": "metric alert",
       "query": "sum(last_5m):sum:werft.checkpoint.late{*}.as_count() > 0",
-      "message": "Checkpoint capture exceeded its interrupt budget. Follow docs/operator/execution.md#checkpoint-복원이-계속-실패하는-세션.",
+      "message": "Checkpoint capture exceeded its interrupt budget. Follow https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/execution/#checkpoint-복원이-계속-실패하는-세션.",
       "tags": ["service:worker", "threshold_stage:first-week-tuning"],
       "options": {
         "thresholds": { "critical": 0 },
@@ -95,7 +95,7 @@
       "name": "[Werft] checkpoint capture latency",
       "type": "metric alert",
       "query": "avg(last_5m):p95:werft.checkpoint.capture.duration_ms{*} > 20000",
-      "message": "Checkpoint capture p95 exceeded 20 s. Inspect durations_ms on worker.checkpoint.published; see docs/operator/execution.md#checkpoint-복원이-계속-실패하는-세션.",
+      "message": "Checkpoint capture p95 exceeded 20 s. Inspect durations_ms on worker.checkpoint.published; see https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/execution/#checkpoint-복원이-계속-실패하는-세션.",
       "tags": ["service:werft-worker", "threshold_stage:first-week-tuning"],
       "options": {
         "thresholds": { "critical": 20000 },
@@ -139,7 +139,7 @@
       "name": "[Werft] stale execution lease",
       "type": "metric alert",
       "query": "max(last_5m):max:werft.lease.stale_count{*} > 0",
-      "message": "At least one live attempt is past lease expiry. Inspect reconciler health in docs/operator/execution.md#reconcilerscheduler와-worker-격리.",
+      "message": "At least one live attempt is past lease expiry. Inspect reconciler health in https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/execution/#reconcilerscheduler와-worker-격리.",
       "tags": ["service:reconciler", "threshold_stage:first-week-tuning"],
       "options": {
         "thresholds": { "critical": 0 },
@@ -150,7 +150,7 @@
       "name": "[Werft] worker launch churn",
       "type": "metric alert",
       "query": "sum(last_10m):sum:werft.launch.failed{*}.as_count() > 3",
-      "message": "Worker resources are repeatedly failing to launch. Follow docs/operator/execution.md#시작-단계에서-계속-죽는-세션.",
+      "message": "Worker resources are repeatedly failing to launch. Follow https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/execution/#시작-단계에서-계속-죽는-세션.",
       "tags": ["service:scheduler", "threshold_stage:first-week-tuning"],
       "options": {
         "thresholds": { "critical": 3 },
@@ -161,7 +161,7 @@
       "name": "[Werft] worker exit churn",
       "type": "metric alert",
       "query": "sum(last_10m):sum:werft.execution.exited{*}.as_count() > 5",
-      "message": "Worker resources are repeatedly exiting. Follow docs/operator/execution.md#시작-단계에서-계속-죽는-세션.",
+      "message": "Worker resources are repeatedly exiting. Follow https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/execution/#시작-단계에서-계속-죽는-세션.",
       "tags": ["service:scheduler", "threshold_stage:first-week-tuning"],
       "options": {
         "thresholds": { "critical": 5 },
@@ -172,7 +172,7 @@
       "name": "[Werft] scheduler pass failed",
       "type": "metric alert",
       "query": "sum(last_5m):sum:werft.scheduler.pass_failed{*}.as_count() > 0",
-      "message": "A scheduler pass failed. Inspect its structured log and status file using docs/operator/execution.md#reconcilerscheduler와-worker-격리.",
+      "message": "A scheduler pass failed. Inspect its structured log and status file using https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/execution/#reconcilerscheduler와-worker-격리.",
       "tags": ["service:scheduler", "threshold_stage:first-week-tuning"],
       "options": {
         "thresholds": { "critical": 0 },
@@ -216,7 +216,7 @@
       "name": "[Werft] host inode pressure",
       "type": "metric alert",
       "query": "avg(last_10m):max:system.fs.inodes.in_use{*} by {host} > 0.8",
-      "message": "Host inode usage exceeded 80%. Follow docs/operator/execution.md#worker-workspace의-상한과-회수.",
+      "message": "Host inode usage exceeded 80%. Follow https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/execution/#worker-workspace의-상한과-회수.",
       "tags": ["service:docker", "threshold_stage:first-week-tuning"],
       "options": {
         "thresholds": { "critical": 0.8 },
