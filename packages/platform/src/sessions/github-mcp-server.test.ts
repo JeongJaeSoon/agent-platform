@@ -1237,6 +1237,12 @@ describe("get_workflow_run", () => {
       isError: true,
       body: { refusal: { code: "validation_error" } },
     });
+    // The cap itself is accepted: a finished run answers at once.
+    h.control.runStatus = "completed";
+    expect(
+      payload(await h.call("get_workflow_run", { run_id: 7, wait_seconds: 7 }))
+        .body.result,
+    ).toMatchObject({ final: true });
     h.control.runStatus = "queued";
     setTimeout(() => {
       h.control.runStatus = "completed";

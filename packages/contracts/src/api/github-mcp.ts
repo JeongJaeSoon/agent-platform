@@ -45,13 +45,14 @@ const runIdSchema = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 /**
  * The longest a waiting read may hold its answer. The built-in server is
  * served by the control host's authorizer listener, which keeps Bun's default
- * 10 second idle timeout. Bun checks it on a coarse timer, so a silent call is
- * cut anywhere from 8.0 to 12.0 seconds after it starts (32 of 32 probes on
- * Bun 1.3.14, earliest 8.01s); the cut is not at 10. The wait is counted from
- * the start of the call; the waiting itself and the GitHub calls inside it are
- * cut at that deadline. The database reads around it keep their own pool
- * timeouts, so the cap leaves about a second below the earliest cut for them,
- * the proxy and the answer.
+ * 10 second idle timeout. Bun checks it on a coarse timer, so the cut does
+ * not land at 10: in a probe with the same `Bun.serve` options on Bun 1.3.14,
+ * 32 of 32 silent calls were cut between 8.01 and 12.01 seconds after they
+ * started. The wait is counted from the start of the call; the waiting itself
+ * and the GitHub calls inside it are cut at that deadline. The database reads
+ * around it keep their own pool timeouts, so the cap leaves about a second
+ * below the earliest cut seen for them, the proxy and the answer; it is a
+ * margin, not a guarantee.
  */
 export const GITHUB_MCP_WAIT_SECONDS_MAX = 7;
 
