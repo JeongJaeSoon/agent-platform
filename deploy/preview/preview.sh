@@ -34,7 +34,8 @@
 #   MAX_MEMORY_MI      the node memory the check counts from, in place of
 #                      its allocatable memory
 #   PREVIEW_KUBE_CONTEXT  the only kubeconfig context used (default orbstack);
-#                      for a disposable cluster in tests
+#                      list, reap and down accept another, for a disposable
+#                      cluster in tests; up refuses it
 #   PREVIEW_TTL_HOURS  how long after its last `up` reap deletes a preview
 #                      (default 24)
 set -euo pipefail
@@ -105,12 +106,22 @@ mkdir -p "$PREVIEW_HOME"
 chmod 700 "$PREVIEW_HOME"
 # Only this one context, whatever the shell's current context is. A missing
 # context stops here; kubectl never falls back to another cluster.
-export KUBECONFIG="${PREVIEW_HOME}/kubeconfig"
-if ! env -u KUBECONFIG kubectl config view --raw --minify --context "$PREVIEW_KUBE_CONTEXT" >"$KUBECONFIG" 2>/dev/null; then
+# Each context has its own file, so runs on different clusters never swap the
+# cluster under one another; the write is atomic for runs on the same one.
+if ! [[ "$PREVIEW_KUBE_CONTEXT" =~ ^[A-Za-z0-9][A-Za-z0-9._@:-]*$ ]]; then
+  echo "PREVIEW_KUBE_CONTEXT must be a plain context name, not '${PREVIEW_KUBE_CONTEXT}'" >&2
+  exit 1
+fi
+KUBECONFIG_FILE="${PREVIEW_HOME}/kubeconfig"
+[ "$PREVIEW_KUBE_CONTEXT" = orbstack ] || KUBECONFIG_FILE="${KUBECONFIG_FILE}-${PREVIEW_KUBE_CONTEXT}"
+export KUBECONFIG="$KUBECONFIG_FILE"
+if ! env -u KUBECONFIG kubectl config view --raw --minify --context "$PREVIEW_KUBE_CONTEXT" >"${KUBECONFIG_FILE}.$$" 2>/dev/null; then
+  rm -f -- "${KUBECONFIG_FILE:?}.$$"
   echo "no ${PREVIEW_KUBE_CONTEXT} context in the default kubeconfig: is OrbStack's Kubernetes on?" >&2
   exit 1
 fi
-chmod 600 "$KUBECONFIG"
+chmod 600 "${KUBECONFIG_FILE}.$$"
+mv -f -- "${KUBECONFIG_FILE}.$$" "$KUBECONFIG_FILE"
 
 # The LoadBalancer ports stay on the Mac's 127.0.0.1 only while OrbStack does
 # not expose services to the local network.
@@ -212,6 +223,11 @@ up() {
   dir="${PREVIEW_HOME}/${namespace}"
   SECONDS=0
 
+  # The installer copied into the checkout selects the orbstack context itself.
+  if [ "$PREVIEW_KUBE_CONTEXT" != orbstack ]; then
+    echo "up installs only into the orbstack context, not '${PREVIEW_KUBE_CONTEXT}'" >&2
+    exit 1
+  fi
   lock_preview "$namespace"
   require_local_only
   if kubectl get namespace "$namespace" >/dev/null 2>&1; then

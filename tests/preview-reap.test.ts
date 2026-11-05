@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   mkdir,
   mkdtemp,
+  readdir,
   readFile,
   readlink,
   rm,
@@ -456,6 +457,50 @@ exit 1
       "config view --raw --minify --context kind-missing",
     ]);
     expect(await deleted()).toEqual([]);
+  });
+
+  test("each context gets its own kubeconfig file and leaves no temporary one", async () => {
+    await reap([]);
+    await reap([], {
+      PREVIEW_KUBE_CONTEXT: "kind-scratch",
+      STUB_CONTEXTS: "kind-scratch",
+    });
+    expect((await readdir(join(dir, "home"))).sort()).toEqual([
+      "kubeconfig",
+      "kubeconfig-kind-scratch",
+    ]);
+  });
+
+  test("refuses a context name that is not plain", async () => {
+    for (const name of ["a/b", "-x", "a b", "../x"]) {
+      const result = await reap([], { PREVIEW_KUBE_CONTEXT: name });
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("must be a plain context name");
+    }
+    expect(await calls("kubectl-calls")).toEqual([]);
+  });
+
+  test("up refuses another context, which its installer would leave", async () => {
+    const handle = Bun.spawn(["bash", script, "up", "18"], {
+      env: {
+        ...process.env,
+        PATH: `${join(dir, "bin")}:${process.env.PATH ?? ""}`,
+        PREVIEW_HOME: join(dir, "home"),
+        PREVIEW_KUBE_CONTEXT: "kind-scratch",
+        STUB_CONTEXTS: "kind-scratch",
+      },
+      stderr: "pipe",
+      stdout: "pipe",
+    });
+    const [exitCode, stderr] = await Promise.all([
+      handle.exited,
+      new Response(handle.stderr).text(),
+    ]);
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("up installs only into the orbstack context");
+    expect(await calls("kubectl-calls")).toEqual([
+      "config view --raw --minify --context kind-scratch",
+    ]);
   });
 
   test("keeps a preview another up or down holds", async () => {
