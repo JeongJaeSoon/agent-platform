@@ -1,13 +1,7 @@
-import type { PullRequestSettings } from "@werft-ai/contracts";
-
-/** An agent's own pull request settings; null where it has none saved. */
-export type AgentPullRequestSettings = {
-  formatting: "inherit" | "on" | "off";
-  /** Markdown, or null. */
-  template: string | null;
-  /** A file of `PULL_REQUEST_TEMPLATE/`, for a repository that holds several. */
-  templateName: string | null;
-};
+import type {
+  AgentPullRequestSettings,
+  PullRequestSettings,
+} from "@werft-ai/contracts";
 
 /** What a rendering is told, after the agent's settings met the workspace's. */
 export type ResolvedPullRequestSettings = {
@@ -55,7 +49,7 @@ export function resolvePullRequestSettings(
   return {
     sessionLink,
     readRepository: workspace.template_mode === "repository_first",
-    templateName: agent?.templateName ?? null,
+    templateName: agent?.template_name ?? null,
     text,
   };
 }

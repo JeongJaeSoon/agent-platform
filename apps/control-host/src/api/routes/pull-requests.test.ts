@@ -195,7 +195,7 @@ function app(
         settings: DEFAULT_PULL_REQUEST_SETTINGS,
         revision: 0,
       }),
-      put: async () => ({ outcome: "revision_conflict" }),
+      agentOfSession: async () => null,
     },
     consoleOrigin: null,
     logger: { warn: () => {} },

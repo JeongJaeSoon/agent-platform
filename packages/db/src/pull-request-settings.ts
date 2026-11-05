@@ -1,15 +1,26 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
+  type AgentPullRequestSettings,
+  agentPullRequestSettingsSchema,
+  DEFAULT_AGENT_PULL_REQUEST_SETTINGS,
   DEFAULT_PULL_REQUEST_SETTINGS,
   GITHUB_CEILING_NONE,
   type PullRequestSettings,
   pullRequestSettingsSchema,
 } from "@werft-ai/contracts";
 import type { PullRequestSettingsStore } from "@werft-ai/platform";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
+import { lockAgentToChange } from "./agents.ts";
 import { lockedRole } from "./api-keys.ts";
+import { receiptActorOf } from "./control-shared.ts";
 import type { Database } from "./queries.ts";
-import { githubWorkspaceSettings, receipts } from "./schema.ts";
+import {
+  agentPullRequestSettings,
+  agentReleases,
+  githubWorkspaceSettings,
+  receipts,
+  sessions,
+} from "./schema.ts";
 
 /** None saved, or a value a later image wrote in another shape: the defaults. */
 export function pullRequestSettingsOf(stored: unknown): PullRequestSettings {
@@ -38,10 +49,146 @@ function receiptView(settings: PullRequestSettings | null) {
       };
 }
 
+/** A row this image cannot read is no row: the workspace's values apply. */
+function agentSettingsOf(row: {
+  formatting: string;
+  template: string | null;
+  templateName: string | null;
+}): AgentPullRequestSettings | null {
+  const parsed = agentPullRequestSettingsSchema.safeParse({
+    formatting: row.formatting,
+    template: row.template,
+    template_name: row.templateName,
+  });
+  return parsed.success ? parsed.data : null;
+}
+
+function agentReceiptView(settings: AgentPullRequestSettings | null) {
+  return settings === null
+    ? null
+    : {
+        formatting: settings.formatting,
+        template_name: settings.template_name,
+        template: templateRecord(settings.template),
+      };
+}
+
 export function createPostgresPullRequestSettingsStore(
   db: Database,
 ): PullRequestSettingsStore {
   return {
+    async agent(agentId) {
+      const [row] = await db
+        .select()
+        .from(agentPullRequestSettings)
+        .where(eq(agentPullRequestSettings.agentId, agentId.toLowerCase()))
+        .limit(1);
+      const settings = row === undefined ? null : agentSettingsOf(row);
+      return {
+        settings: settings ?? DEFAULT_AGENT_PULL_REQUEST_SETTINGS,
+        revision: row?.revision ?? 0,
+      };
+    },
+
+    async agentOfSession(workspaceId, sessionId) {
+      const [row] = await db
+        .select({
+          formatting: agentPullRequestSettings.formatting,
+          template: agentPullRequestSettings.template,
+          templateName: agentPullRequestSettings.templateName,
+        })
+        .from(sessions)
+        .innerJoin(agentReleases, eq(agentReleases.id, sessions.agentReleaseId))
+        .innerJoin(
+          agentPullRequestSettings,
+          eq(agentPullRequestSettings.agentId, agentReleases.agentId),
+        )
+        .where(
+          and(
+            eq(sessions.id, sessionId.toLowerCase()),
+            eq(sessions.ownerId, workspaceId),
+          ),
+        )
+        .limit(1);
+      return row === undefined ? null : agentSettingsOf(row);
+    },
+
+    putAgent(input) {
+      return db.transaction(async (tx) => {
+        const agentId = input.agentId.toLowerCase();
+        const locked = await lockAgentToChange(tx, input, agentId);
+        if ("outcome" in locked) return locked;
+        const [held] = await tx
+          .select()
+          .from(agentPullRequestSettings)
+          .where(eq(agentPullRequestSettings.agentId, agentId))
+          .limit(1)
+          .for("update");
+        if ((held?.revision ?? 0) !== input.revision) {
+          return { outcome: "revision_conflict" as const };
+        }
+        const before = held === undefined ? null : agentSettingsOf(held);
+        if (
+          held !== undefined &&
+          JSON.stringify(before) === JSON.stringify(input.settings)
+        ) {
+          return {
+            outcome: "stored" as const,
+            settings: input.settings,
+            revision: held.revision,
+            receiptId: null,
+          };
+        }
+        const revision = input.revision + 1;
+        const values = {
+          formatting: input.settings.formatting,
+          template: input.settings.template,
+          templateName: input.settings.template_name,
+          revision,
+          updatedBy: input.userId,
+        };
+        if (held === undefined) {
+          const [inserted] = await tx
+            .insert(agentPullRequestSettings)
+            .values({ agentId, workspaceId: input.workspaceId, ...values })
+            .onConflictDoNothing({ target: agentPullRequestSettings.agentId })
+            .returning({ revision: agentPullRequestSettings.revision });
+          if (inserted === undefined) {
+            return { outcome: "revision_conflict" as const };
+          }
+        } else {
+          await tx
+            .update(agentPullRequestSettings)
+            .set({ ...values, updatedAt: sql`now()` })
+            .where(eq(agentPullRequestSettings.agentId, agentId));
+        }
+        const receiptId = randomUUID();
+        await tx.insert(receipts).values({
+          id: receiptId,
+          ownerId: input.principal.ownerId,
+          actor: receiptActorOf(input.principal),
+          operation: "set_agent_pull_request_settings",
+          targetRef: {
+            resource: { kind: "agent", id: agentId },
+            workspace_id: input.workspaceId,
+          },
+          status: "succeeded",
+          result: {
+            agent_id: agentId,
+            before: agentReceiptView(before),
+            after: agentReceiptView(input.settings),
+            revision,
+          },
+        });
+        return {
+          outcome: "stored" as const,
+          settings: input.settings,
+          revision,
+          receiptId,
+        };
+      });
+    },
+
     async get(workspaceId) {
       const [row] = await db
         .select({

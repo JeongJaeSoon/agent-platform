@@ -259,7 +259,7 @@ function harness(
     revision: 0,
   };
   const layoutPuts: PullRequestSettings[] = [];
-  const pullRequestSettings: PullRequestSettingsStore = {
+  const pullRequestSettings: Pick<PullRequestSettingsStore, "get" | "put"> = {
     get: async () => layout,
     put: async (input) => {
       if (input.revision !== layout.revision) {

@@ -1,5 +1,5 @@
 {
-  "id": "94d916ab-9898-4097-b7b6-03b238745062",
+  "id": "8c3a5092-b897-4bb2-9085-2b3efdcb791a",
   "prevId": "da6e200f-b8ff-452e-95d5-93c317defaae",
   "version": "7",
   "dialect": "postgresql",
@@ -1450,6 +1450,84 @@
         "agent_identities_credential_ref_check": {
           "name": "agent_identities_credential_ref_check",
           "value": "\"agent_identities\".\"credential_ref\" ~ '^[a-z0-9][a-z0-9._:/-]{0,127}$'"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.agent_pull_request_settings": {
+      "name": "agent_pull_request_settings",
+      "schema": "",
+      "columns": {
+        "agent_id": {
+          "name": "agent_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "formatting": {
+          "name": "formatting",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "template": {
+          "name": "template",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "template_name": {
+          "name": "template_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "updated_by": {
+          "name": "updated_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "agent_pull_request_settings_agent_fk": {
+          "name": "agent_pull_request_settings_agent_fk",
+          "tableFrom": "agent_pull_request_settings",
+          "tableTo": "agents",
+          "columnsFrom": ["workspace_id", "agent_id"],
+          "columnsTo": ["workspace_id", "id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "agent_pull_request_settings_formatting_check": {
+          "name": "agent_pull_request_settings_formatting_check",
+          "value": "\"agent_pull_request_settings\".\"formatting\" IN ('inherit', 'on', 'off')"
         }
       },
       "isRLSEnabled": false

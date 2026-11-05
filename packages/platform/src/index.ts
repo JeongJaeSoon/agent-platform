@@ -1,5 +1,6 @@
 // biome-ignore-all assist/source/organizeImports: Bun 1.3.14's bundler fails to resolve the sessions/*.ts exports that follow a sessions/ subdirectory export, so the achievements exports stay last.
 export * from "./agents/agent-github-service.ts";
+export * from "./agents/agent-pull-request-service.ts";
 export * from "./agents/agent-service.ts";
 export * from "./agents/release-ids.ts";
 export * from "./checkpoints/checkpoint-collector.ts";

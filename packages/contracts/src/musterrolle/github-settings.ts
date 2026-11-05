@@ -491,6 +491,67 @@ export const putGitHubPullRequestSettingsResponseSchema = z.object({
   receipt_id: z.uuid().nullable(),
 });
 
+/** `inherit`: the workspace's `formatting` applies. */
+export const AGENT_PULL_REQUEST_FORMATTING_VALUES = [
+  "inherit",
+  "on",
+  "off",
+] as const;
+
+/**
+ * A file name in `.github/PULL_REQUEST_TEMPLATE/`, compared to the names found
+ * there and never used as a path, so any printable text is harmless; the
+ * bound only keeps the row small.
+ */
+export const pullRequestTemplateNameSchema = z
+  .string()
+  .min(1)
+  .max(100)
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: refusing them is the point
+  .regex(/^[^\u0000-\u001f\u007f]+$/);
+
+/**
+ * What an agent sets over the workspace's: `formatting` (`inherit` follows
+ * the workspace), its own `template` (null: the workspace's), and which file
+ * of a repository's `PULL_REQUEST_TEMPLATE/` directory to use when it holds
+ * several. Kept apart from the GitHub policy row: saving it never makes a
+ * session follow the agent's GitHub settings instead of its release.
+ */
+export const agentPullRequestSettingsSchema = z
+  .object({
+    formatting: z.enum(AGENT_PULL_REQUEST_FORMATTING_VALUES),
+    template: pullRequestTemplateTextSchema.nullable(),
+    template_name: pullRequestTemplateNameSchema.nullable(),
+  })
+  .strict();
+
+export const DEFAULT_AGENT_PULL_REQUEST_SETTINGS: AgentPullRequestSettings = {
+  formatting: "inherit",
+  template: null,
+  template_name: null,
+};
+
+export const agentPullRequestResponseSchema = z.object({
+  pull_request: agentPullRequestSettingsSchema,
+  /** 0 while the agent has saved none. A save sends it back as `revision`. */
+  pull_request_revision: z.number().int().nonnegative(),
+});
+
+/** CAS on `pull_request_revision`; refusals as for the workspace's. */
+export const putAgentPullRequestSettingsRequestSchema = z
+  .object({
+    pull_request: agentPullRequestSettingsSchema,
+    revision: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export const putAgentPullRequestSettingsResponseSchema = z.object({
+  pull_request: agentPullRequestSettingsSchema,
+  pull_request_revision: z.number().int().positive(),
+  /** Null when the values already held: nothing changed. */
+  receipt_id: z.uuid().nullable(),
+});
+
 // Printable ASCII without spaces, as GitHub hands it out; a pasted space or
 // newline is refused rather than kept. The same rule as the Slack secrets
 // (secretValueSchema), restated here to keep this file on zod alone.
@@ -557,6 +618,18 @@ export type PutGitHubSettingsRequest = z.infer<
   typeof putGitHubSettingsRequestSchema
 >;
 export type PullRequestSettings = z.infer<typeof pullRequestSettingsSchema>;
+export type AgentPullRequestSettings = z.infer<
+  typeof agentPullRequestSettingsSchema
+>;
+export type AgentPullRequestResponse = z.infer<
+  typeof agentPullRequestResponseSchema
+>;
+export type PutAgentPullRequestSettingsRequest = z.infer<
+  typeof putAgentPullRequestSettingsRequestSchema
+>;
+export type PutAgentPullRequestSettingsResponse = z.infer<
+  typeof putAgentPullRequestSettingsResponseSchema
+>;
 export type PutGitHubPullRequestSettingsRequest = z.infer<
   typeof putGitHubPullRequestSettingsRequestSchema
 >;

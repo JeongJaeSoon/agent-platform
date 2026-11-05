@@ -1,13 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import {
+  type AgentPullRequestSettings,
   DEFAULT_PULL_REQUEST_SETTINGS,
   type PullRequestSettings,
 } from "@werft-ai/contracts";
 import { claimGitOf } from "./git-attribution.ts";
-import {
-  type AgentPullRequestSettings,
-  resolvePullRequestSettings,
-} from "./pull-request-settings.ts";
+import { resolvePullRequestSettings } from "./pull-request-settings.ts";
 
 const workspace = (
   over: Partial<PullRequestSettings> = {},
@@ -17,7 +15,7 @@ const agent = (
 ): AgentPullRequestSettings => ({
   formatting: "inherit",
   template: null,
-  templateName: null,
+  template_name: null,
   ...over,
 });
 
@@ -50,7 +48,7 @@ describe("which pull request settings apply", () => {
   test("`override` stops the repository's template from being read, for the agent's text too", () => {
     const resolved = resolvePullRequestSettings(
       workspace({ template_mode: "override" }),
-      agent({ template: "## A\n", templateName: "bug.md" }),
+      agent({ template: "## A\n", template_name: "bug.md" }),
     );
     expect(resolved.readRepository).toBe(false);
     expect(resolved.text?.layer).toBe("agent");
@@ -67,7 +65,7 @@ describe("which pull request settings apply", () => {
     ] as const) {
       const resolved = resolvePullRequestSettings(
         { ...withTemplate, formatting: wsFormatting },
-        agent({ formatting: agentFormatting, templateName: "bug.md" }),
+        agent({ formatting: agentFormatting, template_name: "bug.md" }),
       );
       expect(resolved.readRepository).toBe(!off);
       expect(resolved.text === null).toBe(off);

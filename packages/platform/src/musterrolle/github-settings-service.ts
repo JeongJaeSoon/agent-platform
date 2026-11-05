@@ -62,7 +62,7 @@ const noAuthorApp = () =>
 export function createGitHubSettingsService(deps: {
   authorization: AuthorizationPolicy;
   store: GitHubSettingsStore;
-  pullRequestSettings: PullRequestSettingsStore;
+  pullRequestSettings: Pick<PullRequestSettingsStore, "get" | "put">;
   oauth: GitHubOAuthStore;
   /** Null when the console has no origin to be called back on. */
   callbackUrl: string | null;

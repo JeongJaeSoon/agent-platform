@@ -101,7 +101,7 @@ export function createPullRequestService(deps: {
   /** Who the session's work is attributed to, for the body's tail. */
   attribution: SessionAttributionStore;
   /** How a body is laid out and how the tail names the session. */
-  settings: PullRequestSettingsStore;
+  settings: Pick<PullRequestSettingsStore, "get" | "agentOfSession">;
   consoleOrigin: string | null;
   logger: {
     warn(message: string, fields?: Readonly<Record<string, unknown>>): void;
@@ -109,10 +109,16 @@ export function createPullRequestService(deps: {
 }) {
   const { authorization, store, catalog, gate, redact, logger } = deps;
 
-  /** The workspace's layout settings; the agent's join them with its own row. */
-  async function settingsFor(ownerId: string) {
-    const { settings } = await deps.settings.get(ownerId);
-    return resolvePullRequestSettings(settings, null);
+  /**
+   * The workspace's layout settings joined with those of the agent the
+   * session ran under, read now: a change applies to the next body written.
+   */
+  async function settingsFor(ownerId: string, sessionId: string) {
+    const [{ settings }, agent] = await Promise.all([
+      deps.settings.get(ownerId),
+      deps.settings.agentOfSession(ownerId, sessionId),
+    ]);
+    return resolvePullRequestSettings(settings, agent);
   }
 
   async function tailFor(
@@ -229,7 +235,7 @@ export function createPullRequestService(deps: {
         ? "platform"
         : read?.kind === "found"
           ? "repository"
-          : "workspace";
+          : (supplied?.layer ?? "workspace");
       return {
         body: rendered.body,
         source: {
@@ -471,7 +477,7 @@ export function createPullRequestService(deps: {
         return await refuse("not_pushed", fields, source.state);
       }
       const { forge, base } = await forgeFor(actor, source, refuse);
-      const settings = await settingsFor(actor.ownerId);
+      const settings = await settingsFor(actor.ownerId, source.sessionId);
       const tail = await tailFor(source, settings.sessionLink);
       let opened: {
         number: number;
@@ -593,7 +599,7 @@ export function createPullRequestService(deps: {
       }
       // A title alone leaves the body; anything else writes it again whole.
       const rewrites = body.body !== undefined || hasStructuredFields(body);
-      const settings = await settingsFor(actor.ownerId);
+      const settings = await settingsFor(actor.ownerId, source.sessionId);
       const written = rewrites
         ? await bodyFor(forge, body, {
             repositoryId: source.repositoryId,

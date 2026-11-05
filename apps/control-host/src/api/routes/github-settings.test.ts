@@ -114,7 +114,7 @@ function memoryStore() {
     revision: 0,
   };
   const layoutWrites: PullRequestSettings[] = [];
-  const pullRequestSettings: PullRequestSettingsStore = {
+  const pullRequestSettings: Pick<PullRequestSettingsStore, "get" | "put"> = {
     async get() {
       return layout;
     },

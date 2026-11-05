@@ -33,6 +33,7 @@ import {
 import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
 import {
   createAgentGitHubService,
+  createAgentPullRequestService,
   createAgentService,
   createApiKeyService,
   createAuthorizationPolicy,
@@ -52,6 +53,7 @@ import {
 import { createGitHubAppDirectory } from "./forge-github.ts";
 import { DatabaseApiKeyStore, generateApiKey, hashApiKey } from "./keys.ts";
 import { registerAgentGitHubRoutes } from "./routes/agent-github.ts";
+import { registerAgentPullRequestRoutes } from "./routes/agent-pull-request.ts";
 import { registerAgentRoutes } from "./routes/agents.ts";
 import { registerApiKeyRoutes } from "./routes/api-keys.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
@@ -207,6 +209,14 @@ integration("agent GitHub tab over HTTP on PostgreSQL", () => {
             store: createPostgresAgentGitHubStore(db),
             catalog,
             githubSettings,
+          }),
+        );
+        registerAgentPullRequestRoutes(
+          router,
+          createAgentPullRequestService({
+            authorization,
+            agents: agentStore,
+            settings: createPostgresPullRequestSettingsStore(db),
           }),
         );
       },
@@ -880,5 +890,72 @@ integration("agent GitHub tab over HTTP on PostgreSQL", () => {
     await activateOf(saved.id);
     const after = await read();
     expect(after.github).toEqual(GITHUB);
+  });
+
+  // Pull request layout of the agent (its own table: saving it must not
+  // give the agent a GitHub settings row, which would move its sessions off
+  // their release).
+  test("an agent's pull request settings are saved with a receipt, found through a session, and leave the GitHub policy alone", async () => {
+    const path = `/v1/agents/${agentId}/github/pull-request`;
+    const store = createPostgresPullRequestSettingsStore(db);
+    const settings = {
+      formatting: "off",
+      template: "## Summary\n<!-- ours -->\n",
+      template_name: "feature.md",
+    } as const;
+    const read = async () =>
+      (await send("GET", path, asCookie(cookies.admin))).json();
+    expect(await read()).toEqual({
+      pull_request: {
+        formatting: "inherit",
+        template: null,
+        template_name: null,
+      },
+      pull_request_revision: 0,
+    });
+    const sessionId = await session(firstRelease, adminId);
+    expect(await store.agentOfSession(workspaceId, sessionId)).toBeNull();
+
+    const put = (revision: number, body = settings) =>
+      send("PUT", path, asCookie(cookies.admin), {
+        pull_request: body,
+        revision,
+      });
+    const saved = await put(0);
+    expect(saved.status).toBe(200);
+    expect(await saved.json()).toMatchObject({
+      pull_request: settings,
+      pull_request_revision: 1,
+      receipt_id: expect.any(String),
+    });
+    expect((await put(0)).status).toBe(409);
+    expect(
+      ((await (await put(1)).json()) as { receipt_id: unknown }).receipt_id,
+    ).toBeNull();
+    expect(await store.agentOfSession(workspaceId, sessionId)).toEqual(
+      settings,
+    );
+    // Not the agent's GitHub settings row.
+    const github = await send(
+      "GET",
+      `/v1/agents/${agentId}/github`,
+      asCookie(cookies.admin),
+    );
+    expect(
+      agentGitHubResponseSchema.parse(await github.json()).settings_revision,
+    ).toBeNull();
+    // A member who does not manage the agent may neither read nor save.
+    expect((await send("GET", path, asCookie(cookies.other))).status).toBe(403);
+    // The receipt keeps a template's size and hash, never its text.
+    const { rows } = await pool.query(
+      "SELECT result FROM receipts WHERE operation = 'set_agent_pull_request_settings' AND owner_id = $1",
+      [workspaceId],
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0].result.after.template).toEqual({
+      bytes: new TextEncoder().encode(settings.template).length,
+      sha256: expect.stringMatching(/^[0-9a-f]{64}$/),
+    });
+    expect(JSON.stringify(rows[0].result)).not.toContain("ours");
   });
 });

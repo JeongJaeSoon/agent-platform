@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  type AgentPullRequestSettings,
   DEFAULT_PULL_REQUEST_SETTINGS,
   type GitHubRefusal,
   type Principal,
@@ -114,6 +115,8 @@ function harness(
     maxBodyLength?: number;
     /** The workspace's pull request layout; the defaults when absent. */
     layout?: Partial<PullRequestSettings>;
+    /** The row of the agent the session ran under; none when absent. */
+    agent?: AgentPullRequestSettings;
   } = {},
 ) {
   const attribution =
@@ -127,6 +130,7 @@ function harness(
   const calls: string[] = [];
   const sourceReads: string[] = [];
   const settingsReads: string[] = [];
+  const agentReads: string[] = [];
   const source: PullRequestSource = {
     id: PUSH,
     sessionId: SESSION,
@@ -347,13 +351,17 @@ function harness(
           revision: 1,
         };
       },
-      put: async () => ({ outcome: "revision_conflict" }),
+      agentOfSession: async (workspaceId, sessionId) => {
+        agentReads.push(`${workspaceId}/${sessionId}`);
+        return options.agent ?? null;
+      },
     },
     consoleOrigin: "https://console.example.com",
     logger: { warn: (message) => warnings.push(message) },
   });
   return {
     settingsReads,
+    agentReads,
     service,
     bodies,
     titles,
@@ -1987,5 +1995,94 @@ describe("a session that still sends the legacy body", () => {
     });
     expect(opened.body_source).toEqual({ kind: "platform" });
     expect(created[0]?.body).toBe(TAIL);
+  });
+});
+
+describe("the agent's pull request settings", () => {
+  const FIELDS = { summary: "Adds the login form.", testing: "bun test" };
+  const agent = (over: Partial<AgentPullRequestSettings>) => ({
+    formatting: "inherit" as const,
+    template: null,
+    template_name: null,
+    ...over,
+  });
+  const bodyOf = async (options: Parameters<typeof harness>[0]) => {
+    const made = harness(options);
+    const opened = await made.service.open(actor, SESSION, PUSH, {
+      readBody: async () => FIELDS,
+    });
+    return { ...made, opened, body: made.created[0]?.body ?? "" };
+  };
+
+  test("the agent is looked up through the session, in the session's workspace", async () => {
+    const { agentReads } = await bodyOf({});
+    expect(agentReads).toEqual([`owner-a/${SESSION}`]);
+  });
+
+  test("its template beats the workspace's under `override`, and the body says whose it is", async () => {
+    const repository = fakeRepositoryReads({
+      "pull_request_template.md": "## Summary\nrepository's\n",
+    });
+    const { opened, body, receipts } = await bodyOf({
+      repository,
+      layout: {
+        template_mode: "override",
+        default_template: "## Summary\n<!-- workspace -->\n",
+      },
+      agent: agent({ template: "## Summary\n<!-- agent -->\n" }),
+    });
+    expect(opened.body_source).toEqual({ kind: "agent" });
+    expect(body).toContain("<!-- agent -->\n\nAdds the login form.");
+    expect(body).not.toContain("workspace");
+    expect(repository.calls).toEqual([]);
+    expect(receipts.at(-1)).toMatchObject({ template: { commit: null } });
+  });
+
+  test("under `repository_first` it stands in only where the repository has none", async () => {
+    const own = agent({ template: "## Summary\n<!-- agent -->\n" });
+    const bare = await bodyOf({ agent: own });
+    expect(bare.opened.body_source).toEqual({ kind: "agent" });
+    const repository = fakeRepositoryReads({
+      "pull_request_template.md": "## Summary\n<!-- theirs -->\n",
+    });
+    const held = await bodyOf({ agent: own, repository });
+    expect(held.opened.body_source).toMatchObject({ kind: "repository" });
+    expect(held.body).toContain("<!-- theirs -->");
+  });
+
+  test("`formatting: off` on the agent beats a workspace that has formatting on; `on` beats an `off` one", async () => {
+    const repository = fakeRepositoryReads({
+      "pull_request_template.md": "## Summary\nrepository's\n",
+    });
+    const off = await bodyOf({
+      repository,
+      agent: agent({ formatting: "off", template: "## Summary\n<!-- a -->\n" }),
+    });
+    expect(off.opened.body_source).toEqual({ kind: "platform" });
+    expect(repository.calls).toEqual([]);
+    const on = await bodyOf({
+      layout: { formatting: "off" },
+      agent: agent({ formatting: "on", template: "## Summary\n<!-- a -->\n" }),
+    });
+    expect(on.opened.body_source).toEqual({ kind: "agent" });
+  });
+
+  test("`template_name` picks one file of a directory that holds several", async () => {
+    const files = {
+      "docs/PULL_REQUEST_TEMPLATE/bug.md": "## Summary\n<!-- bug -->\n",
+      "docs/PULL_REQUEST_TEMPLATE/feature.md": "## Summary\n<!-- feature -->\n",
+    };
+    const none = await bodyOf({ repository: fakeRepositoryReads(files) });
+    expect(none.opened.body_source).toMatchObject({ skipped: "multiple" });
+    const named = await bodyOf({
+      repository: fakeRepositoryReads(files),
+      agent: agent({ template_name: "Feature.MD" }),
+    });
+    expect(named.opened.body_source).toEqual({
+      kind: "repository",
+      path: "docs/PULL_REQUEST_TEMPLATE/feature.md",
+    });
+    expect(named.body).toContain("<!-- feature -->");
+    expect(named.body).not.toContain("<!-- bug -->");
   });
 });

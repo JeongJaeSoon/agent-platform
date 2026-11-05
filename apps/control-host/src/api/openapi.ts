@@ -30,6 +30,7 @@ import {
   agentGitHubResponseSchema,
   agentIdentityParamsSchema,
   agentIdParamsSchema,
+  agentPullRequestResponseSchema,
   apiErrorResponseSchema,
   apiKeyIdParamsSchema,
   apiRootResponseSchema,
@@ -187,6 +188,8 @@ import {
   putAgentGitHubEnabledResponseSchema,
   putAgentGitHubSettingsRequestSchema,
   putAgentGitHubSettingsResponseSchema,
+  putAgentPullRequestSettingsRequestSchema,
+  putAgentPullRequestSettingsResponseSchema,
   putGitHubAppRequestSchema,
   putGitHubAppResponseSchema,
   putGitHubOAuthClientSecretRequestSchema,
@@ -364,6 +367,7 @@ const requestComponents = {
   RerunWorkflowRequest: rerunWorkflowRequestSchema,
   SubmitPullRequestReviewRequest: submitPullRequestReviewRequestSchema,
   PutGitHubSettingsRequest: putGitHubSettingsRequestSchema,
+  PutAgentPullRequestSettingsRequest: putAgentPullRequestSettingsRequestSchema,
   PutGitHubPullRequestSettingsRequest:
     putGitHubPullRequestSettingsRequestSchema,
   PutGitHubOAuthClientSecretRequest: putGitHubOAuthClientSecretRequestSchema,
@@ -509,6 +513,9 @@ const responseComponents = {
   DeleteGitHubAppResponse: deleteGitHubAppResponseSchema,
   ListGitHubAppsResponse: listGitHubAppsResponseSchema,
   PutGitHubUserLinkAppResponse: putGitHubUserLinkAppResponseSchema,
+  AgentPullRequestResponse: agentPullRequestResponseSchema,
+  PutAgentPullRequestSettingsResponse:
+    putAgentPullRequestSettingsResponseSchema,
   PutGitHubPullRequestSettingsResponse:
     putGitHubPullRequestSettingsResponseSchema,
   GetGitHubRepositoryAppPinsResponse: getGitHubRepositoryAppPinsResponseSchema,
@@ -5145,6 +5152,66 @@ export const API_ROUTE_DECLARATIONS = [
       schema: "PutAgentGitHubSettingsResponse",
       description: "Saved.",
       example: { settings_revision: 4, receipt_id: EXAMPLE_RECEIPT_ID },
+    },
+    errors: [400, 401, 403, 404, 409, 413, 503],
+    errorCodes: { 409: ["REVISION_CONFLICT"] },
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/agents/{id}/github/pull-request",
+    operationId: "getAgentPullRequestSettings",
+    tag: "Agents",
+    summary: "How the agent's pull request bodies differ from the workspace's",
+    description:
+      "`pull_request` holds `formatting` (`inherit` follows the workspace; `on` or `off` overrides it), `template` (markdown up to 16 KiB that stands in for the workspace's `default_template`; null uses the workspace's) and `template_name` (which file of a repository's `.github/PULL_REQUEST_TEMPLATE/` directory to use when it holds several; matched to the names found there, never used as a path). An agent with nothing saved reads as `inherit`, no template, no name, with `pull_request_revision` 0. Kept apart from the agent's GitHub settings: saving it does not make the agent's sessions follow those instead of their release. Whoever manages the agent reads it, and so do the live members of its managing team.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "AgentPullRequestResponse",
+      description: "The agent's values and the revision that guards them.",
+      example: {
+        pull_request: {
+          formatting: "inherit",
+          template: null,
+          template_name: "feature.md",
+        },
+        pull_request_revision: 2,
+      },
+    },
+    errors: [401, 403, 404, 503],
+  },
+  {
+    method: "put",
+    path: "/v1/agents/{id}/github/pull-request",
+    operationId: "putAgentPullRequestSettings",
+    tag: "Agents",
+    summary: "Change how the agent's pull request bodies are laid out",
+    description:
+      "Replaces the three values. `revision` is `pull_request_revision` as last read (0 when none was saved); a stale one is 409 `REVISION_CONFLICT` and nothing changes. A template the platform will not lay text around is 400 with `reason_code` `template_too_large`, `template_not_utf8` or `template_unsupported`. A change reaches pull requests the agent's sessions open or update afterwards; text already on GitHub is not rewritten. Writes a `set_agent_pull_request_settings` receipt with the values before and after (a template as its size and hash, never its text); `receipt_id` is null when nothing changed. Agent managers with a web session only; API keys are refused.",
+    auth: "session",
+    body: "PutAgentPullRequestSettingsRequest",
+    requestExample: {
+      pull_request: {
+        formatting: "inherit",
+        template: null,
+        template_name: "feature.md",
+      },
+      revision: 0,
+    },
+    success: {
+      status: 200,
+      schema: "PutAgentPullRequestSettingsResponse",
+      description: "Stored; the values and their new revision.",
+      example: {
+        pull_request: {
+          formatting: "inherit",
+          template: null,
+          template_name: "feature.md",
+        },
+        pull_request_revision: 1,
+        receipt_id: EXAMPLE_RECEIPT_ID,
+      },
     },
     errors: [400, 401, 403, 404, 409, 413, 503],
     errorCodes: { 409: ["REVISION_CONFLICT"] },

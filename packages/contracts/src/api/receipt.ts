@@ -123,6 +123,7 @@ export const RECEIPT_OPERATION_VALUES = [
   // How the workspace's pull request bodies are laid out; the receipt keeps a
   // template's hash and size, never its text.
   "set_github_pull_request_settings",
+  "set_agent_pull_request_settings",
   // A GitHub App repository added to the catalog from the console, its
   // default branch changed, removed, or seeded.
   // Console adds and removes are gone; their receipts stay readable.
