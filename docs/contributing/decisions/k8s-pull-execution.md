@@ -42,11 +42,11 @@ Kubernetes 설치에 실행 모드 `kubernetes_pull`을 opt-in으로 하나 더 
 [Kubernetes 실행 backend](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/kubernetes-backend/)와 `packages/adapters/execution/kubernetes`가 정본이다. 요약하면 다음과 같다.
 
 - scheduler pass가 대기 세션마다 launch를 예약하고(`worker_launches` 행, generation, 이미지·리소스 고정), `ensureExecution`으로 Pod 하나, Pod가 소유하는 nonce Secret 하나, 세션 workspace PVC(`ap-ws-<installation>-<session>`)를 만든다(`packages/platform/src/scheduler/launch.ts`, `kubernetes/src/backend.ts`).
-- scheduler Role은 worker namespace 하나에 걸리고 `pods`·`secrets`·`persistentvolumeclaims`의 get·list·create·delete와 `pods/log` get을 갖는다(`deploy/helm/agent-platform/templates/scheduler.yaml`). SA token을 마운트하는 Pod는 scheduler뿐이다.
+- scheduler Role은 worker namespace 하나에 걸리고 `pods`·`secrets`·`persistentvolumeclaims`의 get·list·create·delete와 `pods/log` get을 갖는다(`deploy/helm/werft/templates/scheduler.yaml`). SA token을 마운트하는 Pod는 scheduler뿐이다.
 - chart에는 worker namespace를 따로 정하는 값이 없다. `EXECUTION_K8S_NAMESPACE`의 기본값은 scheduler 자신의 namespace이고, chart의 Role과 RoleBinding도 release namespace에 생긴다(`scheduler.yaml:174`). 그 namespace에는 앱 Secret(`DATABASE_URL`, `PLATFORM_SECRET_KEY`, provider 키 등, `templates/api.yaml`, `external-secret.yaml`)이 있다. 그래서 지금 scheduler SA는 그 Secret을 모두 읽을 수 있고, Pod를 만들 수 있으므로 그 Secret을 마운트한 Pod도 만들 수 있다.
 - worker는 env의 nonce를 내고 `POST /worker/bootstrap-claim`으로 binding(세션, attempt, lease epoch, 토큰)을 받는다. 그 뒤 heartbeat와 `/next-input` long poll을 돈다. lease를 잃으면 진행 중인 turn을 버리고 exit 75로 끝난다(`apps/worker/src/worker-host.ts`).
 - 종료와 슬롯: terminate·lease 만료는 lease epoch를 올리고 `executions.desired_state=terminated`를 적는다. 이때 `pod_id`·`execution_id`를 남겨 "제거가 확인될 때까지 새 claim이 시작되지 않게" 한다(`packages/db/src/lease-reconcile.ts:150-180`). 슬롯 반환, binding 제거, 기동 실패 집계는 scheduler가 Pod가 사라진 것을 확인하는 경로에서만 일어난다(`packages/db/src/worker-unit-of-work.ts:3030-3290`).
-- lease가 만료되면 그 attempt의 worker 자격 증명이 폐기된다(`packages/db/src/lease-reconcile.ts:130-138`). worker의 egress는 NetworkPolicy로 egress proxy에만 열려 있다(`deploy/helm/agent-platform/templates/networkpolicies.yaml`).
+- lease가 만료되면 그 attempt의 worker 자격 증명이 폐기된다(`packages/db/src/lease-reconcile.ts:130-138`). worker의 egress는 NetworkPolicy로 egress proxy에만 열려 있다(`deploy/helm/werft/templates/networkpolicies.yaml`).
 - reconcile이 Pod를 inspect해서 기동 실패(backoff 뒤 5회면 quarantine), 낡은 isolation stamp, nonce 만료, launch spec 불일치를 교체하고, 실패한 Pod의 로그 tail을 읽는다.
 - 이미지와 리소스(`WORKER_IMAGE`, `WORKER_CPUS`, `WORKER_MEMORY_MB`, `WORKER_PIDS_LIMIT`)는 설치 전역이다. launch 예약 때 이미지 digest를 고정한다.
 
@@ -213,7 +213,7 @@ ScaledJob은 Job마다 다른 값을 넣을 수 없다. KEDA 문서는 Job 하�
 
 이 token이 증명하는 것은 "그 namespace의 그 SA로 뜬 Pod가 발급받았다"까지다. Pod가 아직 있는지, 요청이 그 Pod에서 왔는지, 그 Pod가 무슨 이미지를 돌리는지는 증명하지 않는다. 오프라인 검증은 지워진 Pod의 token도 만료까지(최대 10분) 받는다. 그래서 다음 두 가지가 함께 있어야 nonce를 대신한다.
 
-- "아직 claim하지 않은 Pod의 token을 다른 곳에서 먼저 쓰기"는 네트워크로 막히지 않는다. claim route는 공개 api에 있고, api의 3000 포트는 기본값(`networkPolicy.api.ingressFrom: []`)에서 어디서든 닿는다(`deploy/helm/agent-platform/values.yaml:305-316`). 막는 것은 token이 그 Pod의 볼륨에만 있다는 것과, 한 UID가 한 번만 claim한다는 규칙이다. 지금 nonce는 Pod가 소유한 Secret(`stringData.nonce`)에 저장되고 env로 들어간다(`packages/adapters/execution/kubernetes/src/specs.ts:348-361`). 그래서 그 namespace의 Secret을 읽을 수 있는 주체(scheduler SA 포함)도 nonce를 읽는다. projected token은 API 객체로 저장되지 않고 kubelet이 그 Pod의 볼륨에만 쓴다. 노출 경로는 token 쪽이 하나 적다. 새면 위험은 같다. 그 값으로 세션 하나를 claim할 수 있다(token은 최대 10분, nonce는 10분 TTL).
+- "아직 claim하지 않은 Pod의 token을 다른 곳에서 먼저 쓰기"는 네트워크로 막히지 않는다. claim route는 공개 api에 있고, api의 3000 포트는 기본값(`networkPolicy.api.ingressFrom: []`)에서 어디서든 닿는다(`deploy/helm/werft/values.yaml:305-316`). 막는 것은 token이 그 Pod의 볼륨에만 있다는 것과, 한 UID가 한 번만 claim한다는 규칙이다. 지금 nonce는 Pod가 소유한 Secret(`stringData.nonce`)에 저장되고 env로 들어간다(`packages/adapters/execution/kubernetes/src/specs.ts:348-361`). 그래서 그 namespace의 Secret을 읽을 수 있는 주체(scheduler SA 포함)도 nonce를 읽는다. projected token은 API 객체로 저장되지 않고 kubelet이 그 Pod의 볼륨에만 쓴다. 노출 경로는 token 쪽이 하나 적다. 새면 위험은 같다. 그 값으로 세션 하나를 claim할 수 있다(token은 최대 10분, nonce는 10분 TTL).
 - 이미지와 Pod spec은 token이 아니라 admission이 보증한다(아래 "Pod spec 강제").
 
 ### claim이 launch를 만든다

@@ -1,6 +1,6 @@
 # Kubernetes 설치 (Helm chart)
 
-main을 Kubernetes에 올리는 절차다. chart의 소스는 `deploy/helm/agent-platform`에 있고, `main` 머지와 `v*` 태그마다 `oci://ghcr.io/jeongjaesoon/werft`로 게시된다. 기본값은 일반 Kubernetes(kind 포함)에서 돈다. AWS 전용 값(ALB Ingress, IRSA, ECR, External Secrets)은 chart의 `values-aws.example.yaml`에만 있다. 각 구성요소의 동작과 환경 변수는 [Kubernetes 실행 backend](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/kubernetes-backend/), 백업은 [backup-restore.md § Kubernetes 설치](backup-restore.md#kubernetes-설치)에 있다.
+main을 Kubernetes에 올리는 절차다. chart의 소스는 `deploy/helm/werft`에 있고, `main` 머지와 `v*` 태그마다 `oci://ghcr.io/jeongjaesoon/werft`로 게시된다. 기본값은 일반 Kubernetes(kind 포함)에서 돈다. AWS 전용 값(ALB Ingress, IRSA, ECR, External Secrets)은 chart의 `values-aws.example.yaml`에만 있다. 각 구성요소의 동작과 환경 변수는 [Kubernetes 실행 backend](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/kubernetes-backend/), 백업은 [backup-restore.md § Kubernetes 설치](backup-restore.md#kubernetes-설치)에 있다.
 
 **현재 상태:** 공식 릴리스(`v*` 태그)는 아직 없다. `main` 머지마다 게시되는 chart에는 그 run의 이미지 digest와 worker runtime이 들어 있어, 저장소 checkout 없이 [게시 chart로 설치](#게시-chart로-설치)한다. 저장소의 `values.yaml`은 digest가 비어 있어 checkout의 경로로 설치할 때는 digest를 직접 넣어야 한다. 그대로는 render가 실패한다.
 
@@ -112,7 +112,7 @@ kubectl -n werft create secret generic werft --from-file=<secret-dir>
 설치별 값은 values 파일 하나에 둔다. 최소한 세 이미지의 digest와 checkpoint bucket이 들어간다. 연결·저장소·MCP 서버·상한은 values에 없다. 설치 뒤 콘솔에서 더하거나 `bun run settings:k8s import --document - < settings.json`으로 가져온다([api-server.md](api-server.md#설정-문서-가져오기내보내기)). 기본값과 설명은 `values.yaml`에 있다. 같은 명령이 처음 설치와 업그레이드를 모두 한다. **kind**(`-f deploy/kind/values.yaml -f <digest만 담은 파일>`)
 
 ```bash
-helm upgrade --install werft deploy/helm/agent-platform \
+helm upgrade --install werft deploy/helm/werft \
   --namespace werft -f values-<installation>.yaml --timeout 10m
 kubectl -n werft get job werft-migrate
 for d in api egress-proxy reconciler scheduler; do
@@ -160,10 +160,10 @@ ingress:
 적용 뒤 사내망에서 확인한다(**AWS 전용**). `curl -s -o /dev/null -w '%{http_code}\n' https://<host>/`는 200이다. `curl -si -X POST https://<host>/internal/worker/x`는 404이고, 응답 헤더가 `content-type: text/plain`이며 api가 붙이는 `x-request-id`가 없어야 한다. api의 404는 `application/json`에 `x-request-id`가 붙으므로, 상태 코드만으로는 ALB가 막았는지 알 수 없다.
 
 ```bash
-helm lint deploy/helm/agent-platform -f deploy/helm/agent-platform/values-aws.example.yaml   # kind 머신에서 확인
-helm template werft deploy/helm/agent-platform \
-  -f deploy/helm/agent-platform/values-aws.example.yaml >/dev/null                          # kind 머신에서 확인
-helm upgrade --install werft deploy/helm/agent-platform \
+helm lint deploy/helm/werft -f deploy/helm/werft/values-aws.example.yaml   # kind 머신에서 확인
+helm template werft deploy/helm/werft \
+  -f deploy/helm/werft/values-aws.example.yaml >/dev/null                          # kind 머신에서 확인
+helm upgrade --install werft deploy/helm/werft \
   --namespace werft -f values-aws-<installation>.yaml --timeout 10m               # AWS 전용
 ```
 

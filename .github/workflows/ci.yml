@@ -851,7 +851,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-  # The Helm chart (deploy/helm/agent-platform) with the CI digests and with
+  # The Helm chart (deploy/helm/werft) with the CI digests and with
   # the AWS example: helm lint, the render check (hardening, probes,
   # resources, digests, RBAC, NetworkPolicy, and the renders it must refuse)
   # and kubeconform against the Kubernetes and CRD schemas. Both tools are
@@ -885,17 +885,17 @@ jobs:
           echo "$RUNNER_TEMP/bin" >>"$GITHUB_PATH"
       - name: helm lint
         run: |
-          helm lint --strict deploy/helm/agent-platform -f deploy/helm/ci-digests.yaml
-          helm lint --strict deploy/helm/agent-platform -f deploy/helm/ci-digests.yaml \
-            -f deploy/helm/agent-platform/values-aws.example.yaml
+          helm lint --strict deploy/helm/werft -f deploy/helm/ci-digests.yaml
+          helm lint --strict deploy/helm/werft -f deploy/helm/ci-digests.yaml \
+            -f deploy/helm/werft/values-aws.example.yaml
       - name: Render check
         run: bun deploy/helm/render-check.ts
       - name: kubeconform
         run: |
           set -o pipefail
-          for values in deploy/helm/ci-digests.yaml deploy/helm/agent-platform/values-aws.example.yaml; do
+          for values in deploy/helm/ci-digests.yaml deploy/helm/werft/values-aws.example.yaml; do
             echo "== $values"
-            helm template ap deploy/helm/agent-platform -f deploy/helm/ci-digests.yaml -f "$values" \
+            helm template ap deploy/helm/werft -f deploy/helm/ci-digests.yaml -f "$values" \
               | kubeconform -strict -summary -kubernetes-version 1.33.0 \
                   -schema-location "$K8S_SCHEMAS" -schema-location "$CRD_SCHEMAS"
           done

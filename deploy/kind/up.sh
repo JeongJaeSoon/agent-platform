@@ -268,7 +268,7 @@ done
 
 # preview.sh runs this copy over older heads, whose chart has another name
 # and another default Secret.
-chart="$root/deploy/helm/agent-platform"
+chart="$root/deploy/helm/werft"
 chart_name="$(sed -n 's/^name: //p' "$chart/Chart.yaml")"
 
 # Helm waits for the migrate hook, and the rollouts below for the rest.

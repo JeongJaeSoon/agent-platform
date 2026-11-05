@@ -12,8 +12,8 @@ description: transcript 상한, worker 메모리, 노드당 세션 수의 관계
 | transcript 합계 상한 `MAX_TRANSCRIPT_BYTES` | 512MiB | `packages/runtime-core/src/checkpoint-manifest.ts` |
 | transcript part 상한 `MAX_TRANSCRIPT_PART_BYTES` | 16MiB | 같은 파일 |
 | 경고 문턱 `transcriptWarnBytes` | 상한의 80%, 409.6MiB | 같은 파일. 아래 "80% 경고" |
-| worker 메모리 `WORKER_MEMORY_MB` / helm `worker.memoryMb` | 4608MiB | `apps/control-host/src/scheduler/config.ts`, `deploy/helm/agent-platform/values.yaml`, `infra/compose.core.yml` |
-| workspace 상한 `EXECUTION_WORKSPACE_QUOTA_MB` / helm `worker.workspace.quotaMb` | 4096MiB (최솟값 1024) | `packages/adapters/execution/kubernetes/src/config.ts`, `packages/adapters/execution/local-docker/src/config.ts`, `deploy/helm/agent-platform/values.yaml` |
+| worker 메모리 `WORKER_MEMORY_MB` / helm `worker.memoryMb` | 4608MiB | `apps/control-host/src/scheduler/config.ts`, `deploy/helm/werft/values.yaml`, `infra/compose.core.yml` |
+| workspace 상한 `EXECUTION_WORKSPACE_QUOTA_MB` / helm `worker.workspace.quotaMb` | 4096MiB (최솟값 1024) | `packages/adapters/execution/kubernetes/src/config.ts`, `packages/adapters/execution/local-docker/src/config.ts`, `deploy/helm/werft/values.yaml` |
 
 `.env.example`은 로컬 개발용으로 `WORKER_MEMORY_MB=2048`을 둔다. 이 값을 그대로 쓰면 아래 절반 기준이 지켜지지 않는다. 큰 transcript를 resume하는 로컬 시험에서는 이 줄을 지우거나 4608로 바꾼다.
 
