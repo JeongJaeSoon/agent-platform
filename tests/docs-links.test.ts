@@ -366,6 +366,8 @@ const NOT_SETTINGS: Record<string, string> = {
   // whenever any proxy is set (s3.ts).
   ALL_PROXY: "a standard proxy variable, not one of ours",
   DOCKER_BACKEND_TEST_HELPER_IMAGE: "tests only",
+  K8S_BACKEND_TEST: "tests only (docs/contributing/development.md)",
+  K8S_BACKEND_TEST_IMAGE: "tests only (docs/contributing/development.md)",
   GIT_ALLOW_PROTOCOL: "written into git's environment, not read",
   GIT_CONFIG_COUNT: "written into git's environment, not read",
   NODE_EXTRA_CA_CERTS: "written into the engine's environment, not read",
@@ -436,7 +438,10 @@ describe("Operator settings", () => {
     new RegExp(`(?<![A-Z0-9_])${name}(?![A-Z0-9_])`).test(text);
 
   test("every setting the code reads is in docs/operator/", () => {
-    const operator = scan("docs/operator/*.md")
+    const operator = [
+      ...scan("docs/operator/*.md"),
+      ...scan("apps/docs/content/docs/run-server/self-hosting/operate/*.mdx"),
+    ]
       .map((file) => readFileSync(join(root, file), "utf8"))
       .join("\n");
     const names = codeSettings();
@@ -457,7 +462,10 @@ describe("Operator settings", () => {
   });
 
   test("every value compose or a script takes from the shell is in docs/", () => {
-    const docs = scan("docs/**/*.md")
+    const docs = [
+      ...scan("docs/**/*.md"),
+      ...scan("apps/docs/content/docs/run-server/self-hosting/operate/*.mdx"),
+    ]
       .map((file) => readFileSync(join(root, file), "utf8"))
       .join("\n");
     const names = shellSettings();

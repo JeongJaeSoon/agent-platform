@@ -2,7 +2,7 @@
 
 - 상태: **제안.** 오너 방향(2026-11-02): "표준 logger·에러 처리 — 설계 문서 먼저(architect, 로그 소비자·필드, proxy 무의존), 단계 PR, 로그 필드 변경 명시."
 - 기준 커밋: `origin/main` `799f9895f`. `파일:줄`은 모두 이 커밋 기준이다.
-- 범위: API·scheduler·reconciler·slack·metrics 역할(`packages/observability`), worker(`apps/worker`), egress proxy(`apps/egress-proxy`)가 stdout에 쓰는 프로세스 로그. 세션 데이터(`events` 표)와 receipt는 다루지 않는다([관측 문서](../../operator/observability.md)).
+- 범위: API·scheduler·reconciler·slack·metrics 역할(`packages/observability`), worker(`apps/worker`), egress proxy(`apps/egress-proxy`)가 stdout에 쓰는 프로세스 로그. 세션 데이터(`events` 표)와 receipt는 다루지 않는다([관측 문서](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/session-data-flow/)).
 
 ## 무엇을 골랐나
 
@@ -91,8 +91,8 @@ git grep -n -E "uncaughtException|unhandledRejection" -- 'apps/**/*.ts' 'package
 | restore-resume e2e | worker 줄에서 `worker.checkpoint.restored`·`worker.resume.ready`를 grep하고, 그 줄에 `"revision":<n>`과 commit 문자열이 있는지 본다 | `tests/e2e/restore-resume.sh:320-325` | 맞음. 문자열 검색이라 `fields` 아래로 옮겨도 맞는다 |
 | scheduler 통합 테스트 | proxy 로그에 `Egress proxy listening`·`Credential routes listening` 문장이 있는지 본다 | `tests/scheduler-launch-claim.integration.test.ts:444-448` | 맞음. L2 영향 없음 |
 | 단위 테스트 | 각 logger의 출력 모양 | `apps/worker/src/console-logger.test.ts`, `apps/egress-proxy/src/logger.test.ts`, `packages/observability/src/index.test.ts` | 맞음 |
-| Langfuse·OTel | 없음. 앱에는 OTel 의존성도 exporter도 없고 `trace_id`는 채우는 곳이 없다 | `docs/operator/observability.md:5`. `infra/observability/`는 예제 collector와 테스트 span 스크립트뿐이다 | 해당 없음 |
-| Grafana(Loki) 예제 | `service_name` label만 | `docs/operator/observability.md:137` | 해당 없음 |
+| Langfuse·OTel | 없음. 앱에는 OTel 의존성도 exporter도 없고 `trace_id`는 채우는 곳이 없다 | `apps/docs/content/docs/run-server/self-hosting/operate/session-data-flow.mdx`. `infra/observability/`는 예제 collector와 테스트 span 스크립트뿐이다 | 해당 없음 |
+| Grafana(Loki) 예제 | `service_name` label만 | `apps/docs/content/docs/run-server/self-hosting/operate/session-data-flow.mdx` | 해당 없음 |
 
 CI의 `docker logs … | tail -40` 단계(`.github/workflows/ci.yml:740`)는 로그를 job 출력에 보일 뿐 parse하지 않는다. 그래서 소비자로 세지 않는다.
 
@@ -225,7 +225,7 @@ L1과 L3은 서로 기다리지 않는다. L2는 Datadog을 쓰는 운영자에�
 - **플랫폼 로그 전부에 `event` 달기.** 260개 호출 중 metric이 읽는 것은 몇 개이고, 문장을 식별자로 쓰는 규칙(3.1절)과 Datadog fallback이 나머지를 받는다. 새 metric이 생길 때 그 로그에만 단다.
 - **message 문장 바꾸기.** 62개를 문서·Datadog이 인용한다. 바꿀 때는 로그 필드 변경으로 다룬다.
 - **proxy 로그 모양 바꾸기.** 이미 계약에 맞는다.
-- **OTel·trace 연결.** `trace_id`를 채우는 일은 trace exporter를 들일 때 정한다([관측 문서](../../operator/observability.md)).
+- **OTel·trace 연결.** `trace_id`를 채우는 일은 trace exporter를 들일 때 정한다([관측 문서](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/session-data-flow/)).
 - **`uncaughtException`·`unhandledRejection` 처리기.** 잡히지 않은 예외는 지금 Bun의 기본 출력으로 남는다. 이것을 JSON으로 바꿀지는 그런 줄을 놓친 사고가 생길 때 다시 본다.
 - **새 에러 타입·코드 체계.** API 오류 코드는 `packages/contracts/src/shared/error.ts`의 `API_ERROR_CODE_VALUES`가 정본이고, worker·proxy의 거절 코드도 각자의 계약에 있다. 이 문서는 그 에러를 로그에 남기는 방법만 정한다. 경계에서 에러를 바꾸는 규칙을 새로 만들 근거(같은 실패가 경계마다 다른 코드로 나가는 사례)는 이번 조사에서 찾지 않았다.
 - **CLI 출력의 구조화.** 사람이 읽거나 다른 명령이 받는 출력이다(3.4절).

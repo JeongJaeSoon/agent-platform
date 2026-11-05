@@ -1,6 +1,9 @@
-# 데이터베이스 연결과 느린 쿼리
+---
+title: "데이터베이스 연결과 느린 쿼리"
+description: 플랫폼이 PostgreSQL에 거는 연결 수와 세션 설정, 느린 쿼리와 잠금 대기를 보는 법
+---
 
-플랫폼이 PostgreSQL 16에 거는 연결 수와 세션 설정, 그리고 느린 쿼리와 잠금 대기를 보는 법을 적는다. compose 설치는 Postgres를 직접 띄우므로 서버 설정도 compose가 건다. Helm 설치는 운영자가 가져온 DB를 쓰므로 서버 설정은 운영자가 켠다. 코드가 기여자에게 요구하는 규칙(트랜잭션 범위, 잠금 순서, migration)은 [개발 문서의 DB 사용 규칙](../contributing/development.md#db-사용-규칙)에 있다.
+플랫폼이 PostgreSQL 16에 거는 연결 수와 세션 설정, 그리고 느린 쿼리와 잠금 대기를 보는 법을 적는다. compose 설치는 Postgres를 직접 띄우므로 서버 설정도 compose가 건다. Helm 설치는 운영자가 가져온 DB를 쓰므로 서버 설정은 운영자가 켠다. 코드가 기여자에게 요구하는 규칙(트랜잭션 범위, 잠금 순서, migration)은 [개발 문서의 DB 사용 규칙](https://github.com/JeongJaeSoon/werft/blob/main/docs/contributing/development.md#db-사용-규칙)에 있다.
 
 ## 역할별 연결 수
 

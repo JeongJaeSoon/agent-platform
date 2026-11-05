@@ -1,5 +1,5 @@
 // The platform metrics in the Prometheus text exposition format (0.0.4).
-// Every name, label and help line lives here; docs/operator/metrics.md is
+// Every name, label and help line lives here; apps/docs/content/docs/run-server/self-hosting/operate/metrics.mdx is
 // their reference for operators.
 import { type PlatformMetricsSnapshot, publicStatus } from "@werft-ai/db";
 

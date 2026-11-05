@@ -1,12 +1,12 @@
 # Kubernetes 설치 (Helm chart)
 
-main을 Kubernetes에 올리는 절차다. chart의 소스는 `deploy/helm/agent-platform`에 있고, `main` 머지와 `v*` 태그마다 `oci://ghcr.io/jeongjaesoon/werft`로 게시된다. 기본값은 일반 Kubernetes(kind 포함)에서 돈다. AWS 전용 값(ALB Ingress, IRSA, ECR, External Secrets)은 chart의 `values-aws.example.yaml`에만 있다. 각 구성요소의 동작과 환경 변수는 [Kubernetes 실행 backend](kubernetes-backend.md), 백업은 [backup-restore.md § Kubernetes 설치](backup-restore.md#kubernetes-설치)에 있다.
+main을 Kubernetes에 올리는 절차다. chart의 소스는 `deploy/helm/agent-platform`에 있고, `main` 머지와 `v*` 태그마다 `oci://ghcr.io/jeongjaesoon/werft`로 게시된다. 기본값은 일반 Kubernetes(kind 포함)에서 돈다. AWS 전용 값(ALB Ingress, IRSA, ECR, External Secrets)은 chart의 `values-aws.example.yaml`에만 있다. 각 구성요소의 동작과 환경 변수는 [Kubernetes 실행 backend](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/kubernetes-backend/), 백업은 [backup-restore.md § Kubernetes 설치](backup-restore.md#kubernetes-설치)에 있다.
 
 **현재 상태:** 공식 릴리스(`v*` 태그)는 아직 없다. `main` 머지마다 게시되는 chart에는 그 run의 이미지 digest와 worker runtime이 들어 있어, 저장소 checkout 없이 [게시 chart로 설치](#게시-chart로-설치)한다. 저장소의 `values.yaml`은 digest가 비어 있어 checkout의 경로로 설치할 때는 digest를 직접 넣어야 한다. 그대로는 render가 실패한다.
 
 Docker 단일 서버 설치(`local-docker` 실행 기반, compose)는 그대로 운영한다. 그 절차는 [server-deployment.md](server-deployment.md)와 [test-ops.md](test-ops.md)이고, 이 문서는 그 옆의 두 번째 설치 경로다.
 
-worker Pod 하나의 메모리(`worker.memoryMb`)는 transcript 상한에 맞춰 잡은 값이고, requests = limits라서 노드당 동시 세션 수를 정한다. 노드 크기를 정하거나 이 값을 바꾸기 전에 [capacity.md](capacity.md)를 본다.
+worker Pod 하나의 메모리(`worker.memoryMb`)는 transcript 상한에 맞춰 잡은 값이고, requests = limits라서 노드당 동시 세션 수를 정한다. 노드 크기를 정하거나 이 값을 바꾸기 전에 [capacity.md](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/capacity/)를 본다.
 
 명령마다 어디서 확인했는지 적었다. **kind**는 `deploy/kind/up.sh`로 띄운 클러스터에서 돌려 본 명령이고, **AWS 전용**은 AWS 리소스가 있어야 해서 로컬에서는 돌릴 수 없는 명령이다. **kind** 표시는 아래 두 경우에 한해 문서 블록 그대로의 실행을 뜻하지 않는다. 직접 설치의 Secret 블록은 `up.sh`가 만드는 형태와 다르고 문서 블록 그대로는 실행하지 않았다. "게시 chart를 올리기"의 명령은 게시된 chart가 아니라 fixture chart로 돌렸다. 업그레이드 전 검사의 직전 이미지 경로(`lookup`으로 직전 이미지를 읽는 분기와, 직전 이미지를 빼거나 바꾸는 실제 `helm upgrade`)는 kind에서도 돌리지 않았다.
 
@@ -25,7 +25,7 @@ worker Pod 하나의 메모리(`worker.memoryMb`)는 transcript 상한에 맞춰
 | session archive CronJob | 주 1회 | `sessionArchive.schedule`(기본 `0 5 * * 0`)·`afterDays`(기본 180, 0=끔, 30~3650)·`dryRun`(기본 `true`). 오래 쉰 세션의 이벤트를 bucket으로 옮긴다([data-retention.md](data-retention.md#세션-이벤트-보관)) |
 | NetworkPolicy | 5 | worker는 egress-proxy로만 나간다. 제어 영역 Pod 중 바깥 연결을 막는 것은 slack 하나다 |
 | Ingress, ExternalSecret | 선택 | `ingress.enabled`, `secrets.externalSecret.enabled` |
-| metrics Deployment + Service(9464) + NetworkPolicy | 선택, 1, `Recreate` | `metrics.enabled`. 플랫폼 지표를 낸다([metrics.md](metrics.md)) |
+| metrics Deployment + Service(9464) + NetworkPolicy | 선택, 1, `Recreate` | `metrics.enabled`. 플랫폼 지표를 낸다([metrics.md](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/metrics/)) |
 
 chart가 만들지 않는 것: PostgreSQL 16, S3 호환 object store, Secret 값, worker Pod(scheduler가 세션마다 만든다). kind에서는 `deploy/kind/deps.yaml`의 PostgreSQL·LocalStack이 대신한다.
 
@@ -332,7 +332,7 @@ kubectl -n werft logs job/werft-upgrade-check
 | worker 이미지 하나, runtime·직전 이미지 없음 | 다른 worker 이미지 | `check_failed`. 대상에 `images.worker.runtime`과, 지금 이미지를 담은 `images.workerPrevious`를 둔다 |
 | runtime이나 직전 이미지가 있음 | `images.worker.runtime`을 뺀 값 | `check_failed`. 조합 없이는 세션을 검사할 수 없다 |
 
-runtime 값을 얻는 방법은 [configuration.md의 API 설정](configuration.md)에 있다. 최소 values 설치는 runtime 없이 시작하고, worker 이미지를 처음 바꾸는 upgrade에서 두 이미지의 runtime을 함께 넣는다.
+runtime 값을 얻는 방법은 [configuration.md의 API 설정](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/configuration/)에 있다. 최소 values 설치는 runtime 없이 시작하고, worker 이미지를 처음 바꾸는 upgrade에서 두 이미지의 runtime을 함께 넣는다.
 
 `images.worker`를 그대로 두고 배포된 `images.workerPrevious`를 빼거나 바꾸는 upgrade는 세션을 비교한다. 대상 이미지(현재 이미지와, 있으면 직전 이미지) 어느 쪽과도 조합이 맞지 않거나 조합이 기록되지 않은 세션이 있으면 `refused`이고, 그 목록을 승인하면 통과한다. 조합이 기록되지 않은 세션은 이미지를 바꾸는 upgrade와 같게 어느 경우든 고른다. 배포된 직전 이미지가 없었거나 그대로면 세션을 비교하지 않고, 승인 목록이 비어 있을 때 `proceed`다(남은 승인은 `refused`다). 이미지만 다르고 조합이 같은 재빌드는 직전 이미지를 빼도 세션이 현재 이미지에서 재개되므로 목록에 오르지 않는다.
 

@@ -39,7 +39,7 @@ Kubernetes 설치에 실행 모드 `kubernetes_pull`을 opt-in으로 하나 더 
 
 ## 지금 구조
 
-[Kubernetes 실행 backend](../../operator/kubernetes-backend.md)와 `packages/adapters/execution/kubernetes`가 정본이다. 요약하면 다음과 같다.
+[Kubernetes 실행 backend](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/kubernetes-backend/)와 `packages/adapters/execution/kubernetes`가 정본이다. 요약하면 다음과 같다.
 
 - scheduler pass가 대기 세션마다 launch를 예약하고(`worker_launches` 행, generation, 이미지·리소스 고정), `ensureExecution`으로 Pod 하나, Pod가 소유하는 nonce Secret 하나, 세션 workspace PVC(`ap-ws-<installation>-<session>`)를 만든다(`packages/platform/src/scheduler/launch.ts`, `kubernetes/src/backend.ts`).
 - scheduler Role은 worker namespace 하나에 걸리고 `pods`·`secrets`·`persistentvolumeclaims`의 get·list·create·delete와 `pods/log` get을 갖는다(`deploy/helm/agent-platform/templates/scheduler.yaml`). SA token을 마운트하는 Pod는 scheduler뿐이다.
@@ -176,7 +176,7 @@ chart에 `execution.workerNamespace`를 둔다. 값이 있으면 다음을 그 n
 | `secrets` | get·list·create·delete | 없음 |
 | `pods/log` | get | 켜면 get(worker Pod만 있는 namespace), 끄면 없음 |
 
-어댑터, chart Role, `deploy/helm/render-check.ts`의 Role 검사, [Kubernetes 실행 backend](../../operator/kubernetes-backend.md)의 RBAC 표가 함께 바뀐다.
+어댑터, chart Role, `deploy/helm/render-check.ts`의 Role 검사, [Kubernetes 실행 backend](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/kubernetes-backend/)의 RBAC 표가 함께 바뀐다.
 
 ### 0안의 이전
 
