@@ -3,7 +3,7 @@
 # the root, so "the last run" may be someone else's stack.
 #   . run.sh <run id | verify-ap-<run id> | run dir>  → sets VERIFY_RUN_DIR
 
-verify_root=${VERIFY_AP_ROOT:-$(t=${TMPDIR:-/tmp}; echo "${t%/}")/verify-agent-platform}
+verify_root=${VERIFY_AP_ROOT:-$(t=${TMPDIR:-/tmp}; echo "${t%/}")/verify-werft}
 
 # Read-only: runs not yet torn down (down.sh removes ports.yml) or with containers up.
 verify_list_runs() {

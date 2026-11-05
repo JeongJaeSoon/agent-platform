@@ -662,15 +662,12 @@ printf '%s\\n' "$@" > "${dir}/kubectl-args"
 });
 
 /**
- * The verify-agent-platform skill's down.sh, which tears its run's stack
+ * The verify-werft skill's down.sh, which tears its run's stack
  * down through local.sh, against the same kind of docker stand-in.
  */
-describe("verify-agent-platform down.sh", () => {
+describe("verify-werft down.sh", () => {
   const repo = join(import.meta.dir, "..");
-  const downSh = join(
-    repo,
-    ".claude/skills/verify-agent-platform/scripts/down.sh",
-  );
+  const downSh = join(repo, ".claude/skills/verify-werft/scripts/down.sh");
   const project = "verify-ap-20261025-000000-1";
   let dir: string;
   let runDir: string;

@@ -28,9 +28,9 @@ owner·admin은 웹 콘솔 `/members`에서 초대 대화상자로 링크를 만
 Preconditions: [web-login.md](./web-login.md)대로 owner를 `web-user.mjs`로 bootstrap·login했다. `orch hold browser --note "<what>"`를 잡았다. 화면은 이 run의 headless Chrome(`browser.mjs`, [web-console.md](./web-console.md))으로 몬다. 비밀번호와 초대 token은 명령에 쓰지 않는다: `web-user.mjs invite`가 token을 `users/<who>.invite`에, 초대받는 사람의 무작위 비밀번호를 `users/<who>`에 두고, 수락은 API(`web-user.mjs accept`)나 화면(`browser.mjs accept`)이 그 파일에서 읽는다.
 
 ```sh
-. .claude/skills/verify-agent-platform/scripts/lib.sh <run id>
-U=.claude/skills/verify-agent-platform/scripts/web-user.mjs
-B=.claude/skills/verify-agent-platform/scripts/browser.mjs
+. .claude/skills/verify-werft/scripts/lib.sh <run id>
+U=.claude/skills/verify-werft/scripts/web-user.mjs
+B=.claude/skills/verify-werft/scripts/browser.mjs
 node $U <run id> invite owner member member   # 201 {invite_id, invite_token: (saved, N chars), expires_at}
 node $B <run id> start                         # PID는 browser/pid에 남는다
 node $B <run id> accept member                 # 계정 확인에서 "처음"을 고르고 이름·비밀번호를 넣어 수락 → "accept member -> /"

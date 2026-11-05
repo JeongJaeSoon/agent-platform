@@ -112,7 +112,7 @@ class Web {
     this.cookie =
       reply.headers
         .getSetCookie()
-        .find((v) => v.startsWith("__Host-ap_session="))
+        .find((v) => v.startsWith("__Host-werft_session="))
         ?.split(";")[0] ?? "";
   }
 
@@ -938,7 +938,7 @@ async function ensureLinks() {
       client.extra =
         start.headers
           .getSetCookie()
-          .find((v) => v.startsWith("ap_slack_link="))
+          .find((v) => v.startsWith("werft_slack_link="))
           ?.split(";")[0] ?? "";
       const consent = await fetch(
         `${start.body.authorize_url}&mock_user=${person.slackUser}`,
