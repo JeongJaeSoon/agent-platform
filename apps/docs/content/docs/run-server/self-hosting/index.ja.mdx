@@ -3,7 +3,7 @@ title: "セルフホスティング"
 description: 複数人で使う Werft サーバーの設置方法を選ぶ
 ---
 
-Werft サーバーを自分で設置し、チームで共有する方法です。ひとりで試すだけなら [開発用サーバーの実行](/run-server/dev-server) で足ります。設置方法は2つあります。自分の方法のページが、`/readyz` が 200 を返すところまでの設置手順を案内します。Kubernetes の設置は公開 chart を使って kind で確認しましたが、DB Secret の手順はドキュメントのブロックそのままではなく、修正した kind の Secret ブロックと Kubernetes のアップグレード手順は実行していません。単一サーバーのページは最初から最後まで実行して確認していません。
+Werft サーバーを自分で設置し、チームで共有する方法です。ひとりで試すだけなら [開発用サーバーの実行](/run-server/dev-server) で足ります。設置方法は2つあります。自分の方法のページが、`/readyz` が 200 を返すところまでの設置手順を案内します。Kubernetes の設置は公開 chart を使って kind で確認しましたが、DB Secret の手順はドキュメントのブロックそのままではなく、修正した kind の Secret ブロックは実行していません。Kubernetes のアップグレードは kind でセッションがない状態で一度、手順1〜4を実行し、`proceed` の判定だけを確認しました。単一サーバーのページは、LocalStack の設置で手順1〜6と `key create` まで実行して確認しました。
 
 ## 設置方法を選ぶ
 
@@ -37,11 +37,11 @@ Werft サーバーを自分で設置し、チームで共有する方法です�
 リリース(`v*` タグ)ごとに GitHub Release ができ、`release-manifest.json` が付く。3 つのイメージの digest、worker runtime、chart バージョンがこの 1 ファイルにある。リポジトリを checkout せず、`gh` と `jq` で読む。以下は最初のリリースができた後のコマンドである。
 
 ```bash
-TAG=v0.1.0   # 読むリリースのタグ
-gh release download "$TAG" -R JeongJaeSoon/werft -p release-manifest.json -D "$TAG"   # タグごとに 1 ディレクトリ
-jq -r '.images[] | "\(.image)@\(.digest)"' "$TAG/release-manifest.json"   # デプロイに使う 3 つの digest
+TAG=v0.1.0   # the release tag to read
+gh release download "$TAG" -R JeongJaeSoon/werft -p release-manifest.json -D "$TAG"   # one directory per tag
+jq -r '.images[] | "\(.image)@\(.digest)"' "$TAG/release-manifest.json"   # the three digests to deploy
 jq -c .workerRuntime "$TAG/release-manifest.json"                          # worker runtime
-jq -r '"\(.chart.ref) \(.chart.version)"' "$TAG/release-manifest.json"     # chart の場所とバージョン
+jq -r '"\(.chart.ref) \(.chart.version)"' "$TAG/release-manifest.json"     # chart location and version
 ```
 
 digest は 2 つのアーキテクチャを含む index の digest で、デプロイはこの値で固定する。一度付いた manifest は変わらない。フィールドと確認方法は[リリース manifest を読む](/run-server/self-hosting/operate/images-and-supply-chain#リリースmanifestを読む)を見る。

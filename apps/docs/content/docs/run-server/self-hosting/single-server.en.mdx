@@ -170,7 +170,7 @@ jq -n \
 
 ## 5. Install
 
-The object store is chosen at the first `deploy` and cannot be changed afterwards. The default is a LocalStack on the same host. For a real server, put `TEST_OPS_OBJECT_STORE=s3` in front of both commands below, prepare a dedicated AWS S3 bucket, and fill `AWS_REGION`, `S3_BUCKET`, `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` in the env file. Add `<bucket>.s3.ap-northeast-1.amazonaws.com:443` to `EGRESS_CREDENTIAL_ALLOWLIST` (`s3.ap-northeast-1.amazonaws.com:443` if the bucket name contains a `.`) and empty `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` (`preflight` refuses it while `localstack:4566` remains). For the bucket, follow [Dedicated S3 bucket](#dedicated-s3-bucket).
+The object store is chosen at the first `deploy` and cannot be changed afterwards. The default is a LocalStack on the same host. For a real server, put `TEST_OPS_OBJECT_STORE=s3` in front of both commands below, prepare a dedicated AWS S3 bucket, and fill `AWS_REGION`, `S3_BUCKET`, `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` in the env file. Add `<bucket>.s3.ap-northeast-1.amazonaws.com:443` to `EGRESS_CREDENTIAL_ALLOWLIST` (`s3.ap-northeast-1.amazonaws.com:443` if the bucket name contains a `.`) and empty `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` (`preflight` refuses it while `localstack:4566` remains). For the bucket, follow [Dedicated S3 bucket](#dedicated-s3-bucket). This S3 install was not run; the verification of steps 1 to 6 above was done on a LocalStack install.
 
 `preflight` checks the Docker version, the checkout, the env file and the release file first. The scheduler checks the disk quota during `deploy`. If it passes, `deploy` installs from the same file.
 
@@ -199,11 +199,11 @@ To reach it from another machine, open an SSH tunnel.
 ssh -N -L 3000:127.0.0.1:3000 <user>@<server>
 ```
 
-To expose it on an internal DNS name, put a reverse proxy with TLS and a VPN or an IP allowlist in front. Turn buffering off for the event stream (SSE) and keep the read timeout long. Never expose PostgreSQL or the Docker socket.
+To expose it on an internal DNS name, put a reverse proxy with TLS and a VPN or an IP allowlist in front. Turn buffering off for the event stream (SSE) and keep the read timeout long. Never expose PostgreSQL or the Docker socket. This reverse proxy was not set up and checked.
 
 ## 7. First owner and API key
 
-Open `http://127.0.0.1:3000/bootstrap` in a browser and enter the `BOOTSTRAP_TOKEN` from the env file, the owner details and a workspace name. If you did not put it in the env file, find the line that starts with `BOOTSTRAP_TOKEN` in the API container's log and use its value. Anyone who can read that log can bootstrap until the first owner exists, so limit who can read it to operators. Sending the same token again returns `409 BOOTSTRAP_DONE`. Then sign in at `/login`.
+Open `http://127.0.0.1:3000/bootstrap` in a browser and enter the `BOOTSTRAP_TOKEN` from the env file, the owner details and a workspace name. If you did not put it in the env file, find the line that starts with `BOOTSTRAP_TOKEN` in the API container's log and use its value. Anyone who can read that log can bootstrap until the first owner exists, so limit who can read it to operators. Sending the same token again returns `409 BOOTSTRAP_DONE`. Then sign in at `/login`. Creating the owner on this screen was not checked.
 
 Issue a separate owner and API key for each user. The plain key is printed once, so capture it in a variable and hand it over directly.
 
@@ -278,7 +278,7 @@ scripts/test-ops.sh backup
 - Alerts: treat a non-zero exit, a failure to restart the services, and 26 hours without a new successful copy as failures.
 - Restore drill: once a month, and after the first backup following each upgrade.
 
-A restore drill restores a backup into a new project and its object store and compares every checkpoint pointer by version. On a LocalStack install, call it without a bucket. On an S3 install, pass a freshly created, empty bucket with `--bucket` for every drill. It refuses a target that is the original bucket or is not empty.
+A restore drill restores a backup into a new project and its object store and compares every checkpoint pointer by version. On a LocalStack install, call it without a bucket. On an S3 install, pass a freshly created, empty bucket with `--bucket` for every drill. It refuses a target that is the original bucket or is not empty. This restore drill was not run.
 
 ```bash
 # Restore a backup into a throwaway project and a new, empty bucket, then verify it
@@ -291,7 +291,7 @@ A restore drill restores only PostgreSQL and the object store and does not start
 
 ### Reboot
 
-A LocalStack install loses its objects on reboot. Leave a backup before a reboot you know about and restore from it.
+A LocalStack install loses its objects on reboot. Leave a backup before a reboot you know about and restore from it. This reboot procedure was not run.
 
 ```bash
 # Back up, leave the writers stopped, restart the host, then restore the objects

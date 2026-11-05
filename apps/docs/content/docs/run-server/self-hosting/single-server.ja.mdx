@@ -170,7 +170,7 @@ jq -n \
 
 ## 5. 設置する
 
-オブジェクトストアは最初の `deploy` で決まり、その後は変更できません。既定は同じホストの LocalStack です。実サーバーでは、下の2つのコマンドの前に `TEST_OPS_OBJECT_STORE=s3` を付け、専用の AWS S3 bucket を用意して、env ファイルに `AWS_REGION`、`S3_BUCKET`、`AWS_ACCESS_KEY_ID`、`AWS_SECRET_ACCESS_KEY` を入れます。`EGRESS_CREDENTIAL_ALLOWLIST` に `<bucket>.s3.ap-northeast-1.amazonaws.com:443` を足し(bucket 名に `.` が含まれる場合は `s3.ap-northeast-1.amazonaws.com:443`)、`EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` は値を空にします(`localstack:4566` が残っていると `preflight` が拒否します)。bucket の準備は[専用の S3 bucket](#専用の-s3-bucket)に従います。
+オブジェクトストアは最初の `deploy` で決まり、その後は変更できません。既定は同じホストの LocalStack です。実サーバーでは、下の2つのコマンドの前に `TEST_OPS_OBJECT_STORE=s3` を付け、専用の AWS S3 bucket を用意して、env ファイルに `AWS_REGION`、`S3_BUCKET`、`AWS_ACCESS_KEY_ID`、`AWS_SECRET_ACCESS_KEY` を入れます。`EGRESS_CREDENTIAL_ALLOWLIST` に `<bucket>.s3.ap-northeast-1.amazonaws.com:443` を足し(bucket 名に `.` が含まれる場合は `s3.ap-northeast-1.amazonaws.com:443`)、`EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` は値を空にします(`localstack:4566` が残っていると `preflight` が拒否します)。bucket の準備は[専用の S3 bucket](#専用の-s3-bucket)に従います。この S3 の設置は実行して確認していません。上の手順1〜6の検証は LocalStack の設置で行いました。
 
 `preflight` が、Docker のバージョン、checkout、env ファイル、release ファイルを先に検査します。ディスクの quota は `deploy` で scheduler が検査します。通れば、`deploy` が同じファイルで設置します。
 
@@ -199,11 +199,11 @@ curl -fsS -w '\n%{http_code}\n' http://127.0.0.1:3000/readyz
 ssh -N -L 3000:127.0.0.1:3000 <user>@<server>
 ```
 
-社内 DNS 名で公開するには、TLS と VPN または IP allowlist を備えた reverse proxy を前に置きます。イベントストリーム(SSE)のため buffering を切り、read timeout を長くします。PostgreSQL と Docker socket は外に公開しません。
+社内 DNS 名で公開するには、TLS と VPN または IP allowlist を備えた reverse proxy を前に置きます。イベントストリーム(SSE)のため buffering を切り、read timeout を長くします。PostgreSQL と Docker socket は外に公開しません。この reverse proxy は設定して確認していません。
 
 ## 7. 最初の owner と API key
 
-ブラウザで `http://127.0.0.1:3000/bootstrap` を開き、env ファイルの `BOOTSTRAP_TOKEN`、owner の情報、workspace 名を入力します。env ファイルに入れていない場合は、API コンテナのログから `BOOTSTRAP_TOKEN` で始まる行を探し、その値を使います。このログを読める人は最初の owner ができるまで bootstrap できるので、閲覧権限を運用者に限ります。同じトークンをもう一度送ると `409 BOOTSTRAP_DONE` になります。続けて `/login` でログインします。
+ブラウザで `http://127.0.0.1:3000/bootstrap` を開き、env ファイルの `BOOTSTRAP_TOKEN`、owner の情報、workspace 名を入力します。env ファイルに入れていない場合は、API コンテナのログから `BOOTSTRAP_TOKEN` で始まる行を探し、その値を使います。このログを読める人は最初の owner ができるまで bootstrap できるので、閲覧権限を運用者に限ります。同じトークンをもう一度送ると `409 BOOTSTRAP_DONE` になります。続けて `/login` でログインします。この画面で owner を作ることは確認していません。
 
 利用者ごとに owner と API key を別々に発行します。平文の key は一度しか出力されないので、変数に受けて直接渡します。
 
@@ -278,7 +278,7 @@ scripts/test-ops.sh backup
 - 通知: コマンドが 0 以外で終わったとき、サービスを再起動できなかったとき、26時間新しい成功分がないときを失敗として扱います。
 - 復元訓練: 月に1回、そしてアップグレード後の最初のバックアップごとに行います。
 
-復元訓練は、バックアップを新しい project とそのオブジェクトストアに復元し、すべての checkpoint pointer を version 単位で照合します。LocalStack の設置では bucket なしで呼びます。S3 の設置では、訓練のたびに新しく作った空の bucket を `--bucket` で渡します。復元先が元の bucket であるか、空でない場合は拒否します。
+復元訓練は、バックアップを新しい project とそのオブジェクトストアに復元し、すべての checkpoint pointer を version 単位で照合します。LocalStack の設置では bucket なしで呼びます。S3 の設置では、訓練のたびに新しく作った空の bucket を `--bucket` で渡します。復元先が元の bucket であるか、空でない場合は拒否します。この復元訓練は実行して確認していません。
 
 ```bash
 # Restore a backup into a throwaway project and a new, empty bucket, then verify it
@@ -291,7 +291,7 @@ scripts/test-ops.sh restore-drill /var/lib/agent-platform/test-ops/backups/backu
 
 ### 再起動
 
-LocalStack の設置は再起動すると object を失います。あらかじめ分かっている再起動では、バックアップを残して復元します。
+LocalStack の設置は再起動すると object を失います。あらかじめ分かっている再起動では、バックアップを残して復元します。この再起動の手順は実行して確認していません。
 
 ```bash
 # Back up, leave the writers stopped, restart the host, then restore the objects
