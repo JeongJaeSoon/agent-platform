@@ -159,18 +159,30 @@ integration("scheduling and the push finishing, in each order", () => {
     return { held: holding.opened, release: release.open, done };
   }
 
-  async function stillWaiting(promise: Promise<unknown>) {
-    let settled = false;
-    promise.then(
-      () => {
-        settled = true;
-      },
-      () => {
-        settled = true;
-      },
+  /**
+   * The lock each waiting backend of this database asked for, told apart by
+   * the table of the statement it is stuck on: the session row or the push
+   * request row. Oldest waiter first.
+   */
+  async function waitingFor(): Promise<string[]> {
+    const { rows } = await pool.query<{ query: string }>(
+      `SELECT query FROM pg_stat_activity
+        WHERE datname = current_database() AND wait_event_type = 'Lock'
+        ORDER BY query_start`,
     );
-    await Bun.sleep(300);
-    return !settled;
+    return rows.map((entry) =>
+      entry.query.includes('from "sessions"') ? "session" : "request",
+    );
+  }
+
+  /** Polls until `count` backends wait: a writer is shown to have reached its lock. */
+  async function untilWaiting(count: number): Promise<string[]> {
+    for (let attempt = 0; attempt < 100; attempt++) {
+      const waiting = await waitingFor();
+      if (waiting.length >= count) return waiting;
+      await Bun.sleep(30);
+    }
+    throw new Error(`fewer than ${count} writers reached a lock`);
   }
 
   test("the reservation first, then the push finishes: the finish makes the stage due", async () => {
@@ -179,9 +191,11 @@ integration("scheduling and the push finishing, in each order", () => {
     await barrier.held;
 
     const reserving = schedule(sessionId, id);
-    expect(await stillWaiting(reserving)).toBe(true);
+    // The first writer holds the session and waits for the barrier's row; the
+    // second waits for the session behind it, not for the row.
+    expect(await untilWaiting(1)).toEqual(["request"]);
     const finishing = finish(job);
-    expect(await stillWaiting(finishing)).toBe(true);
+    expect(await untilWaiting(2)).toEqual(["request", "session"]);
     expect(await row(id)).toMatchObject({ state: "pushing", prState: null });
 
     barrier.release();
@@ -204,9 +218,9 @@ integration("scheduling and the push finishing, in each order", () => {
     await barrier.held;
 
     const finishing = finish(job);
-    expect(await stillWaiting(finishing)).toBe(true);
+    expect(await untilWaiting(1)).toEqual(["request"]);
     const reserving = schedule(sessionId, id);
-    expect(await stillWaiting(reserving)).toBe(true);
+    expect(await untilWaiting(2)).toEqual(["request", "session"]);
 
     barrier.release();
     await barrier.done;

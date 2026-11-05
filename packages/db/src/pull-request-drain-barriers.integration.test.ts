@@ -1,4 +1,11 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  test,
+} from "bun:test";
 import type { ReceiptActor } from "@werft-ai/contracts";
 import {
   createPullRequestDrain,
@@ -11,7 +18,7 @@ import {
   type TempDatabase,
   testDatabaseUrl,
 } from "@werft-ai/testkit/postgres";
-import { eq, sql } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresPullRequestDrain } from "./pull-request-drain.ts";
@@ -61,6 +68,14 @@ integration("pull request drain, writers overlapped by a barrier", () => {
   afterAll(async () => {
     await pool?.end();
     await database?.drop();
+  });
+
+  // A test may leave a stage it claimed; a later test must not claim it.
+  afterEach(async () => {
+    await db
+      .update(pushRequests)
+      .set({ prState: "cancelled", prClaimToken: null, prLeaseExpiresAt: null })
+      .where(inArray(pushRequests.prState, ["due", "opening"]));
   });
 
   /** A pushed request whose pull request stage is due. */
