@@ -249,6 +249,67 @@ integration("action_notice rows on PostgreSQL", () => {
     });
   }
 
+  test("the list shows the stage, why it ended and the recorded pull request", async () => {
+    const sessionId = await threadedSession("en");
+    const id = await pushedWithIntent(sessionId);
+    const listed = async () => {
+      const items = await pushes.list(OWNER, sessionId);
+      const found = items?.find((item) => item.id === id);
+      if (!found) throw new Error("not listed");
+      return found;
+    };
+    expect(await listed()).toMatchObject({
+      pr_state: "due",
+      pr_error: null,
+      pr_number: null,
+      pr_url: null,
+    });
+
+    const job = await drain.claimNextDue(60_000);
+    if (job?.id !== id) throw new Error("claimed another request");
+    await drain.settle(job, {
+      kind: "opened",
+      pullRequest: {
+        number: 7,
+        url: "https://github.com/acme/app/pull/7",
+        head: `agent/${sessionId}`,
+        base: "main",
+        headSha: COMMIT,
+        title: "Add the thing",
+        created: true,
+      },
+    });
+    expect(await listed()).toMatchObject({
+      pr_state: "opened",
+      pr_error: null,
+      pr_number: 7,
+      pr_url: "https://github.com/acme/app/pull/7",
+    });
+    expect(await pushes.get(OWNER, sessionId, id)).toMatchObject({
+      pr_number: 7,
+    });
+
+    const failed = await pushedWithIntent(await threadedSession("en"));
+    const next = await drain.claimNextDue(60_000);
+    if (next?.id !== failed) throw new Error("claimed another request");
+    await drain.settle(next, {
+      kind: "stop",
+      stage: "failed",
+      error: "head_moved",
+    });
+    const [failedRow] = await db
+      .select({ sessionId: pushRequests.sessionId })
+      .from(pushRequests)
+      .where(eq(pushRequests.id, failed));
+    const items = await pushes.list(OWNER, failedRow?.sessionId ?? "");
+    expect(items?.[0]).toMatchObject({
+      pr_state: "failed",
+      pr_error: "head_moved",
+      pr_number: null,
+      pr_url: null,
+    });
+  });
+
   test("an uncertain stage tells the thread once, and a settle that lost its claim adds nothing", async () => {
     const sessionId = await threadedSession("en");
     const id = await pushedWithIntent(sessionId);

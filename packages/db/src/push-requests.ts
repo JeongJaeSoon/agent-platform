@@ -147,7 +147,38 @@ export async function toolSummaryContext(
   };
 }
 
-function publicPushRequest(row: Row): PushRequest {
+type RecordedPullRequest = { number: number | null; url: string };
+
+/** The pull request rows of these push requests, by push request id. */
+async function recordedPullRequests(
+  db: Database,
+  ids: readonly string[],
+): Promise<Map<string, RecordedPullRequest>> {
+  if (ids.length === 0) return new Map();
+  const found = await db
+    .select({
+      pushRequestId: pullRequests.pushRequestId,
+      number: pullRequests.number,
+      url: pullRequests.url,
+    })
+    .from(pullRequests)
+    .where(inArray(pullRequests.pushRequestId, [...ids]));
+  const byRequest = new Map<string, RecordedPullRequest>();
+  for (const entry of found) {
+    if (entry.pushRequestId !== null) {
+      byRequest.set(entry.pushRequestId, {
+        number: entry.number,
+        url: entry.url,
+      });
+    }
+  }
+  return byRequest;
+}
+
+function publicPushRequest(
+  row: Row,
+  recorded: RecordedPullRequest | null = null,
+): PushRequest {
   return {
     id: row.id,
     session_id: row.sessionId,
@@ -168,6 +199,9 @@ function publicPushRequest(row: Row): PushRequest {
     origin: row.origin as PushRequestOrigin,
     flow: row.flow as PushRequestFlow,
     pr_state: (row.prState as PullRequestStage | null) ?? null,
+    pr_error: row.prError ?? null,
+    pr_number: recorded?.number ?? null,
+    pr_url: recorded?.url ?? null,
   };
 }
 
@@ -614,7 +648,13 @@ export function createPostgresPushRequests(
           ),
         )
         .orderBy(desc(pushRequests.createdAt), desc(pushRequests.id));
-      return rows.map(publicPushRequest);
+      const recorded = await recordedPullRequests(
+        db,
+        rows.map((row) => row.id),
+      );
+      return rows.map((row) =>
+        publicPushRequest(row, recorded.get(row.id) ?? null),
+      );
     },
 
     async get(ownerId, sessionId, pushRequestId) {
@@ -629,7 +669,9 @@ export function createPostgresPushRequests(
           ),
         )
         .limit(1);
-      return row ? publicPushRequest(row) : null;
+      if (!row) return null;
+      const recorded = await recordedPullRequests(db, [row.id]);
+      return publicPushRequest(row, recorded.get(row.id) ?? null);
     },
 
     snapshot(ownerId, rawSessionId, ref) {

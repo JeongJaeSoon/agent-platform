@@ -220,6 +220,12 @@ export const pushRequestSchema = z.object({
   flow: pushRequestFlowSchema.default("legacy"),
   // Where the pull request step stands; null when none was asked for.
   pr_state: pullRequestStageSchema.nullable().default(null),
+  // Why the step ended without a pull request, or what it last failed at
+  // (a platform code such as `head_moved`); null while there is none.
+  pr_error: z.string().nullable().default(null),
+  // The recorded pull request, once there is one.
+  pr_number: z.number().int().positive().nullable().default(null),
+  pr_url: z.string().nullable().default(null),
 });
 
 export const createPushRequestRequestSchema = z

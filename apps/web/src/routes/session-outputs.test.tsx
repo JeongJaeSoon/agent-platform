@@ -631,6 +631,9 @@ describe("the session's GitHub work", () => {
     origin: "intent" as const,
     flow: "actions" as const,
     pr_state: "opening" as const,
+    pr_error: null,
+    pr_number: null,
+    pr_url: null,
   };
   const intent = (
     id: string,
@@ -681,6 +684,58 @@ describe("the session's GitHub work", () => {
       within(area).getByText(/고정한 체크포인트를 더는 확인할 수 없습니다/),
     ).toBeDefined();
     expect(within(area).getByText(/세션이 닫혔습니다/)).toBeDefined();
+  });
+
+  test("an opened PR links to its number; a failed stage says why; a PR address that is not https is not a link", async () => {
+    renderAt(
+      `/sessions/${SESSION_ID}`,
+      working({
+        items: [
+          {
+            ...request,
+            id: "019a0000-0000-7000-8000-0000000000a2",
+            pr_state: "opened",
+            pr_number: 7,
+            pr_url: "https://github.com/acme/demo/pull/7",
+          },
+          {
+            ...request,
+            id: "019a0000-0000-7000-8000-0000000000a3",
+            pr_state: "failed",
+            pr_error: "head_moved",
+          },
+          {
+            ...request,
+            id: "019a0000-0000-7000-8000-0000000000a4",
+            pr_state: "opened",
+            pr_number: 8,
+            pr_url: "javascript:alert(1)",
+          },
+          {
+            ...request,
+            id: "019a0000-0000-7000-8000-0000000000a5",
+            pr_state: "cancelled",
+            pr_error: "push_failed",
+          },
+        ],
+        intents: [],
+      }),
+    );
+    await openOutputs();
+    const area = await screen.findByRole("region", { name: "GitHub 작업" });
+    const link = within(area).getByRole("link", { name: "PR #7" });
+    expect(link.getAttribute("href")).toBe(
+      "https://github.com/acme/demo/pull/7",
+    );
+    expect(link.getAttribute("rel")).toContain("noreferrer");
+    expect(within(area).queryByRole("link", { name: "PR #8" })).toBeNull();
+    expect(
+      within(area).getByText(/브랜치가 push한 commit이 아닌 곳을 가리켜/),
+    ).toBeDefined();
+    // A push-stage refusal code has no PR wording: nothing is invented.
+    expect(within(area).queryByText(/push_failed/)).toBeNull();
+    expect(within(area).getByText("PR 실패")).toBeDefined();
+    expect(within(area).getByText("PR 취소됨")).toBeDefined();
   });
 
   test("nothing is shown for a session with no push work, and a session without a repository is not asked", async () => {

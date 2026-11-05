@@ -12,6 +12,7 @@ import {
   Badge,
   Code,
   Heading,
+  Link,
   RelativeTime,
   RowLines,
   RowList,
@@ -20,7 +21,7 @@ import {
 } from "@werft-ai/ui";
 import { useId } from "react";
 import { LoadFailure } from "../components/load-failure.tsx";
-import { useI18n } from "../i18n/i18n.tsx";
+import { isMessageKey, type MessageKey, useI18n } from "../i18n/i18n.tsx";
 
 // Something is moving (waiting for approval, a turn to end, a pull request to
 // open): look often. Otherwise the same minute the outcomes list uses.
@@ -39,6 +40,26 @@ const REQUEST_BADGE = {
   rejected: "gray",
   failed: "red",
 } as const;
+
+const PR_BADGE = {
+  due: "blue",
+  opening: "blue",
+  opened: "green",
+  closed_unrecorded: "gray",
+  uncertain: "amber",
+  failed: "red",
+  cancelled: "gray",
+} as const;
+
+// The link comes from the forge's answer: only an https address is shown as
+// one.
+const isHttpsUrl = (url: string | null): url is string =>
+  typeof url === "string" && url.startsWith("https://");
+
+const prErrorKey = (code: string | null): MessageKey | null =>
+  code !== null && isMessageKey(`session.github.prError.${code}`)
+    ? (`session.github.prError.${code}` as MessageKey)
+    : null;
 
 const isActive = (data: ListPushRequestsResponse | undefined) =>
   data !== undefined &&
@@ -89,12 +110,25 @@ function RequestRow({ request }: { readonly request: PushRequest }) {
             {t(`session.github.state.${request.state}`)}
           </Badge>
           {request.pr_state === null ? null : (
-            <Badge variant="gray">
+            <Badge variant={PR_BADGE[request.pr_state]}>
               {t(`session.github.prState.${request.pr_state}`)}
             </Badge>
           )}
+          {request.pr_number !== null && isHttpsUrl(request.pr_url) ? (
+            <Link
+              href={request.pr_url}
+              target="_blank"
+              rel="noreferrer"
+              variant="table"
+            >
+              {t("session.github.prNumber", { number: request.pr_number })}
+            </Link>
+          ) : null}
         </Text>
         <Text as="span" variant="meta">
+          {prErrorKey(request.pr_error) === null
+            ? null
+            : `${t(prErrorKey(request.pr_error) as MessageKey)} · `}
           <RelativeTime value={request.requested_at} locale={locale} />
         </Text>
       </RowLines>
