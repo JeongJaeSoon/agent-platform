@@ -569,6 +569,11 @@ export function createPostgresPushRequests(
             targetBranch,
             requestedBy: input.actor,
             requestReceiptId: receiptId,
+            // Taken after the session lock, not at transaction start: the
+            // pull request schedule orders requests by this value under the
+            // same lock, and a transaction that waited for the lock must not
+            // look older than the one it waited for.
+            createdAt: sql`clock_timestamp()`,
             // An intent request is always `actions`, whatever the setting
             // is when the runner makes it.
             origin: input.origin ?? "direct",

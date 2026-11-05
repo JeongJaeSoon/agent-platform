@@ -6039,7 +6039,6 @@ export interface components {
             /** Format: uuid */
             receipt_id: string;
         };
-        OpenPullRequestResult: components["schemas"]["OpenPullRequestResponse"] | components["schemas"]["ScheduledPullRequestResponse"];
         CommentPullRequestResponse: {
             pull_request: {
                 /** Format: uuid */
@@ -18979,7 +18978,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The pull request: 201 when this call opened it, 200 with `created: false` when it was already open. With `?schedule=true` and a push that is not finished, 202 with `status: "scheduled"`: the platform keeps the content of the first call and opens the pull request once the push is done (a repeated call answers `scheduled` again and changes nothing). */
+            /** @description The pull request: 201 when this call opened it, 200 with `created: false` when it was already open. */
             201: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -19006,7 +19005,17 @@ export interface operations {
                      *       "receipt_id": "a7b8c9d0-e1f2-4a3b-8c4d-5e6f7a8b9c0d"
                      *     }
                      */
-                    "application/json": components["schemas"]["OpenPullRequestResult"];
+                    "application/json": components["schemas"]["OpenPullRequestResponse"];
+                };
+            };
+            /** @description Only with `?schedule=true` and a push that is not finished: `status: "scheduled"`. The platform keeps the content of the first call and opens the pull request once the push is done (a repeated call answers `scheduled` again and changes nothing). */
+            202: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduledPullRequestResponse"];
                 };
             };
             /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema; a query parameter or the page cursor is invalid. Fix the request before retrying. */

@@ -1046,18 +1046,28 @@ describe("Slack interactions", () => {
     }
   });
 
-  test("a flow that cannot be read is treated as legacy, as before", async () => {
-    for (const unreadable of [new Error("db down"), null] as const) {
-      calls = [];
-      flow = unreadable;
-      await send(
-        press(SLACK_INTERACTION_ACTIONS.pushApprove, {
-          s: SESSION,
-          r: "push-1",
-        }),
-      );
-      expect(called("append")).toHaveLength(1);
-    }
+  test("a request with no stored flow row is treated as legacy", async () => {
+    flow = null;
+    await send(
+      press(SLACK_INTERACTION_ACTIONS.pushApprove, {
+        s: SESSION,
+        r: "push-1",
+      }),
+    );
+    expect(called("append")).toHaveLength(1);
+  });
+
+  test("a flow read that errors fails the press: no decision, no follow-up turn", async () => {
+    flow = new Error("db down");
+    await send(
+      press(SLACK_INTERACTION_ACTIONS.pushApprove, {
+        s: SESSION,
+        r: "push-1",
+      }),
+    );
+    expect(called("decide")).toEqual([]);
+    expect(called("append")).toEqual([]);
+    expect(called("hold")).toEqual([]);
   });
 
   test("a hold that fails queues the turn now, and a rejection is never held", async () => {

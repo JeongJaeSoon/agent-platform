@@ -126,7 +126,10 @@ export interface PullRequestStore {
   /**
    * Holds `content` for a pull request that cannot be opened yet, in one
    * transaction that takes the session row, then the intent, then the push
-   * request (the order every writer uses). The first content stays: a second
+   * request. `create` takes the session first too; `finish` and
+   * `claimNextApproved` lock the request row alone and never ask for the
+   * session after it, so a new writer must not take a session lock while
+   * holding a request row. The first content stays: a second
    * call answers `scheduled` and changes nothing, and no call moves a
    * finished stage back. An already `pushed` request with no stage becomes
    * `due` here. A later request to the same repository and target refuses

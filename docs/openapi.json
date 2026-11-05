@@ -9184,16 +9184,6 @@
         ],
         "additionalProperties": false
       },
-      "OpenPullRequestResult": {
-        "anyOf": [
-          {
-            "$ref": "#/components/schemas/OpenPullRequestResponse"
-          },
-          {
-            "$ref": "#/components/schemas/ScheduledPullRequestResponse"
-          }
-        ]
-      },
       "CommentPullRequestResponse": {
         "type": "object",
         "properties": {
@@ -46329,7 +46319,7 @@
         },
         "responses": {
           "201": {
-            "description": "The pull request: 201 when this call opened it, 200 with `created: false` when it was already open. With `?schedule=true` and a push that is not finished, 202 with `status: \"scheduled\"`: the platform keeps the content of the first call and opens the pull request once the push is done (a repeated call answers `scheduled` again and changes nothing).",
+            "description": "The pull request: 201 when this call opened it, 200 with `created: false` when it was already open.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -46356,7 +46346,22 @@
                   "receipt_id": "a7b8c9d0-e1f2-4a3b-8c4d-5e6f7a8b9c0d"
                 },
                 "schema": {
-                  "$ref": "#/components/schemas/OpenPullRequestResult"
+                  "$ref": "#/components/schemas/OpenPullRequestResponse"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Only with `?schedule=true` and a push that is not finished: `status: \"scheduled\"`. The platform keeps the content of the first call and opens the pull request once the push is done (a repeated call answers `scheduled` again and changes nothing).",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduledPullRequestResponse"
                 }
               }
             }

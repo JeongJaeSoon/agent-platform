@@ -170,7 +170,6 @@ import {
   openPullRequestQuerySchema,
   openPullRequestRequestSchema,
   openPullRequestResponseSchema,
-  openPullRequestResultSchema,
   passwordResetRequestSchema,
   passwordResetResponseSchema,
   patchGitHubRepositoryRequestSchema,
@@ -463,7 +462,6 @@ const responseComponents = {
   ListPushRequestsResponse: listPushRequestsResponseSchema,
   OpenPullRequestResponse: openPullRequestResponseSchema,
   ScheduledPullRequestResponse: scheduledPullRequestResponseSchema,
-  OpenPullRequestResult: openPullRequestResultSchema,
   CommentPullRequestResponse: commentPullRequestResponseSchema,
   DispatchWorkflowResponse: dispatchWorkflowResponseSchema,
   GitHubWorkflowRun: githubWorkflowRunSchema,
@@ -749,6 +747,13 @@ export type RouteDeclaration = {
     // A file download: the body is the file's bytes, not JSON.
     | { status: 200; download: true; description: string }
     | { status: 204; description?: string };
+  // A second success status the route can answer, with its own body.
+  alsoSucceeds?: {
+    status: 202;
+    schema: ComponentName;
+    description: string;
+    example?: unknown;
+  };
   errors: number[];
   errorCodes?: Partial<Record<number, readonly ApiErrorCode[]>>;
   // Appended to ERROR_CODE_WHEN's sentence where a code is narrower here.
@@ -3528,15 +3533,21 @@ export const API_ROUTE_DECLARATIONS = [
     requestExample: { title: "Add retry to the sync job" },
     success: {
       status: 201,
-      schema: "OpenPullRequestResult",
+      schema: "OpenPullRequestResponse",
       description:
-        'The pull request: 201 when this call opened it, 200 with `created: false` when it was already open. With `?schedule=true` and a push that is not finished, 202 with `status: "scheduled"`: the platform keeps the content of the first call and opens the pull request once the push is done (a repeated call answers `scheduled` again and changes nothing).',
+        "The pull request: 201 when this call opened it, 200 with `created: false` when it was already open.",
       example: {
         pull_request: EXAMPLE_PULL_REQUEST,
         created: true,
         body_source: { kind: "platform" },
         receipt_id: EXAMPLE_PULL_REQUEST.receipt_id,
       },
+    },
+    alsoSucceeds: {
+      status: 202,
+      schema: "ScheduledPullRequestResponse",
+      description:
+        'Only with `?schedule=true` and a push that is not finished: `status: "scheduled"`. The platform keeps the content of the first call and opens the pull request once the push is done (a repeated call answers `scheduled` again and changes nothing).',
     },
     errors: [...CONFLICTS, 403, 413, 503],
     errorCodes: {
@@ -7422,6 +7433,16 @@ function createApiRouteConfig(route: RouteDeclaration): ApiRouteConfig {
                 : jsonContent(success.schema, success.example),
             },
   };
+  if (route.alsoSucceeds !== undefined) {
+    responses[route.alsoSucceeds.status] = {
+      description: route.alsoSucceeds.description,
+      headers: responseHeaders(),
+      content: jsonContent(
+        route.alsoSucceeds.schema,
+        route.alsoSucceeds.example,
+      ),
+    };
+  }
   const errors = new Set<number>(route.errors);
   if (csrf || route.scope) errors.add(403);
   if (route.method !== "get") errors.add(408);
