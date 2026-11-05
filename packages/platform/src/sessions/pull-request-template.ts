@@ -501,6 +501,9 @@ function scan(text: string): Scanned {
         (part) =>
           mentionsElement(part.text) ||
           hasLooseTag(part.text) ||
+          [...part.text.matchAll(/<\/?([A-Za-z][\w-]*)/g)].some(
+            ([, name]) => !KNOWN_INSIDE.has((name ?? "").toLowerCase()),
+          ) ||
           new RegExp(OPEN_ENDED).test(part.text),
       ),
   );

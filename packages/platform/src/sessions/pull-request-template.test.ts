@@ -707,6 +707,7 @@ describe("markup the scan and a renderer could read differently", () => {
       // A fence does not open inside an HTML block, so what is in it is markup.
       '<details>\n```\n<span title="\n```\n</details>\n">\n\n## Summary',
       "```\n<?x\n```\n## Summary",
+      "<details>\n```\n<select>\n```\n</details>\n\n## Summary",
       "## Summary\nUse \\<Type here.",
       "## Summary\nA \\<?x is text.",
     ]) {
