@@ -135,6 +135,7 @@ beforeEach(async () => {
               return { id: "push-1" } as never;
             },
             get: unused,
+            requestIntent: unused,
           },
           pullRequests: {
             open: unused,

@@ -127,6 +127,7 @@ export * from "./sessions/profile-tools.ts";
 export * from "./sessions/pull-request-service.ts";
 export * from "./sessions/pull-request-text.ts";
 export * from "./sessions/push-executor.ts";
+export * from "./sessions/push-intent-runner.ts";
 export * from "./sessions/push-approvability.ts";
 export * from "./sessions/push-request-service.ts";
 export * from "./sessions/session-outcome-service.ts";

@@ -72,6 +72,7 @@ const pushRequest: PushRequest = {
   resolution_receipt_id: null,
   finished_at: null,
   push_receipt_id: null,
+  origin: "direct",
 };
 
 const run = {
@@ -92,7 +93,13 @@ function server(failure: SessionServiceError | null) {
       return value;
     };
   const services = (): GitHubMcpServices => ({
-    pushRequests: { create: answer(pushRequest), get: answer(pushRequest) },
+    pushRequests: {
+      create: answer(pushRequest),
+      get: answer(pushRequest),
+      requestIntent: async () => {
+        throw new Error("not used");
+      },
+    },
     pullRequests: {
       open: answer({
         pull_request: pullRequest,
