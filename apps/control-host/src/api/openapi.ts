@@ -3542,6 +3542,7 @@ export const API_ROUTE_DECLARATIONS = [
       example: {
         pull_request: EXAMPLE_PULL_REQUEST,
         created: true,
+        body_source: { kind: "platform" },
         receipt_id: EXAMPLE_PULL_REQUEST.receipt_id,
       },
     },

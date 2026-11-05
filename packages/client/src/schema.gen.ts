@@ -19072,6 +19072,9 @@ export interface operations {
                      *         "receipt_id": "a7b8c9d0-e1f2-4a3b-8c4d-5e6f7a8b9c0d"
                      *       },
                      *       "created": true,
+                     *       "body_source": {
+                     *         "kind": "platform"
+                     *       },
                      *       "receipt_id": "a7b8c9d0-e1f2-4a3b-8c4d-5e6f7a8b9c0d"
                      *     }
                      */
