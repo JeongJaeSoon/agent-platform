@@ -149,7 +149,11 @@ async function seed(
   }
   // An omitted output is listed but has no object to back up.
   if (outputs.length > 0) {
-    outputs.push({ bytes: 1 << 30, omitted: "too_large", path: "out/huge.bin" });
+    outputs.push({
+      bytes: 1 << 30,
+      omitted: "too_large",
+      path: "out/huge.bin",
+    });
   }
   const manifest: CheckpointManifest = {
     createdAt: new Date(0).toISOString(),
@@ -652,13 +656,16 @@ describe("backup → restore re-pin", () => {
         stored.key,
       );
 
+      await source.overwrite(stored.key, new TextEncoder().encode("tampered"));
       await syncDown(source, dir);
-      await captureCheckpointObjects({
+      const { replaced } = await captureCheckpointObjects({
         codecs,
         objects: source,
         objectsDir: dir,
         rows: [seeded.row],
       });
+      expect(replaced).toContain(stored.key);
+      expect(await readFile(join(dir, stored.key), "utf8")).toBe("# report");
       const restored = await restoredBucket();
       await syncUp(dir, restored, new Set([seeded.row.manifestRef]));
       const planned = await planRepin({
