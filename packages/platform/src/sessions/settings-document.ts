@@ -14,6 +14,7 @@ import {
   isRegisteredGitHubApp,
   type SessionCatalogConfig,
   type StoredOwnerKind,
+  safeParseCatalogConfig,
   sessionCatalogConfigSchema,
 } from "./catalog.ts";
 
@@ -188,16 +189,24 @@ export type SeedDocument = {
   profiles: SessionCatalogConfig["profiles"] | null;
 };
 
-export function parseSeedDocument(input: unknown): SeedDocument {
+/**
+ * `tolerateNoRepositories`: the caller left out old repository entries, so
+ * the ceilings may find none left. They then run on no repository until one
+ * is registered.
+ */
+export function parseSeedDocument(
+  input: unknown,
+  tolerateNoRepositories = false,
+): SeedDocument {
   if (!isObject(input) || !Object.hasOwn(input, "profiles")) {
     return { entries: parseSettingsDocument(input), profiles: null };
   }
   const { profiles, ...document } = input;
   const entries = parseSettingsDocument(document);
-  const seed = sessionCatalogConfigSchema.safeParse({
-    profiles,
-    repositories: entries.repositories,
-  });
+  const seed = safeParseCatalogConfig(
+    { profiles, repositories: entries.repositories },
+    tolerateNoRepositories,
+  );
   if (!seed.success) {
     throw new SettingsDocumentError(
       `The settings document is invalid: ${describeConfigError(seed.error)}`,
@@ -263,7 +272,7 @@ export function settingsDocumentDigest(document: SettingsDocument): string {
   return `sha256:${createHash("sha256").update(canonicalJsonOfJson(document)).digest("hex")}`;
 }
 
-/** `catalog_repositories.auth_kind` for a repository entry. */
+/** Persisted discriminators also identify legacy rows without authenticating them. */
 export type RepositoryAuthKind =
   | "github_app"
   | "none"
@@ -271,15 +280,13 @@ export type RepositoryAuthKind =
   | "bearer"
   | "github_app_explicit";
 
-export function repositoryAuthKindOf(
-  repository: CatalogRepositoryConfig,
-): RepositoryAuthKind {
+export function repositoryAuthKindOf(repository: {
+  auth?: { kind: string } | undefined;
+}): RepositoryAuthKind {
   const { auth } = repository;
   if (auth === undefined) return "none";
-  if (auth.kind === "github_app") {
-    return isRegisteredGitHubApp(auth) ? "github_app" : "github_app_explicit";
-  }
-  return auth.kind;
+  if (auth.kind === "basic" || auth.kind === "bearer") return auth.kind;
+  return isRegisteredGitHubApp(auth) ? "github_app" : "github_app_explicit";
 }
 
 /**

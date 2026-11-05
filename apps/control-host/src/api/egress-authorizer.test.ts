@@ -64,12 +64,7 @@ beforeEach(async () => {
           url: "https://git.invalid/agent/app.git",
           branch: "main",
           profiles: ["claude-coding-v1"],
-          auth: {
-            kind: "basic",
-            username: "reader",
-            value: "catalog-repo-token",
-            ref: { value_env: "REPO_TOKEN" },
-          },
+          auth: { kind: "github_app", registered: true },
         },
       },
     }),
@@ -154,22 +149,6 @@ describe("egress authorizer", () => {
       upstream: {
         url: "https://api.anthropic.invalid",
         headers: [["x-api-key", "catalog-provider-key"]],
-      },
-    });
-    const repository = await ask({
-      token: claim.workspace.repository?.access?.token,
-      purpose: "repository",
-    });
-    expect(repository.status).toBe(200);
-    expect(await repository.json()).toMatchObject({
-      upstream: {
-        url: "https://git.invalid/agent/app.git",
-        headers: [
-          [
-            "authorization",
-            `Basic ${Buffer.from("reader:catalog-repo-token").toString("base64")}`,
-          ],
-        ],
       },
     });
   });

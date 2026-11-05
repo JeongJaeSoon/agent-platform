@@ -7,7 +7,7 @@ GitHub와 하는 일은 셋이다. 세션이 시작할 때 저장소를 clone한
 
 ## 운영자가 할 일
 
-자격 증명은 둘 중 하나다. 기본은 GitHub App이고, owner나 admin이 콘솔의 **설정 → 워크스페이스 → GitHub 연결 설정**에서 다룬다.
+자격 증명은 GitHub App이다. owner나 admin이 콘솔의 **설정 → 워크스페이스 → GitHub 연결 설정**에서 다룬다.
 
 - **App 추가**: GitHub에서 새 App을 만들거나(콘솔이 App ID와 키를 받아 저장한다), 이미 있는 App을 App ID와 private key(PEM 파일)로 연결한다. 작성용 App과 리뷰 승인용 App을 여럿 둘 수 있고, 목록에서 역할 배지로 구분한다. 키는 암호화해 저장하고 화면과 API 응답에 다시 나오지 않는다. 키를 바꿀 때는 App 행의 ⋯ 메뉴에서 **새 키 등록**을 쓴다.
 - **조직 추가**: App을 조직이나 개인 계정에 설치한다. 설치 표에 계정마다 유형·저장소 범위·App·연결한 사람·상태가 나오고, 행의 ⋯ 메뉴 **GitHub에서 관리**가 그 설치의 설정 화면으로 간다.
@@ -16,8 +16,7 @@ GitHub와 하는 일은 셋이다. 세션이 시작할 때 저장소를 clone한
 
 | 방식 | 필요한 권한 |
 | --- | --- |
-| GitHub App(기본) | Repository permissions: Contents Read and write, Pull requests Read and write |
-| fine-grained PAT | 같은 두 권한 |
+| GitHub App | Repository permissions: Contents Read and write, Pull requests Read and write |
 
 `Workflows` 권한은 "워크플로 파일 수정" 기능을 켤 때만 App에 더한다. push되는 commit은 에이전트가 쓴 것이라, 이 권한이 있으면 에이전트가 고친 `.github/workflows/` 파일도 push되고 CI에서 실행된다. 기본 브랜치는 저장소 ruleset으로도 막아 둔다. 설정 방법은 운영 문서에 있다.
 
@@ -114,7 +113,7 @@ GitHub 계정 하나는 한 사람에게만 연결된다. 다른 사람이 이�
 
 ## 로컬 스택에서
 
-로컬 `sample-app`은 GitHub가 아니라 스택 안의 읽기 전용 Git 서버 저장소이고 push 자격 증명이 없다. 그래서 승인한 push는 `no_push_credential`로 `failed`가 되고, PR 요청은 push되지 않은 요청이라 409다. [승인](/approvals/approve)에서 `failed`로 끝난 요청으로 확인한다.
+로컬 `sample-app`은 스택 안의 Git 서버에 GitHub App으로 등록돼 있어, 승인한 push는 `pushed`가 되고 PR도 열린다. push되지 않은 요청(예: 거부한 요청)에 PR을 요청하면 409 `PUSH_NOT_PUSHED`다. [승인](/approvals/approve)에서 `rejected`로 끝난 요청으로 확인한다.
 
 <Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
 <Tab>
@@ -123,10 +122,10 @@ GitHub 계정 하나는 한 사람에게만 연결된다. 다른 사람이 이�
 import { isApiError } from "@werft-ai/sdk";
 
 const requests = await werft.sessions.pushRequests.list(sessionId);
-const failed = requests.find((request) => request.state === "failed");
-if (failed) {
+const rejected = requests.find((request) => request.state === "rejected");
+if (rejected) {
   try {
-    await werft.sessions.pushRequests.openPullRequest(sessionId, failed.id, {
+    await werft.sessions.pushRequests.openPullRequest(sessionId, rejected.id, {
       title: "Add release notes",
     });
   } catch (error) {
@@ -144,9 +143,9 @@ if (failed) {
 <Tab>
 
 ```bash
-FAILED=$(curl -sS "$API/v1/sessions/$SID/push-requests" -H "Authorization: Bearer $KEY" \
-  | jq -r '[.items[] | select(.state == "failed")][0].id')
-curl -sS "$API/v1/sessions/$SID/push-requests/$FAILED/pull-request" \
+REJECTED=$(curl -sS "$API/v1/sessions/$SID/push-requests" -H "Authorization: Bearer $KEY" \
+  | jq -r '[.items[] | select(.state == "rejected")][0].id')
+curl -sS "$API/v1/sessions/$SID/push-requests/$REJECTED/pull-request" \
   -H "Authorization: Bearer $KEY" \
   -H 'Content-Type: application/json' \
   -d '{"title": "Add release notes"}' | jq '{code: .error.code}'

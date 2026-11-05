@@ -15,7 +15,7 @@ export type GitHubConnectionChoice =
   | {
       kind: "connection";
       connection: GitHubConnection;
-      /** The console connection's id; null for a catalog App or a PAT. */
+      /** The console connection's id; null for a catalog App. */
       connectionId: string | null;
       /** Set when this choice left the repository's first pin. */
       pinnedBy: "first_mint" | "claim" | null;

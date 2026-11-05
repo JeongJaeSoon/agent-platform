@@ -51,22 +51,57 @@ API와 slack 역할은 설정 파일을 읽지 않는다. 연결·저장소·MCP
 - **가져오기는 더하기만 한다.** 문서의 항목마다 새 행(`add`), DB와 같은 행(`unchanged`), 꺼진 행과 같은 id(`inactive`), 값이 아직 없는 stored 자격 증명(`needs_value`)으로 나눈다. 같은 id인데 내용이 다르거나 같은 GitHub 저장소(owner/name)를 다른 id로 적으면 `conflicts`이고, 그러면 아무것도 쓰지 않는다. 같은 문서를 다시 가져오면 모두 `unchanged`이고 `settings_generation`도 그대로다. 행을 고치거나 지우는 일은 하지 않는다.
 - **API.** `GET /v1/installation/settings/export`는 `{document, digest}`를 준다. `POST /v1/installation/settings/import?dry_run=true|false`는 문서를 body로 받는다. 둘 다 설치 owner의 로그인 세션만 부를 수 있다(`installation.settings.manage`). API 키와 admin·member는 `403`이다. 충돌은 `409 REVISION_CONFLICT`(`reason_code: settings_conflict`, 충돌 항목 목록), 문서의 뼈대(`version`, 최상위 키)가 틀리면 `400 BAD_REQUEST`(`details.issues`에 틀린 칸)이고, 항목이 카탈로그 규칙에 맞지 않으면 `400 BAD_REQUEST`(`reason_code: invalid_document`)다. API는 `value_env`·`secret_id` 같은 바깥 참조를 새로 받지 않는다(`400 BAD_REQUEST`, `reason_code: external_reference`와 해당 항목 목록). 서버 프로세스 환경을 가리키는 참조는 운영자가 서버에서 CLI로만 넣는다. 더한 행마다 receipt(`import_connection`·`import_repository`·`import_mcp_server`)가 남는다. 워크스페이스가 아직 없으면 receipt는 남지 않는다.
 - **CLI.** compose 설치에서는 `bun run settings export > settings.json`(문서는 stdout, `digest sha256:…`는 stderr), `bun run settings import --document - [--dry-run] < settings.json`을 쓴다. 명령은 api 컨테이너 안에서 돌므로 `--document`에 경로를 주면 컨테이너 안의 경로로 읽는다. host의 파일은 `-`(stdin)로 넘긴다. Kubernetes 설치는 `bun run settings:k8s …`로 api Pod 안에서 같은 CLI를 돌린다. CLI는 바깥 참조를 받는다. 거절되면(충돌·바깥 참조) 1로 끝난다.
-- **콘솔.** 설치 owner는 프로필 화면(`/profiles`)의 **모델 연결** 절에서 연결을, 설정의 **MCP 서버**(`/settings/workspace/mcp-servers`)에서 MCP 서버를 보고 더하고 바꾼다. **URL 저장소**(`/settings/workspace/repositories`)는 owner와 admin이 다룬다(`workspace.manage`). 콘솔이 하는 일은 넷뿐이다.
-  - **만들기.** 값은 항상 DB에 저장한다(`stored`). 바깥 참조(`value_env`·`secret_id`)는 받지 않는다. endpoint·URL·자격 증명 출처는 만든 뒤 바꿀 수 없으므로 바꾸려면 새 id로 만든다. 연결의 `endpoint`는 비워도 된다(없음·`""`·공백). 비면 종류의 공식 주소(anthropic은 `https://api.anthropic.com`)를 만들 때 채워 저장하므로, 행은 늘 구체 URL을 갖고 지문·export·세션이 코드 상수 변경에 움직이지 않는다. 기본값이 없는 종류(litellm)는 `400 BAD_REQUEST`, `reason_code: invalid_entry`로 거절한다. 기본 주소에 `billing: none`은 공개 주소라 상한이 거절하므로 같이 만들 수 없다. 화면은 `GET …/connections`의 `endpoint_defaults`(종류 → URL)로 칸을 미리 채운다. 설정 문서 import도 endpoint가 빈 연결 항목을 같은 기본값으로 풀며(형식 v1 그대로), export는 구체 URL을 낸다. 기본 주소의 host(`api.anthropic.com:443`)는 `EGRESS_CREDENTIAL_ALLOWLIST` 기본값에 있어야 세션이 돈다. 한 번 쓴 id(사용 중지한 것 포함)는 다시 쓸 수 없다(`409 REVISION_CONFLICT`, `reason_code: already_exists`). 연결의 endpoint `host:port`가 proxy의 자격 증명 허용 목록(`EGRESS_CREDENTIAL_ALLOWLIST`·`EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`, compose는 api에도 같은 값을 준다)에 없으면 화면이 경고만 한다. 저장은 되고, proxy가 그 목적지를 열지 않을 뿐이다. 저장소는 공개(인증 없음), bearer, basic(사용자 이름과 토큰)으로 더한다. GitHub App 저장소는 여기서 다루지 않는다.
+- **콘솔.** 설치 owner는 프로필 화면(`/profiles`)의 **모델 연결** 절에서 연결을, 설정의 **MCP 서버**(`/settings/workspace/mcp-servers`)에서 MCP 서버를 보고 더하고 바꾼다. 저장소는 워크스페이스의 **GitHub 연결 설정**에서 App 연동으로 등록한다. 연결·MCP 서버 콘솔이 하는 일은 넷뿐이다.
+  - **만들기.** 값은 항상 DB에 저장한다(`stored`). 바깥 참조(`value_env`·`secret_id`)는 받지 않는다. endpoint·URL·자격 증명 출처는 만든 뒤 바꿀 수 없으므로 바꾸려면 새 id로 만든다. 연결의 `endpoint`는 비워도 된다(없음·`""`·공백). 비면 종류의 공식 주소(anthropic은 `https://api.anthropic.com`)를 만들 때 채워 저장하므로, 행은 늘 구체 URL을 갖고 지문·export·세션이 코드 상수 변경에 움직이지 않는다. 기본값이 없는 종류(litellm)는 `400 BAD_REQUEST`, `reason_code: invalid_entry`로 거절한다. 기본 주소에 `billing: none`은 공개 주소라 상한이 거절하므로 같이 만들 수 없다. 화면은 `GET …/connections`의 `endpoint_defaults`(종류 → URL)로 칸을 미리 채운다. 설정 문서 import도 endpoint가 빈 연결 항목을 같은 기본값으로 풀며(형식 v1 그대로), export는 구체 URL을 낸다. 기본 주소의 host(`api.anthropic.com:443`)는 `EGRESS_CREDENTIAL_ALLOWLIST` 기본값에 있어야 세션이 돈다. 한 번 쓴 id(사용 중지한 것 포함)는 다시 쓸 수 없다(`409 REVISION_CONFLICT`, `reason_code: already_exists`). 연결의 endpoint `host:port`가 proxy의 자격 증명 허용 목록(`EGRESS_CREDENTIAL_ALLOWLIST`·`EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`, compose는 api에도 같은 값을 준다)에 없으면 화면이 경고만 한다. 저장은 되고, proxy가 그 목적지를 열지 않을 뿐이다. 저장소는 워크스페이스의 GitHub App 연동으로만 등록한다.
   - **값 바꾸기.** 저장된 값만 바꾼다. 연결의 fingerprint와 binding은 그대로이고 도는 세션은 멈추지 않는다. 운영자 참조(`value_env`·`secret_id`) 행은 `409`(`reason_code: not_stored`)다.
   - **사용 중지.** 되돌릴 수 없다. 그 연결을 쓰는 상한은 `connection_missing`이 되고, id는 다시 쓸 수 없다. 운영자 참조 행도 사용 중지는 된다.
-  - **좁은 변경.** MCP 서버의 워크스페이스 목록과 저장소의 기본 브랜치(새 버전 행)만 바꾼다. 둘 다 운영자 참조 행에서는 `409 not_stored`다.
-  API는 `GET|POST /v1/installation/settings/{connections|mcp-servers|repositories}`, `POST …/{id}/credential`, `POST …/{id}/disable`, `PATCH /v1/installation/settings/{mcp-servers|repositories}/{id}`다. 모두 로그인 세션만 받고 API 키는 `403`이다. 변경마다 receipt(`create_connection`·`create_mcp_server`·`set_settings_credential`·`disable_connection`·`disable_mcp_server`·`set_mcp_server_workspaces`, 저장소는 `add_repository`·`remove_repository`·`set_repository_branch`)가 남는다. MCP 서버 화면은 도구 목록 대신 서버의 도구 이름 공간 `mcp__<id>__*`만 보인다. 도구 단위 차단은 아직 없다.
-- **롤백 하한.** 가져오기가 GitHub App이 아닌 저장소 행(`auth_kind`가 `none`·`basic`·`bearer`·`github_app_explicit`)을 한 번이라도 쓴 DB는 migration 0225(commit `e1a26586`)보다 앞선 이미지로 되돌리지 않는다. 앞선 이미지는 `auth_kind`를 모르므로 그 행을 GitHub App 저장소로 읽는다. 파일을 읽지 않는 판으로 올린 설치의 되돌리기 하한도 같다. S1 앞 이미지는 올린 뒤 콘솔로 더한 행을 읽지 못한다.
+  - **좁은 변경.** MCP 서버의 워크스페이스 목록만 바꾼다. 운영자 참조 행에서는 `409 not_stored`다.
+  API는 `GET|POST /v1/installation/settings/{connections|mcp-servers}`, `POST …/{id}/credential`, `POST …/{id}/disable`, `PATCH /v1/installation/settings/mcp-servers/{id}`다. 모두 로그인 세션만 받고 API 키는 `403`이다. 변경마다 receipt(`create_connection`·`create_mcp_server`·`set_settings_credential`·`disable_connection`·`disable_mcp_server`·`set_mcp_server_workspaces`)가 남는다. MCP 서버 화면은 도구 목록 대신 서버의 도구 이름 공간 `mcp__<id>__*`만 보인다. 도구 단위 차단은 아직 없다.
+- **롤백 하한.** 가져오기가 `auth_kind`가 `none`·`basic`·`bearer`·`github_app_explicit`인 저장소 행을 한 번이라도 쓴 DB는 migration 0225(commit `e1a26586`)보다 앞선 이미지로 되돌리지 않는다. 앞선 이미지는 `auth_kind`를 모르므로 그 행을 GitHub App 저장소로 읽는다. 파일을 읽지 않는 판으로 올린 설치의 되돌리기 하한도 같다. S1 앞 이미지는 올린 뒤 콘솔로 더한 행을 읽지 못한다.
 - **`catalog_authority` 표.** 런타임과 CLI는 더 읽지 않지만 표는 이번 판에서 지우지 않는다. 한 판 앞 이미지로 되돌릴 수 있게 두고, 호환을 끊는 다음 판에서 지운다.
+
+**URL 저장소 제거 판의 배포 전 조건.** `none`·`basic`·`bearer` 행은 원본을 보존한 채 invalid로 보고하고 실행 카탈로그에서 제외한다. 그 저장소의 대기 세션은 claim할 수 없고, 이미 claim한 세션의 다음 저장소 egress 요청은 `409 CATALOG_MISMATCH`, GitHub gate 작업은 저장소 이동 오류로 거부된다. 이미 실행 중인 프로세스를 즉시 종료하는 변경은 아니지만 저장소 작업과 재개는 계속될 수 없다.
+
+이 판은 일반 설치에서 롤링 교체하지 않는다. 새 이미지를 먼저 준비한 뒤 `api`·`slack`의 모든 replica를 멈추고 프로세스가 남지 않았음을 확인한다. 그 창 안에서 아래 직접 검사의 후보가 0일 때만 모든 replica를 새 이미지로 다시 연다. 0이 아니면 이전 이미지로 다시 열고 결과를 보고한다. 세션을 대신 끝내거나 원본 행을 삭제하지 않는다.
+
+후보는 주 저장소, 붙인 목록, 붙인 목록이 NULL일 때의 유효 정책 목록에서 레거시 행을 가리키는 값이다. NULL은 빈 목록이 아니라 정책 목록 전체라는 뜻이므로 정책 경로도 센다. 이전 이미지에서 실제 접근 가능한 확정 목록을 계산할 수 있지만 판정 기준은 더 넓은 **후보 0**이다. 새 이미지의 카탈로그에서 레거시 행이 빠진 것을 후보 0의 근거로 쓰지 않는다. 워크스페이스·세션·저장소·경로별 결과와 후보 수를 보고한다.
+
+```sql
+SELECT coalesce(a.workspace_id, s.workspace_id) AS workspace_id,
+       s.id AS session_id, x.repository_id, x.via, c.auth_kind
+FROM sessions s
+LEFT JOIN agent_releases r ON r.id = s.agent_release_id
+LEFT JOIN agents a ON a.id = r.agent_id
+LEFT JOIN agent_github_settings g ON g.agent_id = r.agent_id
+CROSS JOIN LATERAL (
+  SELECT s.repository_id, 'primary'
+  UNION ALL
+  SELECT id, 'attached' FROM unnest(s.attached_repository_ids) AS id
+  UNION ALL
+  SELECT e, 'policy'
+  FROM (SELECT CASE s.github_policy_source
+                 WHEN 'release' THEN r.policy_pins #> '{github,repositories}'
+                 WHEN 'agent' THEN g.repositories
+               END AS list) p,
+       jsonb_array_elements_text(
+         CASE WHEN jsonb_typeof(p.list) = 'array' THEN p.list ELSE '[]' END
+       ) AS e
+  WHERE s.attached_repository_ids IS NULL
+) AS x(repository_id, via)
+JOIN catalog_repositories c ON c.id = x.repository_id
+WHERE s.status NOT IN ('failed', 'stopped')
+  AND c.auth_kind IN ('none', 'basic', 'bearer');
+```
+
+main을 자동으로 따라가는 설치는 머지가 곧 배포이므로, 위 직접 검사의 후보가 0임을 배포 전에 읽기 전용으로 확인한다. 배포가 끝날 때까지 URL 저장소 행을 더하지 않고, 끝난 뒤 검사를 다시 돌린다.
 
 **파일 카탈로그에서 옮기기.** 파일 카탈로그로 돌던 설치는 옛 파일을 migrate 단계가 한 번 가져온다.
 
 1. 올리기 전에 설정 디렉터리를 `PLATFORM_LEGACY_CONFIG_DIR`(compose) 또는 옛 chart의 ConfigMap(Kubernetes)으로 준다. compose는 `/legacy-config`에 읽기 전용으로 마운트한다.
-2. 새 이미지로 올리면 migrate가 `settings import --from-dir /legacy-config --if-present`를 돌린다. 디렉터리가 없거나 비었으면 건너뛰고, 일부만 있거나 깨졌으면 실패해서 새 API가 뜨지 않는다. `profiles.yaml`은 `installation_profiles`가 빌 때만 넣고, `repository_ids`가 NULL인 행은 저장소 `profiles` 배열로 채운다. 채울 저장소가 없는 행은 stderr에 `note: no repository names these ceilings`로 적히고, 그 상한은 어떤 저장소에서도 돌지 않는다. 미리 보려면 같은 명령에 `--dry-run`을 붙인다.
+2. 새 이미지로 올리면 migrate가 `settings import --from-dir /legacy-config --if-present`를 돌린다. 디렉터리가 없거나 비었으면 건너뛰고, 일부만 있거나 깨졌으면 실패해서 새 API가 뜨지 않는다. `repositories.yaml`에서 `auth`가 없거나 `basic`·`bearer`인 저장소는 실패하지 않고 빠진다. 가져오지 않은 항목마다 stderr에 `note: repository <id> is not imported`가 적히고, 나머지는 그대로 들어간다. 빠진 저장소는 콘솔에서 GitHub App으로 다시 등록한다. 상한의 `repository_ids`는 이 가져오기 때 한 번 채워지므로(`NULL`이던 행), 빠진 저장소를 다시 등록한 뒤에는 상한의 허용 저장소도 새 버전으로 고쳐 저장한다. 저장소가 모두 빠져도 상한은 가져온다. 그 상한은 허용 저장소가 비어 있어 어디서도 돌지 않고, 저장소를 다시 등록한 뒤 새 버전으로 허용 저장소를 채워야 돈다. 빠진 저장소를 가리키는 진행 중 세션(`failed`·`stopped`가 아닌 것)이 있으면 가져오기는 아무것도 쓰지 않고 1로 끝나며 stderr에 세션과 저장소 id를 적는다. 이 세션은 새 이미지에서 `failed`가 되기 때문이다. migrate가 실패하면 새 API가 뜨지 않아 콘솔로 저장소를 다시 등록할 수 없다. 이전 이미지로 다시 열고 그 세션을 끝낸 뒤 올린다. `--dry-run`도 같은 이유로 멈추므로 api·slack을 멈추는 창 안에서 먼저 돌려 본다. 세션이 정책 목록에 이름만 올라 있어도 걸린다. CLI의 `--document`는 같은 규칙으로 레거시 항목을 빼고 이 검사를 거친다. API import는 레거시 항목을 빼지 않고 `400 BAD_REQUEST`로 거절한다. `profiles.yaml`은 `installation_profiles`가 빌 때만 넣고, `repository_ids`가 NULL인 행은 저장소 `profiles` 배열로 채운다. 채울 저장소가 없는 행은 stderr에 `note: no repository names these ceilings`로 적히고, 그 상한은 어떤 저장소에서도 돌지 않는다. 미리 보려면 같은 명령에 `--dry-run`을 붙인다.
 3. `platform.yaml`은 가져오지 않는다. master key는 올리기 전에 `PLATFORM_SECRET_KEY`로 옮긴다. 파일의 `secret_key`가 가리키던 값과 같은 값이어야 저장된 자격 증명을 읽는다. 이미 `PLATFORM_SECRET_KEY`를 쓰던 설치도 같은 값을 유지한다. master key 없이 돌던 설치는 새 키를 먼저 넣는다. 없으면 API와 slack 역할이 기동을 거부한다.
 4. `PLATFORM_CONFIG_DIR`을 지운다. 남겨 두면 API와 slack 역할이 기동을 거부한다.
-5. 가져온 뒤에는 파일과 `PLATFORM_LEGACY_CONFIG_DIR`을 지워도 된다. 다시 돌려도 더하기만 하므로, 같은 파일이면 모두 `unchanged`이고 고친 파일은 `conflicts`로 멈춘다. 저장소만은 예외다. 콘솔이나 API로 브랜치를 바꾼 저장소와, 이미 행이 있는 GitHub 저장소를 다른 id로 적은 항목은 멈추지 않고 DB 행을 남긴 뒤 결과의 `kept`와 stderr의 `note:`로 알린다. 파일의 `profiles.yaml`은 표가 빌 때만 읽히므로, 표가 채워진 설치에서는 이 이미지가 싣지 않은 runtime이 적혀 있어도 멈추지 않는다. 그 뒤 변경은 콘솔에서 한다.
+5. 가져온 뒤에는 파일과 `PLATFORM_LEGACY_CONFIG_DIR`을 지워도 된다. 다시 돌려도 더하기만 하므로, 같은 파일이면 모두 `unchanged`이고 고친 파일은 `conflicts`로 멈춘다. 저장소만은 예외다. 위의 GitHub App 없는 항목은 매번 `note:`만 남기고 빠진다. 콘솔이나 API로 브랜치를 바꾼 저장소와, 이미 행이 있는 GitHub 저장소를 다른 id로 적은 항목은 멈추지 않고 DB 행을 남긴 뒤 결과의 `kept`와 stderr의 `note:`로 알린다. 파일의 `profiles.yaml`은 표가 빌 때만 읽히므로, 표가 채워진 설치에서는 이 이미지가 싣지 않은 runtime이 적혀 있어도 멈추지 않는다. 그 뒤 변경은 콘솔에서 한다.
 
 같은 id를 이미 DB 행으로 둔 설치도 같다. 파일의 값이 행과 같으면 `unchanged`이고 fingerprint·binding·release id는 바뀌지 않는다.
 
@@ -79,8 +114,8 @@ API와 slack 역할은 설정 파일을 읽지 않는다. 연결·저장소·MCP
 - **이 즉시 실패는 최신 설정을 읽은 replica만 쓴다.** 각 API는 자기가 읽은 DB 설정으로 판단한다. claim transaction 안에서 그 판단이 읽은 `settings_generation`과 지금 값을 비교해, 읽은 값이 뒤처졌으면 세션을 실패시키지 않고 claim에 `404 NOT_FOUND`(잡을 세션 없음)로 답한다. worker는 claim timeout 뒤 나가고 다음 launch가 새 설정으로 다시 판단한다. 운영자가 할 일은 없다.
   - **차단은 예외다.** 상한이 차단돼 있으면 claim이 그 transaction 안에서 상한 행을 다시 읽고, 읽은 설정이 뒤처졌어도 세션을 실패시킨다. 차단은 모든 replica에 같은 DB 행이기 때문이다.
   - **판단 기록:** 쌍을 빼는 일이 보안 경계라면(그 저장소에서 더는 돌면 안 되는 경우) 상한을 차단한다. 차단은 다음 claim부터 모든 replica에 바로 듣는다.
-- 비공개 저장소는 `repositories.<id>.auth`에 로그인을 같은 방식의 참조로 적는다. `kind: basic`(`username` 필요) 또는 `kind: bearer`이고, `value_env`·`secret_id` 중 하나를 쓴다. worker는 이 값을 받지 않고 proxy의 저장소 route로 clone한다. 저장소 host가 무엇이든 같은 방식이다. GitHub는 아래 절을 따른다.
-- 두 자격 증명 모두 8바이트보다 짧으면 쓰지 않는다. API는 그대로 뜨고 그 항목만 빠진다. proxy는 upstream 응답에 주입한 값이 되비치는지 검사하는데, 스트림 본문에서는 8바이트 이상인 값만 검사하기 때문이다.
+- 저장소는 GitHub App으로만 등록한다. `repositories.<id>.auth`는 필수이고 `kind: github_app`이다(아래 절). `auth`가 없거나 `basic`·`bearer`인 항목은 받지 않는다. worker는 자격 증명을 받지 않고 proxy의 저장소 route로 clone한다.
+- 자격 증명은 8바이트보다 짧으면 쓰지 않는다. API는 그대로 뜨고 그 항목만 빠진다. proxy는 upstream 응답에 주입한 값이 되비치는지 검사하는데, 스트림 본문에서는 8바이트 이상인 값만 검사하기 때문이다.
 - endpoint·저장소 URL은 `http://`·`https://`만 받는다(worker가 밖으로 나가는 길은 HTTP(S) egress proxy뿐이다). 자격 증명(userinfo, query string)이 들어 있으면 거절한다.
 - profile마다 `sha256:` fingerprint(설정과 참조의 정규 JSON 해시, 값 제외)가 worker claim의 `profile_fingerprint`로 간다. 같은 참조 뒤의 값만 회전하면 fingerprint는 바뀌지 않는다.
 - 세션은 만들 때의 profile fingerprint를 저장하고, claim은 카탈로그의 같은 id가 그 fingerprint로 해시될 때만 세션을 묶는다. 설정을 바꾸려면 **새 profile id**를 등록하고 새 세션을 그 id로 만든다. 기존 id를 고치면 그 id로 만든 세션은 모두 위의 `CATALOG_MISMATCH`가 되고, 되돌리면 다시 돈다. 자격 증명 값은 claim 때 카탈로그에서 읽으므로 같은 참조 뒤의 값 회전(그리고 API 재기동)은 기존 세션을 막지 않는다. 이 컬럼 전에 만든 세션은 fingerprint가 비어 있고 다음 claim이 그때의 fingerprint로 고정한다.
@@ -169,9 +204,9 @@ mcp_servers:
 
 ### GitHub 저장소
 
-github.com과 GitHub Enterprise Server(GHES)의 저장소도 다른 host와 같은 저장소 route로 clone한다. 인증은 GitHub App이 기본이고 fine-grained PAT도 쓸 수 있다. 둘 다 worker에는 가지 않는다.
+github.com과 GitHub Enterprise Server(GHES)의 저장소도 다른 host와 같은 저장소 route로 clone한다. 인증은 GitHub App만 쓴다. 그 자격 증명은 worker에 가지 않는다.
 
-#### GitHub App (기본)
+#### GitHub App
 
 API가 App의 private key로 JWT를 서명해 설치 토큰을 받고, 그 토큰을 proxy의 저장소 route에 내준다. 토큰은 1시간짜리라 API가 갱신한다. App은 콘솔에서 등록한다. 한 워크스페이스에 작성용·리뷰 승인용 App을 여럿 둘 수 있고, 저장소마다 어느 App이 토큰을 발급할지 고정한다([github-agent.md 결정 11](../contributing/decisions/github-agent.md#결정-11-같은-역할에-app-여럿)).
 
@@ -218,40 +253,24 @@ API가 App의 private key로 JWT를 서명해 설치 토큰을 받고, 그 토�
   URL은 `/<owner>/<repo>` 모양이어야 한다(토큰을 그 저장소 이름으로 좁히기 때문이다). `api_base`는 https만 받는다. 사설 이름·주소의 host(로컬 fake)만 http를 허용한다. API는 기동할 때 키를 RSA private key로 읽어 보고, 읽히지 않으면 `repositories.<id>.auth.<참조>: … is not an RSA private key PEM`으로 기동을 거부한다(값은 출력하지 않는다). `app_id`·`installation_id`·`api_base`·참조 위치를 바꾸면 그 저장소의 binding이 바뀌어 이미 만든 세션은 `CATALOG_MISMATCH`가 된다.
 - **토큰:** 저장소 route가 요청마다 API에 물으면 API는 `POST {api_base}/app/installations/{installation_id}/access_tokens`에 `repositories: [<repo>]`, `permissions: { contents: read }`를 보내 그 저장소 하나·읽기 권한으로 좁힌 토큰을 받는다. 콘솔 App이면 그 앞에 `GET {api_base}/repos/{owner}/{repo}/installation`으로 installation id를 찾아 프로세스 메모리에 두고, 발급이 실패하면 다음에 다시 찾는다. 토큰은 저장소·권한별로 API 프로세스 메모리에 두고 `expires_at` 10분 전부터 새로 받는다. 같은 토큰을 동시에 묻는 요청은 발급 한 번을 같이 기다린다. 진행 중인 clone은 시작할 때의 토큰으로 끝까지 받는다. JWT는 `@octokit/auth-app`이 만든다(iat는 30초 앞당기고 수명은 10분).
 - **실패:** 발급이 실패하면(키·installation이 틀림, GitHub 장애, App 설치 해제) 저장소 route는 `503`으로 닫힌다. 남은 토큰이 아직 유효해도 갱신 시점이 지났으면 쓰지 않는다. clone은 시작 단계에서 실패해 세션 attention이 `STARTUP_FAILED`다. API 로그에는 `GitHub request failed`(`request: installation token request`, `status`, `error`)와 egress authorizer의 `Egress authorization refused`(`status: 503`, `code: BACKEND_UNAVAILABLE`)가 남는다. 토큰·JWT·키는 로그와 오류 메시지에 나오지 않는다. status가 401이면 App ID·키 짝, 404면 installation id와 그 설치에 저장소가 들어 있는지, 422면 저장소 이름을 확인한다. 콘솔 App이 그 저장소에 설치되어 있지 않으면 `GitHub App is not installed on <owner>/<repo>`로 같은 `503`이 되고, 콘솔 App이 없으면 forge가 없어 `503`이다. 콘솔의 GitHub 화면이 두 경우를 모두 보여 준다.
-- **allowlist:** 토큰 발급은 API가 직접 한다(`api.github.com:443` 또는 GHES의 `<ghes-host>:443`로 API 컨테이너의 outbound가 열려 있어야 한다). clone은 아래 PAT와 같이 proxy의 `EGRESS_CREDENTIAL_ALLOWLIST`에 `github.com:443`(GHES는 `<ghes-host>:443`)을 더한다.
+- **allowlist:** 토큰 발급은 API가 직접 한다(`api.github.com:443` 또는 GHES의 `<ghes-host>:443`로 API 컨테이너의 outbound가 열려 있어야 한다). clone은 proxy의 `EGRESS_CREDENTIAL_ALLOWLIST`에 `github.com:443`(GHES는 `<ghes-host>:443`)을 더한다.
 
-#### fine-grained PAT
+#### 저장소 route와 egress
 
-- **PAT 발급:** GitHub Settings → Developer settings → Fine-grained personal access tokens. Resource owner는 저장소의 owner(조직이면 조직이 승인해야 할 수 있다), Repository access는 `Only select repositories`로 그 저장소만 고른다. Repository permissions는 **Contents: Read-only** 하나다(Metadata: Read-only는 자동으로 붙는다). 만료일을 두고, 만료 전에 같은 참조 뒤의 값만 바꾼 뒤 API를 재기동한다(fingerprint·revision은 그대로다). 승인된 세션 결과를 push하려면(아래 [승인된 요청의 push](#승인된-요청의-push) 절) **Contents: Read and write**로 준다. 그 PAT는 API만 쓰고 worker에는 가지 않는다. push를 쓰지 않으면 Read-only로 둔다.
-- **카탈로그:** URL은 https clone URL 그대로 `.git`까지 적는다. GHES는 host만 다르다. 로그인 이름은 `x-access-token`이고 PAT를 비밀번호 자리에 둔다. 공개 저장소는 `auth` 없이 등록해도 clone된다.
-
-  ```yaml
-  repositories:
-    app:
-      url: https://github.com/<owner>/<repo>.git   # GHES: https://<ghes-host>/<owner>/<repo>.git
-      branch: main
-      profiles: [claude-coding-real]
-      auth:
-        kind: basic
-        username: x-access-token
-        value_env: APP_GITHUB_PAT                  # 또는 secret_id
-  ```
-
-  `value_env`는 API 프로세스의 환경 변수다. compose의 `api`는 정해진 변수만 넘기므로 overlay에 `environment: { APP_GITHUB_PAT: ${APP_GITHUB_PAT:?} }`를 더한다.
 - **allowlist:** `github.com:443`(GHES는 `<ghes-host>:443`)을 egress proxy의 `EGRESS_CREDENTIAL_ALLOWLIST`에 더한다. compose 기본값은 `api.anthropic.com:443`이므로 `EGRESS_CREDENTIAL_ALLOWLIST=api.anthropic.com:443,github.com:443`처럼 기존 값을 함께 적는다. 사설 주소의 GHES는 `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`에 둔다. forward 목록(`EGRESS_ALLOWLIST`)에는 넣지 않는다. 넣으면 proxy가 기동을 거부하고, 넣지 않았으므로 worker의 도구(Bash의 `git`·`curl`, npm의 git 의존성)는 GitHub에 직접 닿지 못한다. 2026-10-13 로컬 스택 실측에서 worker 안의 `git ls-remote https://github.com/octocat/Hello-World.git`은 `CONNECT tunnel failed, response 403`으로 끝났고, proxy에는 `Egress denied`(`destination is not allowlisted`)가 남았다.
 - **redirect:** route는 3xx를 따라가지도 전달하지도 않고 502 `upstream redirected`로 끝낸다. clone은 `git clone failed (exit 128): remote: upstream redirected`로 실패하고 세션 attention은 `STARTUP_FAILED`다. GitHub가 git 요청에 301을 주는 경우로 확인한 것은 `http://` URL(→ `https://`)이다. 이름을 바꾼 저장소(`vuejs/vue-next` → `vuejs/core`)와 `.git`을 뺀 URL은 2026-10-13 실측에서 redirect 없이 200이었다. proxy 로그에 `Credential route`가 `status: 301`로 남으면 카탈로그 URL을 응답이 가리키는 주소로 고친다.
-- **401:** 로그인 없이 읽을 수 없는 저장소(없는 저장소, `auth`를 빠뜨린 비공개 저장소)에 GitHub는 401을 준다. proxy 로그는 `Credential route`의 `status: 401`이고, clone은 `fatal: could not read Username for 'http://egress-proxy:3129': terminal prompts disabled`로 실패한다(attention `STARTUP_FAILED`, 2026-10-13 실측). 틀리거나 권한이 모자란 PAT의 응답은 아직 재지 않았다. 아래 절차에서 status를 확인한다.
+- **401:** 로그인 없이 읽을 수 없는 저장소(없는 저장소, 설치 토큰이 닿지 않는 비공개 저장소)에 GitHub는 401을 준다. proxy 로그는 `Credential route`의 `status: 401`이고, clone은 `fatal: could not read Username for 'http://egress-proxy:3129': terminal prompts disabled`로 실패한다(attention `STARTUP_FAILED`, 2026-10-13 실측). App 설치의 권한이 모자란 경우의 응답은 아직 재지 않았다. 아래 절차에서 status를 확인한다.
 - **확인:** clone이 되면 proxy 로그에 세션 id와 함께 `"message":"Credential route"`, `"purpose":"repository"`, `"host":"github.com"`, `"status":200` 줄이 남는다(실측에서 clone 한 번에 세 줄). worker의 작업 트리에서 `git remote get-url origin`은 카탈로그 URL이고 로그인을 담지 않는다.
 - **LFS·submodule·Go 모듈:** 엔진의 git은 세션의 기본 저장소와 부착 저장소 URL을 저장소 route로 돌린다(`insteadOf`, 엔진 HOME의 `.config/git/config`). 그래서 그 저장소들을 가리키는 submodule, git URL 의존성, 사설 Go 모듈(`GOPRIVATE`, github.com 저장소만)은 route로 받는다. 세션에 붙지 않은 저장소는 받지 않는다. `GOPRIVATE`에는 route가 있는 저장소의 모듈 경로(`github.com/<owner>/<repo>`, 하위 경로 포함)만 들어가고, route를 쓰지 못한 claim에서는 비운다. 그래서 세션에 붙지 않은 사설 저장소의 모듈은 공개 프록시로 가서 `proxy.golang.org`가 찾지 못하고 실패한다. 이때 그 모듈 경로가 `proxy.golang.org` 요청에 드러나고(받기가 실패하므로 checksum 조회까지는 가지 않는다), 저장소 허용 집합을 확인하는 게이트를 거치지 않으므로 거절 receipt도 남지 않는다. 세션이 그런 저장소를 route로 직접 요청하면 게이트가 `repository_not_allowed` receipt를 남기고 `403`으로 거절한다. Git LFS 객체는 route가 batch를 대신 부르고 저장 위치에서 받아 준다. GitHub는 객체를 `github-cloud.githubusercontent.com`에 두므로(2026-11-02 실측) 이 호스트를 `EGRESS_PACKAGES_REDIRECT_ALLOWLIST`에 `github-cloud.githubusercontent.com:443`으로 더한다. 더하지 않으면 객체 GET이 `502`다. worker 이미지에는 `git-lfs`가 있고(시스템 범위 filter, smudge 끔) Go 툴체인은 없다(파생 이미지는 [images-and-supply-chain.md](images-and-supply-chain.md)의 "worker 안의 패키지 도구"). `git-lfs`는 worker Dockerfile의 build stage가 upstream 소스 릴리스에서 직접 빌드한다. upstream 릴리스 바이너리가 링크한 `golang.org/x/net`에 취약점이 있어 그 모듈을 올려 빌드하고, 소스·Go 툴체인·go.mod·go.sum을 모두 sha256으로 고정한다. 이 버전들은 매일의 Debian 보안 갱신으로 따라 올라가지 않으므로 worker Dockerfile의 `GIT_LFS_*` 값과 checksum을 손으로 올린다. 패치된 x/net을 쓰는 upstream 릴리스가 나오면 그 버전으로 올리고 모듈 변경을 뺄 수 있다. checkout은 pointer 파일을 남기므로 객체는 엔진이 `git lfs pull`로 받는다. 객체 호스트를 목록에 넣지 않은 배포에서 checkout이 실패하지 않게 하려는 것이다.
 
-비공개 저장소와 PAT로 확인하는 절차다. `scripts/local.sh up --fake-model`로 띄운 스택에 카탈로그 overlay를 겹친다. PAT 값은 셸에서 `read -rs`로 받아 화면과 파일에 남기지 않는다.
+github.com의 비공개 저장소로 확인하는 절차다. `scripts/local.sh up --fake-model`로 띄운 스택에 저장소 예시 overlay를 겹친다.
 
-1. `tests/fixtures/settings/fake-model.json`을 복사해 위 형식의 저장소를 `repositories`에 더한다. 저장소의 `profiles`는 `["claude-coding-local"]`이다. 이 배열은 빈 표를 시드할 때만 읽으므로 새 스택(볼륨 없음)으로 띄운다. 이미 띄운 스택이면 `POST /v1/installation-profiles`로 `claude-coding-local`을 `previous_id`로 하고 그 저장소를 `repository_ids`에 넣은 다음 버전을 저장한 뒤, 새 id로 세션을 만든다.
-2. overlay를 만든다. `migrate`에 `volumes: ["<그 파일>:/settings/fake-model.json:ro"]`를, `api`에 `environment: { APP_GITHUB_PAT: ${APP_GITHUB_PAT:?} }`를 준다.
-3. `read -rs APP_GITHUB_PAT; export APP_GITHUB_PAT EGRESS_CREDENTIAL_ALLOWLIST=api.anthropic.com:443,github.com:443 COMPOSE_FILE="compose.yaml:<overlay>"` 뒤 `scripts/local.sh up --fake-model`.
+1. 콘솔에서 GitHub App을 등록하고 대상 저장소에 설치한다(위 App 절).
+2. `.claude/skills/verify-agent-platform/github-sandbox/overlay.yml`을 `COMPOSE_FILE="compose.yaml:<그 파일>"`로 겹친다. 이 overlay는 `github.com:443`을 `EGRESS_CREDENTIAL_ALLOWLIST`에 더하고, 같은 폴더의 `settings.json`을 migrate에 준다. 다른 저장소를 쓰려면 그 파일을 복사해 `repositories`의 URL을 바꾼다. 저장소의 `profiles` 배열은 빈 표를 시드할 때만 읽으므로 새 스택(볼륨 없음)으로 띄운다.
+3. `scripts/local.sh up --fake-model`.
 4. API 기동 로그 `Session catalog loaded`의 `repositories` 수를 보고, quickstart 2·3장처럼 `repository_id`를 그 저장소로 바꿔 세션을 만든다.
 5. 세션이 `needs_input`이나 `completed`에 닿으면 `docker compose logs egress-proxy | grep '"purpose":"repository"'`에서 `status: 200`을 확인한다. `STARTUP_FAILED`면 위의 401·redirect 항목을 본다.
-6. `scripts/local.sh down`(같은 환경 변수로)으로 내리고 `unset APP_GITHUB_PAT`.
+6. `scripts/local.sh down`(같은 환경 변수로)으로 내린다.
 
 ### 세션 결과의 push 승인
 
@@ -271,25 +290,25 @@ API 프로세스가 3초마다 `approved` 요청을 하나씩 잡아 push한다.
 
 - **무엇을 어디로:** 요청이 고정한 commit 하나를, 요청이 고정한 저장소의 `refs/heads/agent/<session-id>`에 push한다. 다른 ref나 tag는 보내지 않는다. force push는 없다. 원격 브랜치가 이미 있고 그 commit이 push할 commit의 조상이 아니면 `non_fast_forward`로 거절한다. 같은 commit이 이미 있으면 그대로 `pushed`다.
 - **거절하는 대상:** 브랜치가 `agent/<session-id>`가 아니면 `target_refused`, 카탈로그 `branch`이거나 원격의 기본 브랜치(GitHub API의 `default_branch`, 원격 `HEAD`가 가리키는 브랜치)면 `default_branch`다.
-- **고정한 저장소:** 요청은 카탈로그 항목의 binding(URL·branch·auth의 종류와 참조 위치의 해시, 비밀 값은 넣지 않음)을 함께 저장한다. push 때 다시 계산해 다르면(URL을 바꿈, auth를 바꿈, 항목을 지움) `catalog_changed`로 거절하고 원격에는 아무 요청도 보내지 않는다. 그 세션은 새로 요청해 다시 승인받는다. 같은 참조 뒤의 비밀 값만 바꾸는 키·PAT 교체는 binding을 바꾸지 않는다.
-- **자격 증명:** `github_app`은 `contents: write`, 그 저장소 하나로 좁힌 설치 토큰을 새로 받는다(clone용 읽기 토큰과 따로 캐시한다). github.com의 `basic`(PAT)과 forge가 없는 `basic`·`bearer`(GitHub가 아닌 호스트, GHES PAT)는 카탈로그 값을 그대로 쓴다. `auth`가 없는 저장소는 `no_push_credential`로 거절한다. 값은 git 프로세스의 환경 변수(`GIT_CONFIG_COUNT`)로 `http.<저장소 URL>.extraHeader`에만 들어간다. 명령줄 인자, URL, 저장소 config, 디스크 어디에도 쓰지 않고, redirect는 따라가지 않는다.
+- **고정한 저장소:** 요청은 카탈로그 항목의 binding(URL·branch·auth의 종류와 참조 위치의 해시, 비밀 값은 넣지 않음)을 함께 저장한다. push 때 다시 계산해 다르면(URL을 바꿈, auth를 바꿈, 항목을 지움) `catalog_changed`로 거절하고 원격에는 아무 요청도 보내지 않는다. 그 세션은 새로 요청해 다시 승인받는다. 같은 참조 뒤의 비밀 값만 바꾸는 키 교체는 binding을 바꾸지 않는다.
+- **자격 증명:** `github_app`은 `contents: write`, 그 저장소 하나로 좁힌 설치 토큰을 새로 받는다(clone용 읽기 토큰과 따로 캐시한다). 토큰은 git 프로세스의 환경 변수(`GIT_CONFIG_COUNT`)로 `http.<저장소 URL>.extraHeader`에만 들어간다. 명령줄 인자, URL, 저장소 config, 디스크 어디에도 쓰지 않고, redirect는 따라가지 않는다.
 - **checkpoint에서 꺼내기:** 고정한 revision의 manifest와 bundle 체인을 restore처럼 처음부터 다시 검증하고(digest와 git 검증기), `baseBundles` 순서로 임시 bare 저장소에 fsck를 켜고 fetch한다. 이 저장소는 template가 없어 hook이 없고, checkout이 없어 filter·attribute·submodule이 돌지 않으며, 사용자·시스템 git config를 읽지 않는다. 끝나면 임시 디렉터리를 지운다.
 - **lease:** `pushing`은 15분 lease를 가진다. push의 git은 claim부터 12분(lease의 80%)이 지나면 끊기고, 그 뒤에는 새 git을 시작하지 않는다. 그래서 살아 있는 시도가 lease를 넘겨 다른 시도와 겹쳐 쓰지 않는다. git 프로세스마다 checkpoint 검증과 같은 메모리 상한(`CHECKPOINT_GIT_MEMORY_MB`)과 파일 크기·CPU 상한이 걸린다(Linux의 `prlimit`). API가 push 도중 죽으면 lease가 끝난 뒤 다른 replica(또는 재기동한 API)가 같은 요청을 다시 잡는다. 같은 commit이 이미 원격에 있으면 `pushed`로 끝난다. 세 번 잡혀도 끝나지 않으면 `lease_expired`로 `failed`가 되고, 세션은 새 요청을 만들 수 있다. 늦게 깨어난 이전 시도는 결과를 덮어쓰지 못한다.
 - **결과:** `GET /v1/sessions/{id}/push-requests/{push_request_id}`의 `push_receipt_id`가 `push` receipt를 가리킨다. 그 `result`에는 위 필드에 더해 `remote_url`, `remote_ref`(`refs/heads/agent/<session-id>`), `previous_commit`(원격 ref가 전에 가리키던 commit, 새로 만들었으면 null), `approved_by`(결정한 actor)가 있다. 실패면 `refusal`과 `error.code`가 있다: `catalog_changed`(`CATALOG_MISMATCH`), `target_refused`·`default_branch`·`no_push_credential`(`FORBIDDEN`), `non_fast_forward`(`REVISION_CONFLICT`), `checkpoint_unavailable`(`CHECKPOINT_UNAVAILABLE`), `lease_expired`(`LEASE_EXPIRED`), `push_failed`(`BACKEND_UNAVAILABLE`, 토큰 발급 실패·원격 거절·네트워크). 원격이 보낸 메시지는 receipt에 넣지 않는다. API 로그의 `Push refused`·`Push failed`·`Push request finished` 줄에 `push_request_id`와 사유가 있다.
-- **필요한 권한:** GitHub App은 Repository permissions **Contents: Read and write**(위 App 절). fine-grained PAT는 **Contents: Read and write**. API 컨테이너에서 저장소 host로 나가는 outbound가 열려 있어야 한다(clone은 proxy를 거치지만 push는 API가 직접 한다).
+- **필요한 권한:** GitHub App은 Repository permissions **Contents: Read and write**(위 App 절). API 컨테이너에서 저장소 host로 나가는 outbound가 열려 있어야 한다(clone은 proxy를 거치지만 push는 API가 직접 한다).
 - **기본 브랜치 보호(권장):** 코드가 기본 브랜치를 거부하지만 GitHub에서도 한 번 더 막는다. 저장소 Settings → Rules → Rulesets → New branch ruleset에서 Target을 `Include default branch`로 두고 **Restrict updates**, **Restrict deletions**, **Block force pushes**를 켠다. Bypass list에는 App을 넣지 않는다. 사람의 리뷰를 거친 머지만 받으려면 **Require a pull request before merging**도 켠다. `agent/*` 브랜치에는 force push 금지(**Block force pushes**)만 거는 ruleset을 따로 두면 플랫폼이 아닌 누군가가 그 브랜치를 되돌리는 일도 막는다.
-- **push된 commit의 CI(주의):** push되는 commit의 내용은 에이전트가 쓴 것이다. 사람이 그 commit을 승인하지만, 저장소가 `agent/*` push에 CI를 돌리면 에이전트가 고친 `.github/workflows/` 파일도 그대로 실행된다. 그 workflow는 저장소의 Actions secret과 `GITHUB_TOKEN` 권한으로 돈다. 그래서 승인할 때 workflow 파일 변경을 따로 보고, 위 ruleset으로 기본 브랜치를 막으며, App이나 PAT에는 `Workflows` 권한을 주지 않는다. 이 권한이 없으면 GitHub이 workflow 파일을 바꾸는 push를 거절하므로 그런 commit은 `push_failed`로 끝난다. `agent/*` push에서 CI가 필요 없으면 기존 workflow의 `on.push.branches-ignore`에 `agent/**`를 넣는다. 이 설정은 바뀌지 않은 workflow에만 효과가 있으므로 `Workflows` 권한을 빼는 것과 함께 쓴다.
+- **push된 commit의 CI(주의):** push되는 commit의 내용은 에이전트가 쓴 것이다. 사람이 그 commit을 승인하지만, 저장소가 `agent/*` push에 CI를 돌리면 에이전트가 고친 `.github/workflows/` 파일도 그대로 실행된다. 그 workflow는 저장소의 Actions secret과 `GITHUB_TOKEN` 권한으로 돈다. 그래서 승인할 때 workflow 파일 변경을 따로 보고, 위 ruleset으로 기본 브랜치를 막으며, App에는 `Workflows` 권한을 주지 않는다. 이 권한이 없으면 GitHub이 workflow 파일을 바꾸는 push를 거절하므로 그런 commit은 `push_failed`로 끝난다. `agent/*` push에서 CI가 필요 없으면 기존 workflow의 `on.push.branches-ignore`에 `agent/**`를 넣는다. 이 설정은 바뀌지 않은 workflow에만 효과가 있으므로 `Workflows` 권한을 빼는 것과 함께 쓴다.
 
 ### push한 브랜치의 PR과 코멘트
 
 `pushed`가 된 요청의 `agent/<session-id>` 브랜치로 사람이 PR을 열고, 그 PR에 코멘트를 달거나 고칠 수 있다. 둘 다 API 호출로 한 번씩 하며, 플랫폼이 세션 이벤트마다 스스로 코멘트를 달지는 않는다. PR 승인·머지·리뷰어 지정·라벨은 하지 않는다.
 
 - **열기:** `POST /v1/sessions/{id}/push-requests/{push_request_id}/pull-request`, body `{title?, body?}`. head는 요청의 `agent/<session-id>`, base는 카탈로그 항목의 `branch`다. 요청이 `pushed`가 아니면 409 `PUSH_NOT_PUSHED`, 카탈로그 항목의 binding이 요청 때와 다르면 push와 같이 409 `CATALOG_MISMATCH`다. 요청 하나에 PR은 하나다. 이미 기록된 PR이 있거나 GitHub에 그 브랜치의 열린 PR이 있으면 새로 열지 않고 그 PR을 200(`created: false`)으로 돌려준다. 같은 세션의 다음 push 요청은 같은 브랜치를 갱신하므로 열린 PR도 같고, 그 요청으로도 코멘트를 달 수 있다. PR 행은 그 PR을 연 push 요청에 묶인다. 그 요청의 호출은 PR이 닫혀도 기록된 PR을 그대로 돌려주고, 다른 push 요청의 호출은 GitHub에서 그 브랜치의 열린 PR을 다시 찾아 없으면(사람이 닫았으면) 새 PR을 연다.
-- **코멘트:** `POST .../pull-request/comments`, body `{body, marker?}`(`marker` 기본값 `status`). 코멘트 끝에 `<!-- werft:<session-id>:<marker> -->`를 붙이고, 플랫폼이 쓴(App 또는 PAT 주인이 작성자인) 같은 marker의 코멘트가 이미 있으면(오래된 순 처음 1000개 안에서) 새로 달지 않고 그 코멘트를 고친다. 다른 사람이 marker를 복사해 둔 코멘트는 건드리지 않는다. PR을 먼저 열지 않았으면 409 `PULL_REQUEST_MISSING`이다.
+- **코멘트:** `POST .../pull-request/comments`, body `{body, marker?}`(`marker` 기본값 `status`). 코멘트 끝에 `<!-- werft:<session-id>:<marker> -->`를 붙이고, 플랫폼이 쓴(App이 작성자인) 같은 marker의 코멘트가 이미 있으면(오래된 순 처음 1000개 안에서) 새로 달지 않고 그 코멘트를 고친다. 다른 사람이 marker를 복사해 둔 코멘트는 건드리지 않는다. PR을 먼저 열지 않았으면 409 `PULL_REQUEST_MISSING`이다.
 - **누가:** push 결정과 같은 규칙이다. `sessions:approve`를 가진 API key나 로그인한 사용자만 부르고, scope는 서비스가 검사해 거절도 receipt로 남는다. worker 자격은 `/v1`에서 401이고 `AUTH_MODE=none`에서는 403(`unverified_principal`)이며 기록하지 않는다.
 - **본문 정리:** 제목·본문·코멘트는 GitHub에 보내기 전에 정리한다. 각 줄을 로그 마스킹과 같은 규칙(`sanitizeText`)에 넣어 비밀처럼 보이는 줄(`ghp_…`, `token:` 같은 줄)은 `[REDACTED]` 한 줄로 바꾼다. `@멘션`, 다른 저장소 참조(`owner/repo#N`), closing keyword(`Closes #N`, `fixes owner/repo#N`, `resolves <URL>` 등), HTML 주석(`<!--`)은 zero-width space를 끼워 알림·링크·자동 닫기·숨김이 일어나지 않게 한다. 제목은 한 줄 256자, 본문과 코멘트는 GitHub의 65536자 안으로 자르고 `…(truncated)`를 붙인다. PR 본문 끝에는 `<!-- werft:pr-tail -->`로 시작해 `<!-- /werft:pr-tail -->`로 끝나는 꼬리가 붙는다. 세션 id·commit, 세션 URL(콘솔 origin이 있을 때), 에이전트·release, push 요청, 시작 경로(`web`·`slack`·`personal_key`·`agent_key`·`operator_key`), 시작자의 GitHub 연결 여부, 연결돼 있으면 `Co-authored-by:` 줄이다. 이미 있는 PR을 돌려줄 때(`created: false`)도 그 PR 본문의 꼬리를 지금 commit으로 바꾼다. 바꾸는 것은 마지막 꼬리(시작 표시 줄부터 다음 끝 표시 줄까지, 표시는 각자 한 줄에 들여쓰기 없이 홀로, 코드 블록과 `<details>` 같은 HTML 요소 밖에 있고, 사이가 플랫폼이 쓰는 줄을 그 순서로 한 번씩 담을 때만 센다. 사람이 그 안에 줄을 더하면 사람 글이다)뿐이고, 앞뒤에 사람이 쓴 글은 줄바꿈까지 쓴 그대로, 문장·코드 블록·HTML 블록에 인용하거나 사이를 고친 표시는 글로 둔다. 그런 짝이 없으면(옛 PR, 사람이 꼬리를 지운 PR) 아무것도 지우지 않고 끝에 붙인다. 본문이 코드 블록이나 HTML 요소를 연 채 끝나면 닫는 줄을 더한 뒤 붙인다. 꼬리 갱신이 실패해도 PR 응답은 그대로이고 API 로그에 경고만 남는다. 아래 "GitHub 계정 연결"도 본다.
-- **자격 증명:** `github_app`은 그 저장소 하나와 `contents: read`·`pull_requests: write`로 좁힌 설치 토큰을 따로 받는다(clone의 `contents: read`, push의 `contents: write` 토큰과 캐시 key가 다르다). PR 조회·생성과 코멘트 목록·작성·수정 모두 이 토큰으로 된다. `contents: read`가 없으면 github.com은 PR 생성을 422 `not all refs are readable`로 거절한다(2026-10-29 실측). github.com의 PAT는 그 값을 그대로 쓴다. GitHub가 아닌 호스트와 GHES PAT처럼 GitHub forge가 없는 저장소는 403 `FORBIDDEN`(`no_forge`)이다.
-- **필요한 권한:** GitHub App은 Repository permissions **Pull requests: Read and write**(위 App 절, Contents와 함께). fine-grained PAT는 **Pull requests: Read and write**를 더한다. `Issues`·`Workflows` 권한은 필요 없으니 주지 않는다. API 컨테이너에서 `api_base` host로 나가는 outbound가 열려 있어야 한다.
+- **자격 증명:** `github_app`은 그 저장소 하나와 `contents: read`·`pull_requests: write`로 좁힌 설치 토큰을 따로 받는다(clone의 `contents: read`, push의 `contents: write` 토큰과 캐시 key가 다르다). PR 조회·생성과 코멘트 목록·작성·수정 모두 이 토큰으로 된다. `contents: read`가 없으면 github.com은 PR 생성을 422 `not all refs are readable`로 거절한다(2026-10-29 실측). GitHub forge가 없는 저장소는 403 `FORBIDDEN`(`no_forge`)이다.
+- **필요한 권한:** GitHub App은 Repository permissions **Pull requests: Read and write**(위 App 절, Contents와 함께). `Issues`·`Workflows` 권한은 필요 없으니 주지 않는다. API 컨테이너에서 `api_base` host로 나가는 outbound가 열려 있어야 한다.
 - **rate limit:** REST 호출은 `@octokit/core`에 retry·throttling plugin을 붙여 한다. 429와 secondary rate limit 403은 GitHub가 준 `retry-after`(또는 `x-ratelimit-reset`)만큼 기다렸다 다시 보내고, 재시도는 2번까지, 기다릴 시간이 60초를 넘으면 기다리지 않는다. 5xx도 2번까지 다시 보낸다. 쓰기 호출 사이에는 plugin이 1~3초 간격을 둔다. 끝내 실패하면 503 `BACKEND_UNAVAILABLE`(`forge_failed`)이고 API 로그에 `GitHub rate limit`(`limit`, `request`, `retry_after_seconds`, `retrying`)과 `GitHub request failed`(`request`, `status`)가 남는다. 토큰과 응답 본문은 로그에 쓰지 않는다.
 - **감사:** 열기·코멘트·거절된 시도마다 receipt가 남는다. operation은 `open_pull_request`·`comment_pull_request`, target은 `{session_id, request_id: <push_request_id>}`, `result`는 `{push_request_id, verdict, refusal, repository_id, number, url, head, base, created}`이고 코멘트는 `{comment_id, comment_url, marker}`를 더한다. 응답의 `receipt_id`, 거절이면 `error.details.receipt_id`로 `GET /v1/receipts/{id}`에서 읽는다. PR 번호·URL은 `pull_requests` 테이블에 push 요청과 함께 남는다.
 
@@ -725,7 +744,7 @@ Slack DM이 만든 세션은 `private`로 시작한다(아래 "Slack 스레드�
 
 **commit 트레일러.** claim의 `git.co_author`(시작자가 연결했을 때만)와 `git.session_url`을 worker가 `$HOME/.werft/git-trailers`에 쓰고, worker 이미지의 system `core.hooksPath`(`/usr/local/share/werft/git-hooks`)에 있는 `commit-msg` hook이 `git interpret-trailers --if-exists addIfDifferent`로 `Co-authored-by:`·`Agent-Session:`을 붙인다. 같은 줄은 한 번만 붙고, 저장소의 원래 hook(`.git/hooks/<이름>`)은 먼저 돈다. 시작자는 첫 turn을 보낸 사람, 없으면 세션을 만든 사람이다. web·개인 key·Slack은 사람이고, 에이전트 key·운영자 key는 사람이 없어 `Agent-Session`만 붙는다. 콘솔 origin이 없으면 `Agent-Session:`에는 세션 URL 대신 세션 id가 들어간다(PR 꼬리와 같은 값). 세션 상세의 결과물 탭 위 한 줄이 이 판정(`GET /v1/sessions/{id}/github/attribution`)을 보여 준다.
 
-**commit 작성자.** 세션 저장소가 콘솔에 등록한 작성용 App(`auth: { kind: github_app }`)을 쓰면, commit의 author와 committer는 그 App의 bot 계정 `<slug>[bot] <<bot user id>+<slug>[bot]@users.noreply.github.com>`이다. GitHub가 App bot의 noreply 주소로 정한 형식이다([actions/checkout README](https://github.com/actions/checkout#push-a-commit-using-the-built-in-token), [actions/create-github-app-token README](https://github.com/actions/create-github-app-token#configure-git-cli-for-an-apps-bot-user)). bot user id는 App id와 다른 값이라 control-host가 `GET https://api.github.com/users/<slug>[bot]`(인증 없음)으로 한 번 읽어 프로세스에 둔다. 실패하면 5분 동안 다시 묻지 않고, 그 사이 claim은 이미지 기본값 `Werft <noreply@werft.invalid>`로 commit한다. claim의 `git_author`를 worker가 `$HOME/.werft/git-identity`에 쓰고, 이미지의 system git 설정이 기본값 뒤에서 그 파일을 include한다. 카탈로그에 App id를 직접 적은 저장소, PAT 저장소, GitHub Enterprise Server, GitHub가 아닌 호스트는 이미지 기본값 그대로다. 저장소에서 `git config user.*`로 정한 값은 여전히 이긴다.
+**commit 작성자.** 세션 저장소가 콘솔에 등록한 작성용 App(`auth: { kind: github_app }`)을 쓰면, commit의 author와 committer는 그 App의 bot 계정 `<slug>[bot] <<bot user id>+<slug>[bot]@users.noreply.github.com>`이다. GitHub가 App bot의 noreply 주소로 정한 형식이다([actions/checkout README](https://github.com/actions/checkout#push-a-commit-using-the-built-in-token), [actions/create-github-app-token README](https://github.com/actions/create-github-app-token#configure-git-cli-for-an-apps-bot-user)). bot user id는 App id와 다른 값이라 control-host가 `GET https://api.github.com/users/<slug>[bot]`(인증 없음)으로 한 번 읽어 프로세스에 둔다. 실패하면 5분 동안 다시 묻지 않고, 그 사이 claim은 이미지 기본값 `Werft <noreply@werft.invalid>`로 commit한다. claim의 `git_author`를 worker가 `$HOME/.werft/git-identity`에 쓰고, 이미지의 system git 설정이 기본값 뒤에서 그 파일을 include한다. 카탈로그에 App id를 직접 적은 저장소와 GitHub Enterprise Server는 이미지 기본값 그대로다. 저장소에서 `git config user.*`로 정한 값은 여전히 이긴다.
 
 한계: 저장소가 자기 `core.hooksPath`(husky 등)를 두거나 `git commit --no-verify`로 커밋하면 트레일러가 붙지 않는다. 그런 저장소에서는 `pre-commit install`이 `core.hooksPath`가 있다며 거절한다. hook은 client hook만 잇고 `reference-transaction`은 잇지 않는다.
 

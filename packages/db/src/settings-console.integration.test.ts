@@ -19,7 +19,6 @@ import { Pool } from "pg";
 import { createPostgresInstallationSettingsStore } from "./installation-settings.ts";
 import * as schema from "./schema.ts";
 import {
-  catalogRepositories,
   mcpServers,
   memberships,
   providerConnections,
@@ -221,7 +220,7 @@ integration("settings console writes", () => {
     expect(made).toHaveLength(1);
   });
 
-  test("an admin or member may not write a connection or MCP server; an admin may add a repository", async () => {
+  test("an admin or member may not write a connection or MCP server", async () => {
     for (const role of ["admin", "member"] as const) {
       const someone = await person(role);
       expect(
@@ -239,41 +238,6 @@ integration("settings console writes", () => {
         ),
       ).toEqual({ outcome: "actor_inactive" });
     }
-    const admin = await person("admin");
-    expect(
-      (
-        await store().create(
-          add("repositories", "docs-site", {
-            url: "https://git.example.invalid/acme/docs-site.git",
-            branch: "main",
-            auth: { kind: "bearer", stored: true },
-          }),
-          "example-token",
-          admin,
-        )
-      ).outcome,
-    ).toBe("done");
-    const [row] = await db
-      .select()
-      .from(catalogRepositories)
-      .where(eq(catalogRepositories.id, "docs-site"));
-    expect(row).toMatchObject({
-      source: "console",
-      authKind: "bearer",
-      credentialSource: "stored",
-      version: 1,
-    });
-    expect((await receiptsOf("add_repository")).length).toBe(1);
-
-    expect(
-      (await store().setRepositoryBranch("docs-site", "release", admin))
-        .outcome,
-    ).toBe("done");
-    const [moved] = await db
-      .select()
-      .from(catalogRepositories)
-      .where(eq(catalogRepositories.id, "docs-site"));
-    expect(moved).toMatchObject({ branch: "release", version: 2 });
   });
 
   test("an operator's reference is only disabled: no value, no workspaces change", async () => {
@@ -303,29 +267,6 @@ integration("settings console writes", () => {
     expect(
       await store().setValue({ kind: "mcp", id: "nowhere" }, "v", owner),
     ).toEqual({ outcome: "not_found" });
-
-    // A repository read with an operator's token keeps its branch too.
-    await db.insert(catalogRepositories).values({
-      id: "operator-repo",
-      owner: "acme",
-      name: "op",
-      url: "https://git.example.invalid/acme/op.git",
-      branch: "main",
-      authKind: "bearer",
-      auth: { kind: "bearer", value_env: "REPO_TOKEN" },
-      credentialSource: "external",
-      source: "import",
-    });
-    const before = (await receiptsOf("set_repository_branch")).length;
-    expect(
-      await store().setRepositoryBranch("operator-repo", "release", owner),
-    ).toEqual({ outcome: "conflict", reason: "not_stored" });
-    const [still] = await db
-      .select()
-      .from(catalogRepositories)
-      .where(eq(catalogRepositories.id, "operator-repo"));
-    expect([still?.branch, still?.version]).toEqual(["main", 1]);
-    expect((await receiptsOf("set_repository_branch")).length).toBe(before);
   });
 
   test("a stored MCP server's value turns, its workspaces change in place, and a disabled row leaves the registry", async () => {
