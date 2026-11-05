@@ -70,7 +70,7 @@ echo "$*" >> "${dir}/docker-calls"
 case "$*" in
   "version --format"*) echo 28.1.0 ;;
   "compose version --short") echo 2.39.1 ;;
-  *" config --format json") cat "${config}" ;;
+  *" config --format json") jq --arg n "\${COMPOSE_PROJECT_NAME:-\${STUB_PROJECT:-werft}}" '. + {name: $n}' "${config}" ;;
   *" port api 3000") [ -z "$STUB_API" ] || echo "$STUB_API" ;;
   *" ps --format "*) echo "$STUB_OURS" ;;
   *" ps -aq egress-proxy")
@@ -582,6 +582,7 @@ echo "$VITE_API_TARGET $*" >> "${dir}/bun-calls"
         // reset must stop before its down deletes the volume.
         const docker = await calls("docker-calls");
         expect(docker).toEqual([
+          "compose --profile apps -f compose.yaml -f infra/compose.fake-model.yml config --format json",
           "volume ls -q --filter name=^ap-lost_postgres-data$",
         ]);
       },
@@ -617,6 +618,22 @@ echo "$VITE_API_TARGET $*" >> "${dir}/bun-calls"
       expect(await calls("docker-calls")).toContain(
         "volume ls -q --filter name=^werft_postgres-data$",
       );
+    });
+
+    test("the project is the one compose renders, not the shell's variable", async () => {
+      await writeFile(config, rendered("local"));
+      const { state, env } = keyEnv();
+      const result = await run(["up", "--fake-model"], {
+        ...env,
+        COMPOSE_PROJECT_NAME: "",
+        STUB_PROJECT: "from-dotenv",
+        STUB_PG_VOLUME: "from-dotenv_postgres-data",
+      });
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain(
+        join(state, "from-dotenv.secret-key"),
+      );
+      expect(await stat(state).catch(() => null)).toBeNull();
     });
 
     test("a volume listing that fails makes no key", async () => {

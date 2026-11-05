@@ -109,7 +109,10 @@ secret_key() {
     return 0
   fi
   local dir="${AGENT_PLATFORM_STATE_DIR:-$HOME/.local/state/werft}"
-  local project="${COMPOSE_PROJECT_NAME:-werft}"
+  # The project as compose resolves it (-p, the environment, .env or `name:`).
+  local project
+  project=$(rendered | jq -r '.name // empty') && [ -n "$project" ] ||
+    die "cannot read the compose project name; nothing was started"
   local file="$dir/${project}.secret-key"
   if [ ! -s "$file" ]; then
     # A new key cannot open what an earlier key sealed in this project's database.
