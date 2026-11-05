@@ -4,14 +4,11 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { GITHUB_CEILING_NONE } from "@werft-ai/contracts";
-import * as schema from "@werft-ai/db";
-import { captureGitHubPolicyStart } from "@werft-ai/db";
 import {
   createTempDatabase,
   type TempDatabase,
   testDatabaseUrl,
 } from "@werft-ai/testkit/postgres";
-import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { generateReport } from "../scripts/lib/repository-migration-report.ts";
 import {
@@ -473,7 +470,8 @@ integration("the repository migration write", () => {
     const first = f.file("first");
     await applyMigration(f.pool, first, T0);
     await revertMigration(f.pool, first);
-    await applyMigration(f.pool, f.file("second"), T1);
+    // the same clock reading: only the writing transaction tells the runs apart
+    await applyMigration(f.pool, f.file("second"), T0);
     const settings = await f.settingsDump();
     const ceilings = await f.ceilingDump();
     const stale = await revertMigration(f.pool, first);
@@ -517,19 +515,28 @@ integration("the repository migration write", () => {
 
   test("takes the agent row before its settings, as a session start does", async () => {
     const f = await fixture();
-    const db = drizzle(f.pool, { schema });
-    const releases = Object.values(f.agents).map((a) => a.releaseId);
-    const starts = Array.from({ length: 24 }, (_, i) =>
-      db.transaction((tx) =>
-        captureGitHubPolicyStart(
-          tx as never,
-          releases[i % releases.length] as string,
-        ),
-      ),
-    );
-    const applied = applyMigration(f.pool, f.file("lock"), T0);
-    await Promise.all(starts);
-    // a deadlock would surface as 40P01 here
-    expect((await applied).changes).toBeGreaterThan(0);
+    // A session start holds the agent row, then wants its settings row.
+    const start = await f.pool.connect();
+    try {
+      await start.query("BEGIN");
+      await start.query("SELECT id FROM agents WHERE id = $1 FOR SHARE", [
+        f.agents.a1?.agentId,
+      ]);
+      let done = false;
+      const applied = applyMigration(f.pool, f.file("lock"), T0).finally(() => {
+        done = true;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      // the migration waits on the agent row before it touches any settings
+      expect(done).toBe(false);
+      await start.query(
+        "SELECT agent_id FROM agent_github_settings WHERE agent_id = $1 FOR SHARE",
+        [f.agents.a2?.agentId],
+      );
+      await start.query("COMMIT");
+      expect((await applied).changes).toBeGreaterThan(0);
+    } finally {
+      start.release();
+    }
   }, 60_000);
 });

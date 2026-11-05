@@ -20,7 +20,8 @@
  * The before-image is a file because the scope has no table. It is written
  * and made durable before COMMIT, so a run that committed always has one. A
  * run that did not commit may leave one; revert then finds nothing of it in
- * the database (every row carries the run's `updated_at`) and changes nothing.
+ * the database (every row carries its writing transaction's id) and changes
+ * nothing.
  */
 
 import { randomUUID } from "node:crypto";
@@ -48,9 +49,15 @@ import {
 
 type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
-/** Text of a timestamptz that two reads agree on to the microsecond. */
+/**
+ * Which write a row is the result of: its `updated_at` to the microsecond and
+ * `xmin`, the id of the transaction that wrote it. A timestamp can repeat
+ * across runs, a transaction id cannot, so a run that rolled back never
+ * matches a later run's rows. Any later update changes `xmin` too. A row old
+ * enough to be frozen no longer matches and is reported, not touched.
+ */
 const stamp = (column: string) =>
-  `to_char(${column} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US')`;
+  `to_char(${column} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US') || '#' || xmin::text`;
 
 /** Key-sorted JSON, so two jsonb reads of one value compare equal. */
 function stable(value: unknown): string {
@@ -318,7 +325,7 @@ export async function applyMigration(
 ): Promise<ApplyResult> {
   const db = drizzle(pool, { schema });
   const migrationId = randomUUID();
-  // One value only this run writes into `updated_at`; revert matches on it.
+  // Revert matches the row's write (`stamp`), not only this value.
   const runStamp = now.toISOString();
   return db.transaction(
     async (tx) => {
