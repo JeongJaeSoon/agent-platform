@@ -27,7 +27,7 @@ sudo chmod 600 /etc/agent-platform/datadog.env
 stat -c '%a %U:%G' /etc/agent-platform/datadog.env
 ```
 
-The Agent service reads this absolute path only as an `env_file`. The compose YAML has no interpolation of the name or value of `DD_API_KEY`, so an ambient `DD_API_KEY` cannot bypass it. `DD_ENV` and `DD_VERSION` are read from the same file as compose's second `--env-file` and used for the unified tags of the product containers.
+The Agent service reads this absolute path only as an `env_file`. The compose YAML has no interpolation of the name or value of `DD_API_KEY`, so an ambient `DD_API_KEY` cannot bypass it. `DD_ENV` and `DD_VERSION` are read from the same file as compose's `--env-file` and used for the unified tags of the product containers.
 
 The PostgreSQL role is allowed only `SELECT` on `queue_messages`, `sessions`, `turns`, `attempts` and `provider_usage`, and its default transaction is fixed to read-only. The server operator runs the commands below once on an admin connection.
 

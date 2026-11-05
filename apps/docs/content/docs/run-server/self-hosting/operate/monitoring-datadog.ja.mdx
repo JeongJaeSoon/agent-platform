@@ -27,7 +27,7 @@ sudo chmod 600 /etc/agent-platform/datadog.env
 stat -c '%a %U:%G' /etc/agent-platform/datadog.env
 ```
 
-Agent serviceは、この絶対パスを`env_file`としてだけ読みます。compose YAMLには`DD_API_KEY`の名前も値のinterpolationもないので、ambientの`DD_API_KEY`で迂回できません。`DD_ENV`と`DD_VERSION`は、同じファイルをcomposeの2つ目の`--env-file`として読み、product containerのunified tagsに使います。
+Agent serviceは、この絶対パスを`env_file`としてだけ読みます。compose YAMLには`DD_API_KEY`の名前も値のinterpolationもないので、ambientの`DD_API_KEY`で迂回できません。`DD_ENV`と`DD_VERSION`は、同じファイルをcomposeの`--env-file`として読み、product containerのunified tagsに使います。
 
 PostgreSQL roleは、`queue_messages`、`sessions`、`turns`、`attempts`、`provider_usage`に`SELECT`だけを許可し、既定のtransactionをread-onlyに固定します。次のコマンドは、サーバーの運用者がadmin connectionで1回実行します。
 

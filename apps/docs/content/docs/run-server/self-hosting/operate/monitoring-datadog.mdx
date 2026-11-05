@@ -27,7 +27,7 @@ sudo chmod 600 /etc/agent-platform/datadog.env
 stat -c '%a %U:%G' /etc/agent-platform/datadog.env
 ```
 
-Agent service는 이 절대 경로를 `env_file`로만 읽는다. compose YAML에는 `DD_API_KEY`의 이름이나 값 interpolation이 없으므로 ambient `DD_API_KEY`로 우회할 수 없다. `DD_ENV`와 `DD_VERSION`은 같은 파일을 compose의 두 번째 `--env-file`로 읽어 product container의 unified tags에 쓴다.
+Agent service는 이 절대 경로를 `env_file`로만 읽는다. compose YAML에는 `DD_API_KEY`의 이름이나 값 interpolation이 없으므로 ambient `DD_API_KEY`로 우회할 수 없다. `DD_ENV`와 `DD_VERSION`은 같은 파일을 compose의 `--env-file`로 읽어 product container의 unified tags에 쓴다.
 
 PostgreSQL role은 `queue_messages`, `sessions`, `turns`, `attempts`, `provider_usage`에 `SELECT`만 허용하고 기본 transaction을 read-only로 고정한다. 아래 명령은 서버 운영자가 admin connection에서 한 번 실행한다.
 
