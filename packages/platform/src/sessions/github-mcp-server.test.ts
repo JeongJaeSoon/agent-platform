@@ -96,7 +96,10 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
     marked: boolean;
     /** The status each read of a workflow run answers. */
     runStatus: string;
+    /** How long reading the session's state takes. */
+    stateDelayMs: number;
   } = {
+    stateDelayMs: 0,
     runStatus: "completed",
     pushRefusal: null,
     notPushed: null,
@@ -222,16 +225,23 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
   };
   const handle = createGitHubMcpServer({
     store: {
-      sessionState: async () => ({
-        ownerId: "owner-a",
-        agentId: creator.agent_id ?? "",
-        releaseId: "release-1",
-        source: "release",
-        github: github(),
-        enabled: true,
-        actor: creator,
-        ...state,
-      }),
+      sessionState: async () => {
+        if (control.stateDelayMs > 0) {
+          await new Promise((resolve) =>
+            setTimeout(resolve, control.stateDelayMs),
+          );
+        }
+        return {
+          ownerId: "owner-a",
+          agentId: creator.agent_id ?? "",
+          releaseId: "release-1",
+          source: "release" as const,
+          github: github(),
+          enabled: true,
+          actor: creator,
+          ...state,
+        };
+      },
       runningTurn: async () => control.runningTurn,
       markPushContinuation: async (input) => {
         control.marks.push(input);
@@ -1118,6 +1128,20 @@ describe("get_workflow_run", () => {
       final: true,
     });
     expect(performance.now() - started).toBeLessThan(1_500);
+  });
+
+  test("the wait is counted from the start of the call, state read included", async () => {
+    const h = actionsOn();
+    h.control.runStatus = "in_progress";
+    h.control.stateDelayMs = 600;
+    const started = performance.now();
+    const answer = payload(
+      await h.call("get_workflow_run", { run_id: 7, wait_seconds: 1 }),
+    );
+    const took = performance.now() - started;
+    expect(answer.body.result).toMatchObject({ final: false });
+    expect(took).toBeGreaterThanOrEqual(900);
+    expect(took).toBeLessThan(1_300);
   });
 
   test("a wait over the cap is refused, and concurrent waits answer alike", async () => {

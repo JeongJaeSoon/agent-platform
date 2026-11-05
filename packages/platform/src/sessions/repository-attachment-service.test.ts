@@ -65,9 +65,7 @@ function service(
       attemptId,
       actor,
       repositoryId,
-      ...(options.waitMs === undefined
-        ? {}
-        : { waitSeconds: options.waitMs / 1000 }),
+      ...(options.waitMs === undefined ? {} : { waitMs: options.waitMs }),
     });
   return {
     store,
@@ -542,7 +540,7 @@ describe("attach", () => {
       attemptId: "att_1",
       actor,
       repositoryId: "docs",
-      waitSeconds: 0.1,
+      waitMs: 100,
     });
     expect(answered.status).toBe("pending");
     expect(performance.now() - started).toBeLessThan(1_000);

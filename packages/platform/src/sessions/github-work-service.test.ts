@@ -41,6 +41,8 @@ function harness(
     run?: { id: number; html_url: string } | null;
     /** The status of each successive run read; the last one repeats. */
     statuses?: string[];
+    /** Which call never answers: the grant, the first read or a later one. */
+    hang?: "grant" | "read" | "later-read";
   } = {},
 ) {
   let clock = 0;
@@ -86,6 +88,12 @@ function harness(
       calls.push(`run ${runId}`);
       fail();
       const reads = calls.filter((call) => call.startsWith("run ")).length;
+      if (
+        (options.hang === "read" && reads === 1) ||
+        (options.hang === "later-read" && reads > 1)
+      ) {
+        return new Promise<never>(() => {});
+      }
       const statuses = options.statuses ?? ["completed"];
       const status = statuses[Math.min(reads, statuses.length) - 1] ?? null;
       return {
@@ -115,6 +123,7 @@ function harness(
   const gate: GitHubGate = {
     grant: async (work) => {
       works.push(work);
+      if (options.hang === "grant") return new Promise<never>(() => {});
       if (options.refuse) throw options.refuse;
       const grant: GitHubGrant = {
         role: "author",
@@ -353,7 +362,7 @@ describe("reading a run", () => {
   });
 
   test("reads once and does not wait when no wait is asked for", async () => {
-    for (const waitSeconds of [undefined, 0]) {
+    for (const waitMs of [undefined, 0]) {
       const { service, calls, elapsedMs } = harness({
         statuses: ["in_progress"],
       });
@@ -361,7 +370,7 @@ describe("reading a run", () => {
         actor,
         SESSION,
         7,
-        waitSeconds === undefined ? {} : { waitSeconds },
+        waitMs === undefined ? {} : { waitMs },
       );
       expect(run.status).toBe("in_progress");
       expect(calls).toEqual(["run 7"]);
@@ -373,7 +382,7 @@ describe("reading a run", () => {
     const { service, calls, elapsedMs } = harness({
       statuses: ["queued", "in_progress", "completed"],
     });
-    const run = await service.getRun(actor, SESSION, 7, { waitSeconds: 8 });
+    const run = await service.getRun(actor, SESSION, 7, { waitMs: 8_000 });
     expect(run).toMatchObject({ status: "completed", conclusion: "success" });
     expect(calls).toEqual(["run 7", "run 7", "run 7"]);
     expect(elapsedMs()).toBe(2_000);
@@ -383,11 +392,31 @@ describe("reading a run", () => {
     const { service, calls, elapsedMs } = harness({
       statuses: ["in_progress"],
     });
-    const run = await service.getRun(actor, SESSION, 7, { waitSeconds: 3 });
+    const run = await service.getRun(actor, SESSION, 7, { waitMs: 3_000 });
     expect(run.status).toBe("in_progress");
     // Reads at 0, 1, 2 and 3 seconds; the last one lands on the deadline.
     expect(calls.length).toBe(4);
     expect(elapsedMs()).toBe(3_000);
+  });
+
+  test("a first read or a grant that outlasts the deadline is cut at it", async () => {
+    for (const hang of ["read", "grant"] as const) {
+      const { service } = harness({ hang });
+      const started = performance.now();
+      const error = await refusal(
+        service.getRun(actor, SESSION, 7, { waitMs: 100 }),
+      );
+      expect(error.code).toBe("BACKEND_UNAVAILABLE");
+      expect(performance.now() - started).toBeLessThan(1_000);
+    }
+  });
+
+  test("a later read that outlasts the deadline is dropped and the last run answered", async () => {
+    const { service } = harness({ statuses: ["queued"], hang: "later-read" });
+    const started = performance.now();
+    const run = await service.getRun(actor, SESSION, 7, { waitMs: 100 });
+    expect(run.status).toBe("queued");
+    expect(performance.now() - started).toBeLessThan(1_000);
   });
 
   test("a run GitHub does not have is NOT_FOUND", async () => {

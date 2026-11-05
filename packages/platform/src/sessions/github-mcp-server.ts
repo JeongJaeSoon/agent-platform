@@ -277,6 +277,7 @@ export function createGitHubMcpServer(deps: {
     tool: GitHubMcpTool,
     args: unknown,
     requestId: string,
+    startedAt: number,
     github: AgentGitHub,
     state: {
       ownerId: string;
@@ -314,6 +315,12 @@ export function createGitHubMcpServer(deps: {
     const actor = actorFor(state.ownerId, state.actor, requestId);
     const services = deps.services(sessionBoundAuthorization(grant.sessionId));
     const { sessionId } = grant;
+    // What is left of `seconds` counted from the start of the whole call, so
+    // the state read and the validation above are inside the wait.
+    const waitLeft = (seconds: number | undefined) =>
+      seconds === undefined
+        ? 0
+        : Math.max(0, seconds * 1000 - (performance.now() - startedAt));
     let turnAtCall: number | null = null;
     try {
       if (tool === "list_repositories") {
@@ -328,7 +335,7 @@ export function createGitHubMcpServer(deps: {
           attemptId: grant.attemptId,
           actor: state.actor,
           repositoryId: repository_id,
-          ...(wait_seconds === undefined ? {} : { waitSeconds: wait_seconds }),
+          waitMs: waitLeft(wait_seconds),
         });
         return done({ ...attachment, final: attachment.status !== "pending" });
       }
@@ -336,7 +343,9 @@ export function createGitHubMcpServer(deps: {
       // turn that started after this one ended.
       turnAtCall =
         tool === "request_push" ? await deps.store.runningTurn(grant) : null;
-      return done(await run(services, actor, sessionId, tool, parsed.data));
+      return done(
+        await run(services, actor, sessionId, tool, parsed.data, waitLeft),
+      );
     } catch (error) {
       if (error instanceof SessionServiceError) {
         const continued =
@@ -374,6 +383,8 @@ export function createGitHubMcpServer(deps: {
     message: unknown,
     requestId: string,
   ): Promise<JsonRpcResponse | null> {
+    // The clock of a waiting call starts here, not when its service starts.
+    const startedAt = performance.now();
     if (!isRecord(message) || message.jsonrpc !== "2.0") {
       return {
         jsonrpc: "2.0",
@@ -491,12 +502,20 @@ export function createGitHubMcpServer(deps: {
     const tool = name as GitHubMcpTool;
     try {
       return answer(
-        await call(grant, tool, params.arguments, requestId, state.github, {
-          ownerId: state.ownerId,
-          actor: state.actor,
-          source: state.source,
-          enabled: state.enabled,
-        }),
+        await call(
+          grant,
+          tool,
+          params.arguments,
+          requestId,
+          startedAt,
+          state.github,
+          {
+            ownerId: state.ownerId,
+            actor: state.actor,
+            source: state.source,
+            enabled: state.enabled,
+          },
+        ),
       );
     } catch (error) {
       return internalFault(tool, error);
@@ -511,6 +530,7 @@ async function run(
   sessionId: string,
   tool: GitHubMcpTool,
   args: unknown,
+  waitLeft: (seconds: number | undefined) => number,
 ): Promise<unknown> {
   switch (tool) {
     case "request_push":
@@ -569,7 +589,7 @@ async function run(
         (typeof GITHUB_MCP_TOOL_ARGUMENTS)["get_workflow_run"]
       >;
       const view = await services.githubWork.getRun(actor, sessionId, run_id, {
-        ...(wait_seconds === undefined ? {} : { waitSeconds: wait_seconds }),
+        waitMs: waitLeft(wait_seconds),
       });
       return { ...view, final: view.status === "completed" };
     }

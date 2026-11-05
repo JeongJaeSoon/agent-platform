@@ -31,11 +31,12 @@ export type AttachRepositoryInput = {
   actor: ReceiptActor;
   repositoryId: string;
   /**
-   * How long the call may wait, from its start, for the fetch to end before
-   * answering `pending`. Omitted or 0: answer at once. The caller bounds it
+   * How long this service may still wait for the fetch to end before
+   * answering `pending`. Omitted or 0: answer at once. The caller counts
+   * from the start of the whole call and bounds it
    * (`GITHUB_MCP_WAIT_SECONDS_MAX`).
    */
-  waitSeconds?: number;
+  waitMs?: number;
 };
 
 function answer(
@@ -189,7 +190,7 @@ export function createRepositoryAttachmentService(deps: {
     },
 
     async attach(input: AttachRepositoryInput): Promise<RepositoryAttachment> {
-      const deadline = now() + (input.waitSeconds ?? 0) * 1000;
+      const deadline = now() + (input.waitMs ?? 0);
       const sessionId = input.sessionId.toLowerCase();
       const { repositoryId } = input;
       const context = await deps.context.context(sessionId);

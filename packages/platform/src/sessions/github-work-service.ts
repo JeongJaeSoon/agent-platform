@@ -220,12 +220,35 @@ export function createGitHubWorkService(deps: {
       actor: PushActor,
       sessionId: string,
       runId: number,
-      options: { waitSeconds?: number } = {},
+      options: { waitMs?: number } = {},
     ): Promise<GitHubWorkflowRunView> {
-      const deadline = now() + (options.waitSeconds ?? 0) * 1000;
-      const grant = await granted(actor, sessionId, "session.read", {
-        purpose: "actions_read",
-      });
+      const waitMs = options.waitMs ?? 0;
+      const deadline = now() + waitMs;
+      // A waiting call must answer by its deadline even when the grant or
+      // the first read is slow; one that waits for nothing is left as it was.
+      const bounded = async <T>(work: Promise<T>): Promise<T> => {
+        if (waitMs <= 0) return await work;
+        work.catch(() => {});
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          return await Promise.race([
+            work,
+            new Promise<never>((_, reject) => {
+              timer = setTimeout(
+                () => reject(unavailable(null)),
+                Math.max(0, deadline - now()),
+              );
+            }),
+          ]);
+        } finally {
+          clearTimeout(timer);
+        }
+      };
+      const grant = await bounded(
+        granted(actor, sessionId, "session.read", {
+          purpose: "actions_read",
+        }),
+      );
       const read = async () => {
         try {
           return await grant.api.getWorkflowRun(runId);
@@ -239,7 +262,7 @@ export function createGitHubWorkService(deps: {
           throw error;
         }
       };
-      let run = await read();
+      let run = await bounded(read());
       while (run.status !== "completed" && now() < deadline) {
         await sleep(Math.min(pollMs, deadline - now()));
         let timer: ReturnType<typeof setTimeout> | undefined;
