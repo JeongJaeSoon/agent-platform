@@ -187,11 +187,17 @@ function fenceSafe(text: string): string {
     .split("\n")
     .map((line) => {
       const start = /^[ \t]*(`{3,}|~{3,})(.*)$/.exec(line);
-      if (start === null) return line.replace(FENCE_RUN, breakRun);
-      return `${start[1]}${(start[2] ?? "").replace(FENCE_RUN, breakRun)}`;
+      const safe =
+        start === null
+          ? line.replace(FENCE_RUN, breakRun)
+          : `${start[1]}${(start[2] ?? "").replace(FENCE_RUN, breakRun)}`;
+      return safe.replace(EMPTY_TASK, `$1 ${ZWSP}`);
     })
     .join("\n");
 }
+
+// A task item with no text takes the next line into itself in the renderer.
+const EMPTY_TASK = /^(\s*(?:[-*+]|\d+[.)])\s+\[[ xX]\])\s*$/;
 
 /**
  * `value` cut by at least `overflow` characters, closing included, or empty

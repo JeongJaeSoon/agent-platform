@@ -211,6 +211,23 @@ describe("the default template", () => {
     }
   });
 
+  test("an empty task item does not take the next section into itself", () => {
+    for (const summary of ["- [x]", "- [ ]", "* [X]", "1. [x]", "- [x]\n~~~"]) {
+      const { body } = render({
+        summary,
+        changes: ["c"],
+        testing: "SECOND",
+      });
+      const html = Bun.markdown.html(body);
+      expect(html).toContain("<h2>변경 사항</h2>");
+      expect(html).toContain("<h2>테스트</h2>");
+      expect(html.match(/<hr/g)?.length).toBe(1);
+      // The last input has a fence of its own, closed by the platform.
+      if (!summary.includes("~~~")) expect(html).not.toContain("<pre>");
+      expect(html.slice(html.indexOf("<h2>변경"))).not.toContain("<pre>");
+    }
+  });
+
   test("an ordinary fenced block keeps its fence and content", () => {
     const { body } = render({ testing: "```sh\nbun test\n```" });
     expect(body).toContain("```sh\nbun test\n```");
