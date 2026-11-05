@@ -61,9 +61,9 @@ run record(`E2E_OUT`, 끝에 경로를 출력한다)의 `record.txt`에는 teste
 P='e2e-123456789'; I='e2e123456789'   # kept: 줄의 project와 installation 값으로 바꾼다
 docker compose -p "$P" -f infra/compose.yml -f tests/e2e/compose.yml \
   -f infra/compose.real-model.yml --profile apps down -v --remove-orphans --rmi local
-docker ps -aq --filter "label=agent-platform.installation=$I" | xargs -r docker rm -f
-docker network ls -q --filter "label=agent-platform.installation=$I" | xargs -r docker network rm
-docker volume ls -q --filter "label=agent-platform.installation=$I" | xargs -r docker volume rm
+docker ps -aq --filter "label=werft.installation=$I" | xargs -r docker rm -f
+docker network ls -q --filter "label=werft.installation=$I" | xargs -r docker network rm
+docker volume ls -q --filter "label=werft.installation=$I" | xargs -r docker volume rm
 docker image rm "werft-control-host:$P" "werft-worker:$P" "werft-egress-proxy:$P"
 ```
 

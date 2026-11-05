@@ -246,7 +246,7 @@ API가 App의 private key로 JWT를 서명해 설치 토큰을 받고, 그 토�
         kind: github_app
         app_id: 123456
         installation_id: 7890123
-        secret_id: agent-platform/github-app-key     # 또는 value_env: GITHUB_APP_KEY
+        secret_id: werft/github-app-key     # 또는 value_env: GITHUB_APP_KEY
         api_base: https://api.github.com             # 생략하면 이 값. GHES: https://<ghes-host>/api/v3
   ```
 

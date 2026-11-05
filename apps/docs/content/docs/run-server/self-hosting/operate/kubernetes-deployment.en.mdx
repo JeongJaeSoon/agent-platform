@@ -365,5 +365,5 @@ helm -n werft uninstall werft
 
 **kind**. What `helm uninstall` leaves behind:
 
-- The worker Pods, nonce Secrets and workspace PVCs the scheduler created. Before deleting, check that the sessions have ended (or been checkpointed). Deleting a PVC loses work that was not checkpointed. The list: `kubectl -n werft get pods,secrets,pvc -l app.kubernetes.io/part-of=agent-platform,agent-platform.installation=<installationId>`
+- The worker Pods, nonce Secrets and workspace PVCs the scheduler created. Before deleting, check that the sessions have ended (or been checkpointed). Deleting a PVC loses work that was not checkpointed. The list: `kubectl -n werft get pods,secrets,pvc -l app.kubernetes.io/part-of=werft,werft.installation=<installationId>`
 - The migrate Job and upgrade-check Job made by hooks, and the ExternalSecret and the Secret it wrote (`creationPolicy: Orphan`). A Secret you made by hand stays too. A leftover Job does not block the next install: Helm deletes it first when a hook of the same name runs. To delete it now, run `kubectl -n werft delete job werft-migrate werft-upgrade-check --ignore-not-found`.

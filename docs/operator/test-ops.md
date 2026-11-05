@@ -383,7 +383,7 @@ scripts/test-ops.sh upgrade release-new.json
 scripts/test-ops.sh backup
 ```
 
-1. 신규 접수를 멈춘다: api, scheduler, reconciler를 멈추고, scheduler가 띄운 worker 컨테이너(`agent-platform.installation=<id>` label)도 멈춘다. 진행 중이던 턴은 끊기고, 다시 열린 뒤 reconciler가 lease 만료로 회수한다.
+1. 신규 접수를 멈춘다: api, scheduler, reconciler를 멈추고, scheduler가 띄운 worker 컨테이너(`werft.installation=<id>` label)도 멈춘다. 진행 중이던 턴은 끊기고, 다시 열린 뒤 reconciler가 lease 만료로 회수한다.
 2. `scripts/backup.sh`로 DB·checkpoint object를 `$TEST_OPS_STATE_DIR/backups/backup-<시각>`에 묶는다. object는 `localstack`이면 설치의 LocalStack에서(`--object-store localstack`), `s3`면 API의 자격 증명으로 bucket에서(`--object-store env`) 읽는다. backup.sh가 writer가 남았는지 스스로 다시 보고, 남았으면 거부한다. 실패한 백업은 `.failed`로 남고 성공본 이름을 얻지 못한다.
 3. 성공하든 실패하든 멈춘 서비스를 그대로(재생성 없이) 다시 연다. 다시 열지 못하면 백업이 성공했어도 명령은 실패로 끝난다. `status`로 확인하고 원인을 고친 뒤, `current.json`의 사본으로 `upgrade`를 부르면 같은 release로 다시 뜬다. `--stop`을 붙이면 다시 열지 않는다(아래 "재시작").
 

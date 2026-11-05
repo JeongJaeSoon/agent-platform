@@ -49,7 +49,7 @@ EXECUTION_WORKSPACE_QUOTA=off \
   bun run --cwd apps/control-host scheduler
 ```
 
-worker 컨테이너는 scheduler가 execution마다 만드는 **전용 네트워크** `ap-net-<installationId>-<executionId>-g<generation>` 하나에만 붙는다. 이 네트워크는 bridge driver, `internal: true`, `EnableIPv6: false`, `com.docker.network.bridge.gateway_mode_ipv4=isolated`로 만들어진다. Docker가 이 네트워크에서 바깥으로 나가는 경로를 만들지 않고 host 쪽 bridge 주소(IPAM gateway)도 두지 않는다. 그래서 worker는 host·host에서 도는 프로세스·LAN·instance metadata(`169.254.169.254`)·다른 compose 서비스·다른 worker에 직접 닿지 못한다. 이 네트워크의 구성원은 worker 자신과 egress proxy 둘뿐이다. scheduler는 `agent-platform.egress-proxy=<installationId>` label이 붙은 **실행 중인 컨테이너 정확히 하나**를 그 설치의 proxy로 보고, 네트워크마다 `EXECUTION_EGRESS_PROXY_URL`의 host 이름을 alias로 붙여 connect한다. worker는 `HTTP_PROXY`/`HTTPS_PROXY`로 그 이름을 가리킨다. proxy 주소가 네트워크마다 다르므로 `EXECUTION_EGRESS_PROXY_URL`의 host는 이름이어야 하고, IP literal과 `localhost`는 거부한다. compose의 `egress-proxy` 서비스는 이 label을 달고 있다. worker에는 `host.docker.internal:host-gateway` 매핑이 없다 — gateway도 proxy를 거친다.
+worker 컨테이너는 scheduler가 execution마다 만드는 **전용 네트워크** `werft-net-<installationId>-<executionId>-g<generation>` 하나에만 붙는다. 이 네트워크는 bridge driver, `internal: true`, `EnableIPv6: false`, `com.docker.network.bridge.gateway_mode_ipv4=isolated`로 만들어진다. Docker가 이 네트워크에서 바깥으로 나가는 경로를 만들지 않고 host 쪽 bridge 주소(IPAM gateway)도 두지 않는다. 그래서 worker는 host·host에서 도는 프로세스·LAN·instance metadata(`169.254.169.254`)·다른 compose 서비스·다른 worker에 직접 닿지 못한다. 이 네트워크의 구성원은 worker 자신과 egress proxy 둘뿐이다. scheduler는 `werft.egress-proxy=<installationId>` label이 붙은 **실행 중인 컨테이너 정확히 하나**를 그 설치의 proxy로 보고, 네트워크마다 `EXECUTION_EGRESS_PROXY_URL`의 host 이름을 alias로 붙여 connect한다. worker는 `HTTP_PROXY`/`HTTPS_PROXY`로 그 이름을 가리킨다. proxy 주소가 네트워크마다 다르므로 `EXECUTION_EGRESS_PROXY_URL`의 host는 이름이어야 하고, IP literal과 `localhost`는 거부한다. compose의 `egress-proxy` 서비스는 이 label을 달고 있다. worker에는 `host.docker.internal:host-gateway` 매핑이 없다 — gateway도 proxy를 거친다.
 
 차단 정책은 proxy의 두 목록으로 버전 관리한다. `EGRESS_ALLOWLIST`는 공인 목적지(`host:port`)이고 해석된 주소가 전부 public unicast여야 통과한다. `EGRESS_PRIVATE_ALLOWLIST`는 사설 대역에 있다고 알고 허용하는 목적지(gateway)다. compose 기본값은 `EGRESS_ALLOWLIST`가 비어 있고 `EGRESS_PRIVATE_ALLOWLIST`가 `api:3000,host.docker.internal:3000`이다. provider·저장소·object store는 두 목록 어디에도 두지 않는다. forward proxy로 닿으면 각자의 credential route를 우회하기 때문이다. provider에는 worker가 가진 임의 key로 비용 계측 밖에서 닿고, public 저장소는 token 없이 읽히며, object store에는 API가 각 요청을 검증하고 서명하는 route를 거쳐야 한다. 로컬 SeaweedFS도 SigV4를 검사하지만 저장소 인증만으로 세션별 prefix 권한을 대신할 수 없다. 이들은 credential route만 닿는 목록 `EGRESS_CREDENTIAL_ALLOWLIST`(compose 기본값 `api.anthropic.com:443`, GitHub 저장소를 쓰면 `github.com:443`을 더한다)·`EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`(로컬 스택 기본값 `fake-git:3000,fake-messages:4010,fake-mcp:4020,localstack:4566`, `infra/compose.local.yml`)에 둔다. credential 목록의 목적지가 forward 목록에도 있으면 proxy는 기동을 거부한다. 그래서 환경 파일의 forward 목록에 그런 값이 남아 있으면 지워야 proxy가 뜬다. 비교는 적힌 `host:port` 그대로이므로, 같은 upstream을 다른 이름이나 IP로 적으면 잡지 못한다. `.env.example`도 같은 값이다(`tests/images.test.ts`가 둘을 묶는다). 두 목록 모두 link-local(`169.254.0.0/16`·`fe80::/10`)·multicast·reserved로 해석되면 거부하므로 allowlist에 오른 이름이 metadata 주소로 해석되는 rebinding도 막힌다. 목록에 없는 host·port는 CONNECT·absolute-form 모두 `403`이고, absolute-form이 아닌 요청은 `/healthz` 외에는 `400`이다. 목록에 있는 이름이 조회되지 않으면(재시작 중인 `api` 컨테이너가 Docker DNS에서 잠시 빠질 때) 정책 거부가 아니라 `502`이고, 조회가 시간 안에 끝나지 않으면 `504`다. worker는 둘 다 재시도한다.
 
@@ -109,7 +109,7 @@ proxy attach 결과는 응답 코드가 아니라 proxy 컨테이너가 보고�
 
 예전 설정 `EXECUTION_DOCKER_NETWORK`·`EXECUTION_DOCKER_NETWORK_ALLOWLIST`는 더 이상 읽지 않는다. 값이 남아 있으면 조용히 무시하지 않고 기동을 거부한다. 환경 파일에서 지우고 proxy 컨테이너에 label을 단다.
 
-컨테이너에는 만들어질 때의 격리 계약이 `agent-platform.isolation` label로 `<버전>:<지문>` 형태로 찍힌다. 지문은 proxy URL·credential route 포트·`NO_PROXY` 값·user·workspace/HOME 경로·tmpfs 크기·workspace quota 설정과 inode 상한·stop timeout·worker 상한(turn 시간, provider 재시도), 그리고 object store의 bucket·region의 해시라서, 코드를 바꾸지 않고 `EXECUTION_EGRESS_PROXY_URL`이나 `S3_BUCKET`만 바꿔도 값이 달라진다. object store endpoint와 자격 증명은 지문에 없다. worker는 둘 다 받지 않고 proxy의 object store route를 거치며, 그 요청은 API가 서명한다. 그래서 `AWS_ENDPOINT_URL`이나 key를 바꿔도 worker는 교체되지 않고, API를 재기동하면 다음 요청부터 새 값이 쓰인다. CPU·memory·pids 한도도 일부러 지문 밖에 둔다. 한도는 launch의 것이라 reserve 때 `worker_launches.resources`에 고정되고 `agent-platform.launch-spec` label로 대조된다. 그래서 한도를 낮추면 실행 중인 worker를 한꺼번에 교체하지 않고 다음 launch부터 적용된다. 단, `agent-platform.launch-spec` label이 없는 컨테이너는 대조 없이 adopt된다. 실행 중인 컨테이너의 격리는 제어 호스트를 올려도 바뀌지 않으므로, scheduler는 label이 현재 값과 다른 컨테이너를 `stale`로 보고 정지·제거한 뒤 저장된 intent로 다시 만든다(`ensureExecution`도 그런 컨테이너는 adopt하지 않는다). 버전이 **더 높은** 컨테이너는 롤백 중인 새 제어 호스트가 만든 것이다. 그 경계가 지금 요구하는 것과 같은지 알 수 없으므로 adopt도 교체도 하지 않고 `IsolationContractError`로 거절한다 — row는 살아 있고 pass는 non-zero로 끝나므로 운영자가 롤포워드하거나 직접 제거해야 한다. 격리의 모양 자체가 바뀌면 `ISOLATION_CONTRACT`를 올린다. 계약 5부터 worker 네트워크가 execution별이다. 그래서 계약 4 이하에서 업그레이드하면 공유 네트워크 위의 기존 컨테이너가 전부 stale로 교체된다. 교체 전 확인(`assertReplaceable`: 이미지·workspace·proxy·새 네트워크)이 실패하면, 보통은 옛 컨테이너를 그대로 두고 다음 pass에서 다시 시도한다. 하지만 계약 5 미만 컨테이너는 공유 네트워크에서 이웃 worker에 닿을 수 있다. 그래서 아직 claim되지 않은 그 컨테이너는 **모든 네트워크에서 떼어 낸** 채로 둔다. claim 전이라 진행 중인 turn은 없다. 확인이 통과하는 pass에서 정상 교체된다. 결과는 교체 실패 로그의 오류 메시지 끝에 붙는다. claim된 계약 5 미만 worker는 이 확인 없이 teardown되므로 여기서 건드리지 않는다. 확인과 disconnect를 한 번에 묶는 fence는 없다. 그래서 disconnect 뒤에 claim 여부를 한 번 더 확인하고, 그사이 claim됐으면 네트워크를 다시 붙여 scheduler의 teardown(SIGTERM으로 drain)에 맡긴다. disconnect가 이어지는 그 짧은 동안 claim 요청이 오가던 worker는 요청이 끊길 수 있다.
+컨테이너에는 만들어질 때의 격리 계약이 `werft.isolation` label로 `<버전>:<지문>` 형태로 찍힌다. 지문은 proxy URL·credential route 포트·`NO_PROXY` 값·user·workspace/HOME 경로·tmpfs 크기·workspace quota 설정과 inode 상한·stop timeout·worker 상한(turn 시간, provider 재시도), 그리고 object store의 bucket·region의 해시라서, 코드를 바꾸지 않고 `EXECUTION_EGRESS_PROXY_URL`이나 `S3_BUCKET`만 바꿔도 값이 달라진다. object store endpoint와 자격 증명은 지문에 없다. worker는 둘 다 받지 않고 proxy의 object store route를 거치며, 그 요청은 API가 서명한다. 그래서 `AWS_ENDPOINT_URL`이나 key를 바꿔도 worker는 교체되지 않고, API를 재기동하면 다음 요청부터 새 값이 쓰인다. CPU·memory·pids 한도도 일부러 지문 밖에 둔다. 한도는 launch의 것이라 reserve 때 `worker_launches.resources`에 고정되고 `werft.launch-spec` label로 대조된다. 그래서 한도를 낮추면 실행 중인 worker를 한꺼번에 교체하지 않고 다음 launch부터 적용된다. 단, `werft.launch-spec` label이 없는 컨테이너는 대조 없이 adopt된다. 실행 중인 컨테이너의 격리는 제어 호스트를 올려도 바뀌지 않으므로, scheduler는 label이 현재 값과 다른 컨테이너를 `stale`로 보고 정지·제거한 뒤 저장된 intent로 다시 만든다(`ensureExecution`도 그런 컨테이너는 adopt하지 않는다). 버전이 **더 높은** 컨테이너는 롤백 중인 새 제어 호스트가 만든 것이다. 그 경계가 지금 요구하는 것과 같은지 알 수 없으므로 adopt도 교체도 하지 않고 `IsolationContractError`로 거절한다 — row는 살아 있고 pass는 non-zero로 끝나므로 운영자가 롤포워드하거나 직접 제거해야 한다. 격리의 모양 자체가 바뀌면 `ISOLATION_CONTRACT`를 올린다. 계약 5부터 worker 네트워크가 execution별이다. 그래서 계약 4 이하에서 업그레이드하면 공유 네트워크 위의 기존 컨테이너가 전부 stale로 교체된다. 교체 전 확인(`assertReplaceable`: 이미지·workspace·proxy·새 네트워크)이 실패하면, 보통은 옛 컨테이너를 그대로 두고 다음 pass에서 다시 시도한다. 하지만 계약 5 미만 컨테이너는 공유 네트워크에서 이웃 worker에 닿을 수 있다. 그래서 아직 claim되지 않은 그 컨테이너는 **모든 네트워크에서 떼어 낸** 채로 둔다. claim 전이라 진행 중인 turn은 없다. 확인이 통과하는 pass에서 정상 교체된다. 결과는 교체 실패 로그의 오류 메시지 끝에 붙는다. claim된 계약 5 미만 worker는 이 확인 없이 teardown되므로 여기서 건드리지 않는다. 확인과 disconnect를 한 번에 묶는 fence는 없다. 그래서 disconnect 뒤에 claim 여부를 한 번 더 확인하고, 그사이 claim됐으면 네트워크를 다시 붙여 scheduler의 teardown(SIGTERM으로 drain)에 맡긴다. disconnect가 이어지는 그 짧은 동안 claim 요청이 오가던 worker는 요청이 끊길 수 있다.
 
 계약 6부터 worker 네트워크에 host 주소가 없다. 계약 5 컨테이너의 네트워크는 이름이 같지만 gateway mode는 제자리에서 바꿀 수 없으므로 교체는 다음 순서를 탄다.
 
@@ -119,7 +119,7 @@ proxy attach 결과는 응답 코드가 아니라 proxy 컨테이너가 보고�
 
 이 교체도 claim된 worker는 아래의 turn 경계 drain 뒤에 닫는 규칙을 따른다. **배포 순서:** daemon을 먼저 Docker 28 이상으로 올린다. 옛 daemon에서는 preflight가 pass 전체를 막는다. 그러면 계약 5 worker도 교체되지 않고 그대로 돈다(새 admission만 fail-closed).
 
-업그레이드 뒤 옛 공유 네트워크(`agent-platform-worker`, `EXECUTION_DOCKER_NETWORK`로 이름을 바꿨다면 그 이름)는 compose가 더 이상 선언하지 않는다. 그래도 저절로 지워지지는 않고, 주소 풀의 subnet 하나를 계속 차지한다. 계약 4 컨테이너가 모두 교체된 뒤 `docker network rm agent-platform-worker`로 지운다. 실행 중인 컨테이너가 붙어 있으면 Docker가 삭제를 거부한다(403). 그래서 쓰는 중인 네트워크를 실수로 지울 일은 없다. **이미 claim된 worker는 다시 만들 수 없으므로 turn 경계까지 drain한 뒤 teardown된다.** 아래 절을 따른다.
+**이미 claim된 worker는 다시 만들 수 없으므로 turn 경계까지 drain한 뒤 teardown된다.** 아래 절을 따른다.
 
 #### 계약이 오를 때 claim된 worker의 drain
 
@@ -194,11 +194,11 @@ worker 로그의 `worker.turn.interrupt.stage`를 같은 `session_id`·`turn_id`
 
 ## worker workspace의 상한과 회수
 
-세션마다 `ap-ws-<installationId>-<sessionId>-<접미사>` volume 하나가 `/workspace`에 붙는다. 이 volume은 세대(generation)를 넘어 살아남는다 — 컨테이너를 교체해도 세션의 작업 트리는 그대로여야 하기 때문이다. 그래서 **컨테이너를 지우는 `terminate`는 volume을 건드리지 않고**, 회수는 pass의 ④단계가 따로 한다.
+세션마다 `werft-ws-<installationId>-<sessionId>-<접미사>` volume 하나가 `/workspace`에 붙는다. 이 volume은 세대(generation)를 넘어 살아남는다 — 컨테이너를 교체해도 세션의 작업 트리는 그대로여야 하기 때문이다. 그래서 **컨테이너를 지우는 `terminate`는 volume을 건드리지 않고**, 회수는 pass의 ④단계가 따로 한다.
 
 volume이 없어져도 세션은 마지막으로 commit된 checkpoint에서 이어 간다. 무엇이 남고 무엇이 사라지는지는 [workspace volume을 잃었을 때 남는 것](api-server.md#workspace-volume을-잃었을-때-남는-것)에 있다.
 
-volume은 이제 backend가 `POST /volumes/create`로 **명시적으로** 만든다. mount spec에 이름만 적으면 Docker가 label도 상한도 없는 volume을 알아서 만들어 버리기 때문이다. 만들 때 `agent-platform.managed`·`.installation`·`.session-id`·`.workspace-quota` label을 찍고, GC는 이름을 파싱하지 않고 이 label만 본다.
+volume은 이제 backend가 `POST /volumes/create`로 **명시적으로** 만든다. mount spec에 이름만 적으면 Docker가 label도 상한도 없는 volume을 알아서 만들어 버리기 때문이다. 만들 때 `werft.managed`·`.installation`·`.session-id`·`.workspace-quota` label을 찍고, GC는 이름을 파싱하지 않고 이 label만 본다.
 
 **volume 이름은 1회용이다.** `local` 드라이버는 이미 quota를 걸었던 이름을 다시 만들면 `Options.size`는 그대로 돌려주면서 실제 project quota는 걸지 않는다. xfs+prjquota(Docker 27.5.1)에서 측정한 결과 — 처음 만든 이름은 컨테이너 안 `df` 총량이 설정값(64MiB)이지만, 같은 이름을 지웠다 다시 만들면 `Options.size`가 같은데도 `df`는 파일시스템 전체(8GiB)를 보고한다. Engine API로는 둘을 구분할 수 없으므로, 세션의 workspace는 이름으로 유도하지 않고 무작위 접미사를 붙여 만든 뒤 **label로 조회한다.** GC나 운영자가 volume을 지워도 다음 것은 새 이름을 받으므로 상한이 다시 선다. 한 세션에 workspace가 둘 보이면 어느 쪽이 작업 트리인지 판단하지 않고 보고만 한다. preflight probe도 같은 이유로 매번 새 이름을 쓰고, 이전 실행이 남긴 probe는 label로 회수하되 만든 지 10분과 `EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC`의 20배 중 긴 쪽이 지난 것만 지운다. preflight는 pass lock 밖에서 돌기 때문에, 더 젊은 probe는 동시에 도는 다른 preflight(루프 옆의 단독 `--once`, scheduler 둘)가 쓰는 중일 수 있다.
 
@@ -222,16 +222,16 @@ CPU·메모리·PID·tmpfs와 달리 `/workspace`에는 상한이 없었다. `EX
 
 checkout 전의 고정 비용은 bundle 상한 2배 + untracked 상한, 곧 768 MiB다. 1024 MiB는 여기에 pack index와 여유를 더한 값이다. incremental thin pack을 채우는 delta base 사본도 이 여유에 들어간다. checkout 뒤의 T는 세션의 작업 트리 자체라 상한이 없다. 그래서 최솟값은 세션과 무관한 checkout 전 비용만 보장한다. checkout 뒤의 W + I + T + U는 같은 quota 안에서 capture할 때 그 세션이 이미 쓰던 양과 비슷하다. capture 때는 workspace `.git`, 작업 트리, untracked, scratch 저장소의 snapshot 객체, bundle 파일(≤B)이 함께 있었다. I는 B 이하다. quota를 낮춘 뒤 새 volume에 복원하는 경우는 이 보장 밖이다. 이때는 복원이 checkout 중 ENOSPC로 실패할 수 있다.
 
-기존 workspace를 다시 쓰는 fresh fetch(checkpoint 없이 재개하는 reuse)는 복원과 달리 root를 비우지 않는다. 워커는 origin 전체를 bare mirror로 받아 거기서 branch를 복사한다. mirror는 `.git/agent-platform-fetch-*` 아래에 만들고 fetch가 끝나면 지운다. `/tmp`와 HOME은 tmpfs라 컨테이너 메모리를 쓰기 때문이다. 표의 기호에 더해 M은 mirror가 디스크에서 차지하는 최대치다. origin 저장소의 pack 전체에 index·ref, 받는 동안의 임시 pack 파일이 더해진다. Δ는 workspace `.git`에 새로 들어오는 객체다. 아래 최대치는 이 추정을 더한 값이다.
+기존 workspace를 다시 쓰는 fresh fetch(checkpoint 없이 재개하는 reuse)는 복원과 달리 root를 비우지 않는다. 워커는 origin 전체를 bare mirror로 받아 거기서 branch를 복사한다. mirror는 `.git/werft-fetch-*` 아래에 만들고 fetch가 끝나면 지운다. `/tmp`와 HOME은 tmpfs라 컨테이너 메모리를 쓰기 때문이다. 표의 기호에 더해 M은 mirror가 디스크에서 차지하는 최대치다. origin 저장소의 pack 전체에 index·ref, 받는 동안의 임시 pack 파일이 더해진다. Δ는 workspace `.git`에 새로 들어오는 객체다. 아래 최대치는 이 추정을 더한 값이다.
 
 | 단계 | 동시에 차지하는 것 | 최대 |
 | --- | --- | --- |
 | mirror clone과 로컬 fetch | 기존 W, I, T, U + mirror M + Δ | 세션 사용량 + M + Δ |
 | fetch 뒤 | W + Δ, I, T, U (mirror는 지운다) | 세션 사용량 + Δ |
 
-M에는 상한이 없다. M만큼 quota 여유가 있어야 reuse가 성공하고, 모자라면 fetch가 ENOSPC로 실패한다. 처음 clone(`clone`·`recreate`)은 mirror 없이 root에 바로 받으므로 W + T만 쓴다. 워커가 도중에 죽어 남긴 scratch(fetch·capture·publish의 `.git/agent-platform-<용도>-XXXXXX`)는 다음 reuse가 fetch 전에 지운다. `agent-platform-checkpoint`는 남긴다. checkout이 다른 곳의 객체를 빌려 쓰면(`objects/info/alternates`, `commondir`, 링크인 `objects`) 그 대상일 수 있으므로 지우지 않는다.
+M에는 상한이 없다. M만큼 quota 여유가 있어야 reuse가 성공하고, 모자라면 fetch가 ENOSPC로 실패한다. 처음 clone(`clone`·`recreate`)은 mirror 없이 root에 바로 받으므로 W + T만 쓴다. 워커가 도중에 죽어 남긴 scratch(fetch·capture·publish의 `.git/werft-<용도>-XXXXXX`)는 다음 reuse가 fetch 전에 지운다. `werft-checkpoint`는 남긴다. checkout이 다른 곳의 객체를 빌려 쓰면(`objects/info/alternates`, `commondir`, 링크인 `objects`) 그 대상일 수 있으므로 지우지 않는다.
 
-복원 뒤 `.git/agent-platform-checkpoint/checkpoint.git`에는 instructions commit이 닿는 객체(I)만 남는다. engine이 그 commit을 prune해도 다음 capture가 bundle할 수 있게 하려는 저장소다. 그 뒤의 commit, 커밋하지 않은 변경의 snapshot, 사슬의 이전 snapshot은 남기지 않는다. 단, instructions commit이 HEAD와 같으면 I는 committed 이력 전체다. engine이 커밋하지 않은 세션이 그렇다. 이때 줄어드는 것은 snapshot 몫뿐이다.
+복원 뒤 `.git/werft-checkpoint/checkpoint.git`에는 instructions commit이 닿는 객체(I)만 남는다. engine이 그 commit을 prune해도 다음 capture가 bundle할 수 있게 하려는 저장소다. 그 뒤의 commit, 커밋하지 않은 변경의 snapshot, 사슬의 이전 snapshot은 남기지 않는다. 단, instructions commit이 HEAD와 같으면 I는 committed 이력 전체다. engine이 커밋하지 않은 세션이 그렇다. 이때 줄어드는 것은 snapshot 몫뿐이다.
 
 이 축소에는 대가가 있다. 다음 incremental capture는 사슬의 tip 중 아직 있는 것만 제외 대상으로 삼는다. 이전 base bundle만의 snapshot commit은 이제 남지 않는다. 마지막 bundle의 snapshot도 workspace `.git`에 참조 없이 들어 있을 뿐이다. 보통의 `git gc`는 2주 동안 이것을 지우지 않는다. 하지만 engine이 `git gc --prune=now`를 돌리면 사라진다. 그러면 남은 tip(이력에 남은 HEAD commit, instructions commit)을 기준으로 bundle을 만든다. 그 결과 bundle이 커지거나 전체 bundle로 되돌아갈 수 있다. 올바름은 그대로다. 전체 bundle이 상한을 넘는 저장소는 사슬이 32개나 상한에 닿아 재시작할 때도 어차피 거절된다.
 
@@ -261,11 +261,11 @@ Docker Desktop은 커널 자체가 XFS quota 없이 빌드돼 있어(`XFS (loopN
 
 quota preflight가 실패하면 **아무것도 띄우지 않되 회수는 한 번 돌린다.** probe도 디스크를 조금 쓰므로 이미 가득 찬 daemon은 preflight부터 실패하는데, 그 순간이 바로 끝난 세션의 workspace를 회수해야 할 때다. 그대로 종료하면 회수할 방법이 영영 없어진다. 이때 도는 것은 pass가 아니라 `reclaimWorkspaces` — 같은 advisory lock 아래에서 ④단계만 수행한다. slot limit 0짜리 pass로는 부족하다. 새 예약만 막힐 뿐 사라진 컨테이너를 재생성하고 stale 컨테이너를 교체하는 일은 그대로 하기 때문이다. 회수가 끝나면 원래 오류를 다시 던져 non-zero로 끝낸다.
 
-volume의 quota label이 지금 설정과 다르면 — 예전에 암묵 생성된 label 없는 volume이거나, 다른 byte 상한으로 만들어진 volume이면 — 기동을 거절한다(`WorkspaceQuotaError`). 이름을 유도하던 시절의 `ap-ws-<installationId>-<sessionId>` volume도 계속 찾아본다. label이 없어 조회에는 걸리지 않지만, 못 본 척하고 새 workspace를 만들면 그 세션이 빈 트리로 시작하고 예전 트리는 묻히기 때문이다. volume의 byte quota는 나중에 바꿀 수 없고(inode 상한은 위에 적은 대로 제자리에서 바뀐다), 바꾸겠다고 지우면 그 세션의 작업 트리가 날아가기 때문이다. 작업 트리를 살린 채 새 계약으로 옮기려면 아래 [legacy workspace 마이그레이션](#legacy-workspace-마이그레이션) 절차를 쓴다. 이전 설정으로 되돌리는 것도 방법이다. 같은 이유로 quota 설정은 `agent-platform.isolation` 지문에도 들어간다 — 그러지 않으면 이미 떠 있는 컨테이너가 예전 상한을 그대로 들고 계속 산다.
+volume의 quota label이 지금 설정과 다르면 — 예전에 암묵 생성된 label 없는 volume이거나, 다른 byte 상한으로 만들어진 volume이면 — 기동을 거절한다(`WorkspaceQuotaError`). 이름을 유도하던 시절의 `werft-ws-<installationId>-<sessionId>` volume도 계속 찾아본다. label이 없어 조회에는 걸리지 않지만, 못 본 척하고 새 workspace를 만들면 그 세션이 빈 트리로 시작하고 예전 트리는 묻히기 때문이다. volume의 byte quota는 나중에 바꿀 수 없고(inode 상한은 위에 적은 대로 제자리에서 바뀐다), 바꾸겠다고 지우면 그 세션의 작업 트리가 날아가기 때문이다. 작업 트리를 살린 채 새 계약으로 옮기려면 아래 [legacy workspace 마이그레이션](#legacy-workspace-마이그레이션) 절차를 쓴다. 이전 설정으로 되돌리는 것도 방법이다. 같은 이유로 quota 설정은 `werft.isolation` 지문에도 들어간다 — 그러지 않으면 이미 떠 있는 컨테이너가 예전 상한을 그대로 들고 계속 산다.
 
 이 거절은 **이미 돌고 있는 worker를 죽이기 전에** 일어나야 한다. 지문이 바뀌면 stale 판정 → `terminate` → 재생성 순서인데, 재생성이 volume에서 거절당하면 그 세션은 worker도 없고 되돌아갈 길도 없는 상태로 남는다. 그래서 `inspect`는 stale을 보고하기 전에 그 세션의 volume을 읽기 전용으로 확인하고, 쓸 수 없는 volume이면 stale 대신 예외를 던진다 — 컨테이너는 예전 상한 그대로 계속 돌고, pass는 `reconcileFailed`로 non-zero를 내며, 운영자가 volume을 옮길 때까지 그 상태가 유지된다. 옮기는 방법은 아래 [legacy workspace 마이그레이션](#legacy-workspace-마이그레이션)에 있다. inode 상한은 이 읽기 전용 확인이 아니라 교체 직전의 `assertReplaceable`이 실제로 걸어 보고, 못 걸면 기존 worker를 내리기 전에 교체를 거절한다.
 
-④단계의 GC는 fail-safe 방향이다. **volume을 먼저 나열하고 그 다음 DB에 묻는다** — 순서를 뒤집으면 두 호출 사이에 생긴 세션의 volume을 지운다. 남기는 조건은 session row가 있고 admission state가 `closed`가 아니거나 살아 있는 execution row가 있는 것이다. `stopped`는 예외로, 아래의 만료 규칙을 따른다. session id label이 없거나 session id 모양이 아닌 volume, 아직 컨테이너가 물고 있는 volume(409), 다른 설치의 volume은 전부 **남기고 로그만 남긴다.** 예외는 이름을 유도하던 시절의 label 없는 `ap-ws-<installationId>-<sessionId>` volume이다. 이름에서 읽은 session id는 후보일 뿐이고, **그 id의 row가 있고 `closed`이며 slot을 쥔 launch가 없을 때만** 회수한다(`filterClosedLegacySessions`). row가 없는 경우는 남긴다. label이 있는 volume과 달리, 이름이 맞다는 것만으로는 우리 세션의 것이라는 증거가 되지 않기 때문이다. legacy volume에는 `stopped` TTL도 적용하지 않는다. 먼저 마이그레이션해야 만료 규칙을 탄다. `EXECUTION_WORKSPACE_GC_MIN_AGE_SEC`(기본 3600)보다 어린 volume은 아예 후보가 아니다 — volume은 컨테이너보다 먼저 만들어지므로 그 사이에 회수해 버리면 진행 중인 launch를 깨뜨린다. **판단으로 남긴 것과 실패로 남은 것은 exit code가 다르다.** 아직 마운트돼 있거나(409) 다른 설치 것이라 남긴 volume은 정상 상태이므로 exit code를 바꾸지 않는다(`workspacesUnresolved`). 반면 목록을 못 읽었거나 DB가 답하지 않았거나(`workspaceScanFailed`) 삭제 호출이 던진 경우(`workspacesFailed`)는 아무도 보지 않은 채 디스크가 쌓이는 상태이므로 pass가 non-zero로 끝난다.
+④단계의 GC는 fail-safe 방향이다. **volume을 먼저 나열하고 그 다음 DB에 묻는다** — 순서를 뒤집으면 두 호출 사이에 생긴 세션의 volume을 지운다. 남기는 조건은 session row가 있고 admission state가 `closed`가 아니거나 살아 있는 execution row가 있는 것이다. `stopped`는 예외로, 아래의 만료 규칙을 따른다. session id label이 없거나 session id 모양이 아닌 volume, 아직 컨테이너가 물고 있는 volume(409), 다른 설치의 volume은 전부 **남기고 로그만 남긴다.** 예외는 이름을 유도하던 시절의 label 없는 `werft-ws-<installationId>-<sessionId>` volume이다. 이름에서 읽은 session id는 후보일 뿐이고, **그 id의 row가 있고 `closed`이며 slot을 쥔 launch가 없을 때만** 회수한다(`filterClosedLegacySessions`). row가 없는 경우는 남긴다. label이 있는 volume과 달리, 이름이 맞다는 것만으로는 우리 세션의 것이라는 증거가 되지 않기 때문이다. legacy volume에는 `stopped` TTL도 적용하지 않는다. 먼저 마이그레이션해야 만료 규칙을 탄다. `EXECUTION_WORKSPACE_GC_MIN_AGE_SEC`(기본 3600)보다 어린 volume은 아예 후보가 아니다 — volume은 컨테이너보다 먼저 만들어지므로 그 사이에 회수해 버리면 진행 중인 launch를 깨뜨린다. **판단으로 남긴 것과 실패로 남은 것은 exit code가 다르다.** 아직 마운트돼 있거나(409) 다른 설치 것이라 남긴 volume은 정상 상태이므로 exit code를 바꾸지 않는다(`workspacesUnresolved`). 반면 목록을 못 읽었거나 DB가 답하지 않았거나(`workspaceScanFailed`) 삭제 호출이 던진 경우(`workspacesFailed`)는 아무도 보지 않은 채 디스크가 쌓이는 상태이므로 pass가 non-zero로 끝난다.
 
 **`stopped` 세션의 workspace는 만료된다.** stop한 뒤 `EXECUTION_WORKSPACE_STOPPED_TTL_SEC`(기본 86400, 하루)이 지나면 회수 후보가 된다. 기준 시각은 `sessions.updated_at`이다. stop 전이가 이 값을 찍고, 회수 claim과 완료 기록은 이 값을 건드리지 않는다. 이미 `stopped`인 세션에 새 terminate가 받아들여지면 이 값이 바뀌어 TTL을 그때부터 다시 센다. 다만 terminate는 workspace를 붙잡는 수단이 아니다. 회수 claim이 이미 잡힌 뒤라면 그 회수는 그대로 진행된다. workspace가 필요하면 resume한다. resume만이 claim과 직렬화된다. slot을 쥔 launch가 남아 있으면 후보가 아니다. 하루면 밤사이 stop해 둔 세션은 그대로 돌아오고, 10-session soak처럼 stop이 쌓이는 경우에도 디스크가 끝없이 늘지 않는다. `0`은 다음 pass에서 바로 회수한다는 뜻이다.
 
@@ -281,7 +281,7 @@ claim이 남아 있는 동안 resume은 **503 `BACKEND_UNAVAILABLE`(`retryable: 
 
 #### legacy workspace 마이그레이션
 
-label이 없는 옛 volume(`ap-ws-<installationId>-<sessionId>`)이나 다른 quota로 만들어진 volume을 가진 세션은 기동이 거절된다. 컨테이너를 잃으면 다시 뜨지도 못한다. 작업 트리를 살린 채 지금 설정의 quota로 옮기는 절차는 다음과 같다. pass가 자동으로 하지 않는 **명시적 운영 작업**이다.
+label이 없는 옛 volume(`werft-ws-<installationId>-<sessionId>`)이나 다른 quota로 만들어진 volume을 가진 세션은 기동이 거절된다. 컨테이너를 잃으면 다시 뜨지도 못한다. 작업 트리를 살린 채 지금 설정의 quota로 옮기는 절차는 다음과 같다. pass가 자동으로 하지 않는 **명시적 운영 작업**이다.
 
 ```sh
 # scheduler와 같은 환경 변수(DATABASE_URL, EXECUTION_*, DOCKER_HOST)로 실행한다
@@ -302,8 +302,8 @@ docker compose -f infra/compose.yml --profile apps run --rm scheduler \
 
 하는 일:
 
-1. 새 volume을 지금 계약대로 만든다. label과 `size`를 붙이고, 원본 이름은 `agent-platform.migration-source` label로, 원본의 생성 시각은 `agent-platform.migration-source-created-at` label로 남긴다. 이름은 다른 workspace와 같은 1회용이다. workspace는 label로 찾으므로 이름을 바꿀 필요가 없다.
-2. 시작하지 않는 pin 컨테이너(`ap-ws-migrate-pin-` 접두어)가 원본을 읽기 전용으로 붙잡는다. Docker는 컨테이너가 참조하는 volume을 지우지 않는다. 그래서 pass lock을 잃은 사이에 GC가 끼어들어도 이 실행이 끝날 때까지 원본은 남는다. pin 이름은 실행마다 다르고, 각 실행은 자기 pin만 지운다. 이어서 helper 컨테이너가 원본을 읽기 전용으로, 새 volume을 쓰기로 붙여 `cp -a`로 복사한다. helper는 root이지만 네트워크가 없고, 파일 복사에 필요한 capability(`CHOWN`·`DAC_OVERRIDE`·`FOWNER`·`FSETID`)만 가진다.
+1. 새 volume을 지금 계약대로 만든다. label과 `size`를 붙이고, 원본 이름은 `werft.migration-source` label로, 원본의 생성 시각은 `werft.migration-source-created-at` label로 남긴다. 이름은 다른 workspace와 같은 1회용이다. workspace는 label로 찾으므로 이름을 바꿀 필요가 없다.
+2. 시작하지 않는 pin 컨테이너(`werft-ws-migrate-pin-` 접두어)가 원본을 읽기 전용으로 붙잡는다. Docker는 컨테이너가 참조하는 volume을 지우지 않는다. 그래서 pass lock을 잃은 사이에 GC가 끼어들어도 이 실행이 끝날 때까지 원본은 남는다. pin 이름은 실행마다 다르고, 각 실행은 자기 pin만 지운다. 이어서 helper 컨테이너가 원본을 읽기 전용으로, 새 volume을 쓰기로 붙여 `cp -a`로 복사한다. helper는 root이지만 네트워크가 없고, 파일 복사에 필요한 capability(`CHOWN`·`DAC_OVERRIDE`·`FOWNER`·`FSETID`)만 가진다.
 3. 같은 helper가 양쪽의 manifest를 비교한다. 비교 대상은 경로 집합, 종류, mode, uid/gid, symlink 대상, 일반 파일의 크기·mtime·SHA-256이다. 디렉터리의 크기와 시각, xattr와 ACL은 비교하지 않는다. busybox `cp -a`는 hard link를 보존하지 않으므로 hard link는 내용이 같은 별개 파일이 된다. 그만큼 디스크를 더 쓰므로 quota에 걸리면 복사가 실패한다. mtime은 초 단위까지만 비교한다.
 4. 일치하면 원본을 지우기 전에 같은 원본의 다른 복사본이 있는지 다시 본다. 있으면 다른 실행이 아직 일하는 중이다. 그때는 자기 복사본을 버리고 실패한다. 원본이 다른 컨테이너에 붙잡혀 있을 때도 마찬가지다. 둘 다 아니면 helper와 pin을 지우고 **원본을 지운다.** 그 순간부터 새 volume이 그 세션의 workspace다.
 
@@ -354,7 +354,7 @@ compose의 proxy는 `apps/egress-proxy/Dockerfile`로 빌드한 이미지로 돈
 ```bash
 docker compose -f infra/compose.yml up -d --wait --build egress-proxy   # checkout을 옮긴 뒤
 docker compose -f infra/compose.yml exec -T egress-proxy bun run /app/src/healthcheck.ts
-docker network ls --filter label=agent-platform.worker-network=true \
+docker network ls --filter label=werft.worker-network=true \
   --format '{{.Name}} {{.Labels}}'
 ```
 
