@@ -372,13 +372,13 @@ jobs:
     # . These point the suites that pull their own images at it
     # instead of their Docker Hub defaults; unused where no daemon runs.
     env:
-      BUN_TEST_IMAGE: ghcr.io/jeongjaesoon/agent-platform-ci/bun@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4
-      DOCKER_BACKEND_TEST_HELPER_IMAGE: ghcr.io/jeongjaesoon/agent-platform-ci/busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
-      DOCKER_BACKEND_TEST_IMAGE: ghcr.io/jeongjaesoon/agent-platform-ci/busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
-      EGRESS_CURL_TEST_IMAGE: ghcr.io/jeongjaesoon/agent-platform-ci/curl@sha256:c1fe1679c34d9784c1b0d1e5f62ac0a79fca01fb6377cdd33e90473c6f9f9a69
-      EGRESS_PROXY_TEST_IMAGE: ghcr.io/jeongjaesoon/agent-platform-ci/bun@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4
-      EXECUTION_WORKSPACE_MIGRATION_IMAGE: ghcr.io/jeongjaesoon/agent-platform-ci/busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
-      LOCALSTACK_TEST_IMAGE: ghcr.io/jeongjaesoon/agent-platform-ci/localstack@sha256:b279c01f4cfb8f985a482e4014cabc1e2697b9d7a6c8c8db2e40f4d9f93687c7
+      BUN_TEST_IMAGE: ghcr.io/jeongjaesoon/werft-ci/bun@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4
+      DOCKER_BACKEND_TEST_HELPER_IMAGE: ghcr.io/jeongjaesoon/werft-ci/busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
+      DOCKER_BACKEND_TEST_IMAGE: ghcr.io/jeongjaesoon/werft-ci/busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
+      EGRESS_CURL_TEST_IMAGE: ghcr.io/jeongjaesoon/werft-ci/curl@sha256:c1fe1679c34d9784c1b0d1e5f62ac0a79fca01fb6377cdd33e90473c6f9f9a69
+      EGRESS_PROXY_TEST_IMAGE: ghcr.io/jeongjaesoon/werft-ci/bun@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4
+      EXECUTION_WORKSPACE_MIGRATION_IMAGE: ghcr.io/jeongjaesoon/werft-ci/busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
+      LOCALSTACK_TEST_IMAGE: ghcr.io/jeongjaesoon/werft-ci/localstack@sha256:b279c01f4cfb8f985a482e4014cabc1e2697b9d7a6c8c8db2e40f4d9f93687c7
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # Not `services:`, which the runner starts one by one before the first
@@ -389,8 +389,8 @@ jobs:
         env:
           POSTGRES: ${{ matrix.postgres }}
           LOCALSTACK: ${{ matrix.localstack }}
-          POSTGRES_SERVICE_IMAGE: ghcr.io/jeongjaesoon/agent-platform-ci/postgres@sha256:a3b7f434b2dc57ce85a67e171163eb8ab1a1ebcb39d27484661f26b1dfbe30d6
-          LOCALSTACK_SERVICE_IMAGE: ghcr.io/jeongjaesoon/agent-platform-ci/localstack@sha256:b279c01f4cfb8f985a482e4014cabc1e2697b9d7a6c8c8db2e40f4d9f93687c7
+          POSTGRES_SERVICE_IMAGE: ghcr.io/jeongjaesoon/werft-ci/postgres@sha256:a3b7f434b2dc57ce85a67e171163eb8ab1a1ebcb39d27484661f26b1dfbe30d6
+          LOCALSTACK_SERVICE_IMAGE: ghcr.io/jeongjaesoon/werft-ci/localstack@sha256:b279c01f4cfb8f985a482e4014cabc1e2697b9d7a6c8c8db2e40f4d9f93687c7
         run: .github/scripts/ci-services.sh start
       - uses: ./.github/actions/bun-setup
       - run: bun install --frozen-lockfile
@@ -718,7 +718,7 @@ jobs:
             -e DOCKER_TLS_CERTDIR= \
             -v /mnt/xfs:/var/lib/docker \
             -v /tmp/apq:/sock \
-            ghcr.io/jeongjaesoon/agent-platform-ci/docker@sha256:2a232a42256f70d78e3cc5d2b5d6b3276710a0de0596c145f627ecfae90282ac \
+            ghcr.io/jeongjaesoon/werft-ci/docker@sha256:2a232a42256f70d78e3cc5d2b5d6b3276710a0de0596c145f627ecfae90282ac \
             --host=unix:///sock/docker.sock
           for _ in $(seq 1 60); do
             docker exec apq docker version >/dev/null 2>&1 && break
@@ -738,7 +738,7 @@ jobs:
       - name: Inode helper image on that daemon
         run: |
           printf '%s\n' \
-            "FROM ghcr.io/jeongjaesoon/agent-platform-ci/bun@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4" \
+            "FROM ghcr.io/jeongjaesoon/werft-ci/bun@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4" \
             "RUN apt-get update && apt-get install -y --no-install-recommends xfsprogs && rm -rf /var/lib/apt/lists/*" \
             'VOLUME ["/workspace"]' \
             | docker exec -i apq docker build -q -t ap-inode-helper:ci -
@@ -746,9 +746,9 @@ jobs:
         env:
           DOCKER_BACKEND_TEST: "1"
           DOCKER_BACKEND_TEST_HELPER_IMAGE: ap-inode-helper:ci
-          DOCKER_BACKEND_TEST_IMAGE: ghcr.io/jeongjaesoon/agent-platform-ci/busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
+          DOCKER_BACKEND_TEST_IMAGE: ghcr.io/jeongjaesoon/werft-ci/busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
           DOCKER_HOST: unix:///tmp/apq/docker.sock
-          EXECUTION_WORKSPACE_MIGRATION_IMAGE: ghcr.io/jeongjaesoon/agent-platform-ci/busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
+          EXECUTION_WORKSPACE_MIGRATION_IMAGE: ghcr.io/jeongjaesoon/werft-ci/busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
         run: >-
           bun test
           packages/adapters/execution/local-docker/src/workspace.integration.test.ts
@@ -938,12 +938,12 @@ jobs:
         env:
           CLUSTER_NAME: k8s-smoke
           STATE_DIR: ${{ runner.temp }}/kind
-          KIND_NODE_IMAGE: ghcr.io/jeongjaesoon/agent-platform-ci/kind-node@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5
-          REGISTRY_IMAGE: ghcr.io/jeongjaesoon/agent-platform-ci/registry@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373
-          BUN_IMAGE: ghcr.io/jeongjaesoon/agent-platform-ci/bun@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4
-          BUILDKIT_SYNTAX: ghcr.io/jeongjaesoon/agent-platform-ci/dockerfile@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e
-          PROBE_IMAGE: ghcr.io/jeongjaesoon/agent-platform-ci/busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
-          K8S_BACKEND_TEST_IMAGE: ghcr.io/jeongjaesoon/agent-platform-ci/busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
+          KIND_NODE_IMAGE: ghcr.io/jeongjaesoon/werft-ci/kind-node@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5
+          REGISTRY_IMAGE: ghcr.io/jeongjaesoon/werft-ci/registry@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373
+          BUN_IMAGE: ghcr.io/jeongjaesoon/werft-ci/bun@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4
+          BUILDKIT_SYNTAX: ghcr.io/jeongjaesoon/werft-ci/dockerfile@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e
+          PROBE_IMAGE: ghcr.io/jeongjaesoon/werft-ci/busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
+          K8S_BACKEND_TEST_IMAGE: ghcr.io/jeongjaesoon/werft-ci/busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
         # The stand-ins come from the same mirror as the bun base.
         run: KIND_IMAGE_MIRROR="${BUN_IMAGE%/*}" deploy/kind/smoke.sh
       - if: '!cancelled()'

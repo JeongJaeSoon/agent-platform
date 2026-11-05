@@ -11,9 +11,9 @@ import { LOCAL_LAYERS, layeredServices } from "./compose-layers.ts";
 
 const root = join(import.meta.dir, "..");
 const read = (path: string) => readFileSync(join(root, path), "utf8");
-const MIRROR = "ghcr.io/jeongjaesoon/agent-platform-ci/";
+const MIRROR = "ghcr.io/jeongjaesoon/werft-ci/";
 const MIRROR_REF =
-  /^ghcr\.io\/jeongjaesoon\/agent-platform-ci\/([a-z0-9-]+)@(sha256:[0-9a-f]{64})$/;
+  /^ghcr\.io\/jeongjaesoon\/werft-ci\/([a-z0-9-]+)@(sha256:[0-9a-f]{64})$/;
 
 type Entry = { name: string; source: string; tag: string; digest: string };
 type Job = {
@@ -155,7 +155,7 @@ describe("images.yml", () => {
     for (const { source, tag } of mirrored)
       expect(imagesText).not.toContain(`${shortName(source)}:${tag}`);
     for (const reference of imagesText.match(
-      /ghcr\.io\/jeongjaesoon\/agent-platform-ci\/[^\s'"]+/g,
+      /ghcr\.io\/jeongjaesoon\/werft-ci\/[^\s'"]+/g,
     ) ?? [])
       expect(reference).toMatch(MIRROR_REF);
   });
@@ -201,7 +201,7 @@ describe("assert-no-docker-hub-images.sh", () => {
         "localstack/localstack",
         "docker.io/library/postgres",
         // Looks like the mirror, but without a dot it is a Docker Hub user.
-        "ghcr-io/jeongjaesoon/agent-platform-ci/busybox",
+        "ghcr-io/jeongjaesoon/werft-ci/busybox",
       ),
     );
     expect(code).toBe(1);
@@ -209,7 +209,7 @@ describe("assert-no-docker-hub-images.sh", () => {
       "alpine",
       "localstack/localstack",
       "docker.io/library/postgres",
-      "ghcr-io/jeongjaesoon/agent-platform-ci/busybox",
+      "ghcr-io/jeongjaesoon/werft-ci/busybox",
     ]) {
       expect(out).toContain(`::error::${name} came from Docker Hub`);
     }
