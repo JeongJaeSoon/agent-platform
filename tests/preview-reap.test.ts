@@ -35,15 +35,16 @@ describe("deploy/preview/preview.sh reap", () => {
 echo "$*" >> "${dir}/kubectl-calls"
 case "$*" in
   "config view "*) echo "apiVersion: v1" ;;
-  "get namespaces -l agent-platform.dev/preview=true -o json") cat "${dir}/namespaces.json" ;;
+  "get namespaces -l werft.dev/preview=true -o json") cat "${dir}/namespaces.json" ;;
   "get namespace "*"preview-up-at}")
     if [ -n "\${STUB_CURRENT_UP_AT+set}" ]; then
       echo "$STUB_CURRENT_UP_AT"
     else
       jq -r --arg ns "$3" '.items[] | select(.metadata.name == $ns)
-        | .metadata.annotations["agent-platform.dev/preview-up-at"] // ""' "${dir}/namespaces.json"
+        | .metadata.annotations["werft.dev/preview-up-at"] // ""' "${dir}/namespaces.json"
     fi ;;
-  "get namespace "*" -o jsonpath="*) echo true ;;
+  "get namespace "*"labels.werft\\.dev/preview}"*) echo true ;;
+  "get namespace "*" -o jsonpath="*) echo ;;
   "get namespace "*) ;;
   "delete namespace "*) exit "\${STUB_DELETE_EXIT:-0}" ;;
   *) exit 1 ;;
@@ -111,9 +112,7 @@ exit 1
           metadata: {
             name,
             annotations:
-              upAt === undefined
-                ? {}
-                : { "agent-platform.dev/preview-up-at": upAt },
+              upAt === undefined ? {} : { "werft.dev/preview-up-at": upAt },
           },
         })),
       }),
@@ -172,7 +171,7 @@ exit 1
   test("asks Kubernetes only for namespaces with the preview label", async () => {
     await reap([]);
     expect(await calls("kubectl-calls")).toContain(
-      "get namespaces -l agent-platform.dev/preview=true -o json",
+      "get namespaces -l werft.dev/preview=true -o json",
     );
   });
 
@@ -247,7 +246,7 @@ exit 1
     expect(result.exitCode).toBe(0);
     expect(await deleted()).toEqual([]);
     expect(result.stdout).toContain(
-      "pr-9: no readable agent-platform.dev/preview-up-at, TTL not applied",
+      "pr-9: no readable werft.dev/preview-up-at, TTL not applied",
     );
     expect(result.stdout).toContain("pr-10: kept, PR OPEN\n");
   });
@@ -329,7 +328,7 @@ exit 1
     );
   });
 
-  test("down removes the image tags of both names", async () => {
+  test("down removes the werft image tags only", async () => {
     const result = await reap([{ name: "pr-17", upAt: hoursAgo(1) }], {
       STUB_STATES: "17=CLOSED",
     });
@@ -338,10 +337,9 @@ exit 1
       call.startsWith("image rm "),
     );
     expect(removed).toEqual(
-      ["control-host", "egress-proxy", "worker"].flatMap((app) => [
-        `image rm werft-${app}:pr-17`,
-        `image rm agent-platform-${app}:pr-17`,
-      ]),
+      ["control-host", "egress-proxy", "worker"].map(
+        (app) => `image rm werft-${app}:pr-17`,
+      ),
     );
   });
 
@@ -363,20 +361,15 @@ exit 1
     return { exitCode, stderr };
   };
 
-  test("up refuses a namespace still holding the old release", async () => {
-    const result = await up("agent-platform");
-    expect(result.exitCode).toBe(1);
-    expect(result.stderr).toContain("pr-18 holds a release from before");
-    expect(await calls("helm-calls")).toEqual([
-      "status agent-platform --namespace pr-18",
-    ]);
-  });
-
-  test("up goes on in a namespace without the old release", async () => {
-    const result = await up("");
-    expect(result.stderr).not.toContain("holds a release from before");
-    expect(await calls("helm-calls")).toContain(
+  test("up asks helm about the ingress only, never an earlier release name", async () => {
+    // A stub that would answer for the old release name; the script must not ask.
+    await up("agent-platform");
+    const helm = await calls("helm-calls");
+    expect(helm).toContain(
       "status traefik --namespace preview-ingress -o json",
     );
+    expect(
+      helm.filter((call) => call.startsWith("status agent-platform")),
+    ).toEqual([]);
   });
 });

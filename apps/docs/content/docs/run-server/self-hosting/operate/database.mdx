@@ -11,7 +11,7 @@ description: 플랫폼이 PostgreSQL에 거는 연결 수와 세션 설정, 느�
 
 | 역할 | 풀 상한 | 이유 |
 |---|---|---|
-| api | 10 + readiness probe 1 + LISTEN 1 | 요청을 동시에 처리한다. probe는 자기 풀(상한 1)을 써서 요청과 연결을 다투지 않는다. 이벤트 알림을 받는 LISTEN 연결(`agent-platform:api-listen`)은 풀 밖에 하나 둔다 |
+| api | 10 + readiness probe 1 + LISTEN 1 | 요청을 동시에 처리한다. probe는 자기 풀(상한 1)을 써서 요청과 연결을 다투지 않는다. 이벤트 알림을 받는 LISTEN 연결(`werft:api-listen`)은 풀 밖에 하나 둔다 |
 | metrics | 10 | scrape 한 번이 집계 7개를 동시에 읽는다 |
 | scheduler | 4 | pass가 문장을 하나씩 낸다. pass lock이 연결 하나를 더 쥔다 |
 | reconciler | 4 | pass가 문장을 하나씩 낸다 |
@@ -30,14 +30,14 @@ Helm 기본값(api 2개, slack 1개, scheduler·reconciler 1개, metrics 꺼짐)
 | `statement_timeout` | 10초 | 300초 | 서버가 문장을 취소한다. 잠금을 기다리는 시간도 여기에 든다 |
 | 응답 읽기(`query_timeout`) | 20초 | 330초 | 서버가 답하지 않는 소켓을 클라이언트가 버린다 |
 | `idle_in_transaction_session_timeout` | 30초 | 30초 | 트랜잭션을 연 채 30초 동안 문장을 내지 않은 연결을 서버가 끊는다. 그 연결이 쥔 잠금도 풀린다 |
-| `application_name` | `agent-platform:<역할>` | `agent-platform:migrate` | `pg_stat_activity`와 서버 로그에서 역할을 가른다. `DATABASE_URL`에 `application_name`이 있으면 그 값을 쓴다 |
+| `application_name` | `werft:<역할>` | `werft:migrate` | `pg_stat_activity`와 서버 로그에서 역할을 가른다. `DATABASE_URL`에 `application_name`이 있으면 그 값을 쓴다 |
 
 역할마다 열린 연결 수는 DB에서 본다. compose는 `docker compose -f infra/compose.yml exec postgres psql -U postgres -d sessions`로 들어가고, Helm은 운영자의 DB 클라이언트로 들어간다.
 
 ```sql
 SELECT application_name, state, count(*)
   FROM pg_stat_activity
- WHERE application_name LIKE 'agent-platform:%'
+ WHERE application_name LIKE 'werft:%'
  GROUP BY 1, 2 ORDER BY 1, 2;
 ```
 
@@ -54,7 +54,7 @@ const { rows } = await pool.query(
 );
 console.log(JSON.stringify(rows[0]));
 await pool.end();'
-# {"statement_timeout":"10s","idle_in_transaction":"30s","application_name":"agent-platform:api"}
+# {"statement_timeout":"10s","idle_in_transaction":"30s","application_name":"werft:api"}
 ```
 
 Helm은 `docker compose … exec -T -w /app/apps/control-host api` 대신 `kubectl -n werft exec deploy/werft-api -- sh -c 'cd /app/apps/control-host && bun -e …'`로 같은 스크립트를 돌린다. release 이름이 `werft`가 아니면 namespace와 deployment 이름을 그 설치의 것으로 바꾼다.

@@ -271,7 +271,11 @@ export function createGitPusher(
         const judged = await rangeAttribution(
           async (args) => {
             const result = await git(inRepo(args));
-            return { exitCode: result.exitCode, stdout: result.stdout };
+            return {
+              exitCode: result.exitCode,
+              stdout: result.stdout,
+              ...(result.truncated === true ? { truncated: true } : {}),
+            };
           },
           {
             tip: input.commit,
