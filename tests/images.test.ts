@@ -414,9 +414,9 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       // biome-ignore lint/suspicious/noTemplateCurlyInString: workflow text
       "IMAGE_PREFIX: ${{ github.repository_owner }}/werft\n",
     );
-    expect(
-      Bun.YAML.parse(read("deploy/helm/werft/Chart.yaml")),
-    ).toMatchObject({ name: "werft" });
+    expect(Bun.YAML.parse(read("deploy/helm/werft/Chart.yaml"))).toMatchObject({
+      name: "werft",
+    });
     const { images } = Bun.YAML.parse(
       read("deploy/helm/werft/values.yaml"),
     ) as {
@@ -3098,8 +3098,7 @@ describe("a connection kind's default endpoint", () => {
     "infra/compose.core.yml":
       /EGRESS_CREDENTIAL_ALLOWLIST:\s*\$\{[^:}]+:-([^}]+)\}/g,
     ".env.example": /^EGRESS_CREDENTIAL_ALLOWLIST=(.+)$/gm,
-    "deploy/helm/werft/values.yaml":
-      /credentialAllowlist:\s*"([^"]+)"/g,
+    "deploy/helm/werft/values.yaml": /credentialAllowlist:\s*"([^"]+)"/g,
   };
 
   for (const [file, pattern] of Object.entries(DEFAULTS)) {
