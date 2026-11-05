@@ -512,14 +512,14 @@ describe("push_attached: a push to an attached repository", () => {
     }
   });
 
-  test("an agent session with no snapshot reads the row; a row without the value asks", () => {
+  test("an agent session with no snapshot began as ask, so a later allow does not widen it", () => {
     const read = (pushAttached: string | null) =>
       effectiveGitHubPolicy({
         source: "agent",
         releasePin: undefined,
         agentRow: { ...person, pushAttached },
       }).pushAttached;
-    expect(read("allow")).toBe("allow");
+    expect(read("allow")).toBe("ask");
     expect(read("deny")).toBe("deny");
     expect(read(null)).toBe("ask");
   });

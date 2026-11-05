@@ -664,7 +664,12 @@ export function effectiveGitHubPolicy(input: {
     return {
       ...base,
       settings: current.data,
-      pushAttached: pushAttachedOf(agentRow.pushAttached),
+      // A session with no snapshot began before this setting existed, when
+      // an attached push always needed a person: later saves only narrow it.
+      pushAttached: meetPushAttached(
+        "ask",
+        pushAttachedOf(agentRow.pushAttached),
+      ),
     };
   }
   const start = githubPolicyStartSchema.safeParse(input.start);
