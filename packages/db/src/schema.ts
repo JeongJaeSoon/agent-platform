@@ -4620,3 +4620,37 @@ export const settingsGeneration = pgTable(
   },
   (table) => [check("settings_generation_single_check", sql`${table.id} = 1`)],
 );
+
+// The commit attribution each claim of a session asked for (author, the
+// starter's co-author, the Agent-Session value), one row per distinct bundle.
+// A push passes a commit that matches any bundle of its session, so a GitHub
+// link or authoring App that changed mid-session does not fail the commits
+// made before. Only added to; no code before this table reads it.
+export const sessionCommitAttributions = pgTable(
+  "session_commit_attributions",
+  {
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => sessions.id, { onDelete: "cascade" }),
+    // sha256 of the bundle's canonical JSON; the dedupe key.
+    digest: text().notNull(),
+    authorName: text("author_name").notNull(),
+    authorEmail: text("author_email").notNull(),
+    coAuthorName: text("co_author_name"),
+    coAuthorEmail: text("co_author_email"),
+    agentSession: text("agent_session"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      name: "session_commit_attributions_pk",
+      columns: [table.sessionId, table.digest],
+    }),
+    check(
+      "session_commit_attributions_co_author_check",
+      sql`(${table.coAuthorName} IS NULL) = (${table.coAuthorEmail} IS NULL)`,
+    ),
+  ],
+);

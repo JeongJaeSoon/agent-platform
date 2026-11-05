@@ -371,6 +371,8 @@ const NOT_SETTINGS: Record<string, string> = {
   K8S_BACKEND_TEST_KEEP: "tests only (docs/contributing/development.md)",
   GIT_ALLOW_PROTOCOL: "written into git's environment, not read",
   GIT_CONFIG_COUNT: "written into git's environment, not read",
+  GIT_CONFIG_SYSTEM:
+    "git's own variable, passed on to the attribution repair tool when set",
   NODE_EXTRA_CA_CERTS: "written into the engine's environment, not read",
   NEXT_PUBLIC_BASE_PATH: "inlined into the docs site by its next.config.mjs",
   DEMO_FIXTURES:

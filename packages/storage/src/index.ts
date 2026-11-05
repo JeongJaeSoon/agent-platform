@@ -12,6 +12,7 @@ import {
 } from "./s3.ts";
 
 export * from "./checkpoint-objects.ts";
+export * from "./commit-range-attribution.ts";
 export * from "./git-runner.ts";
 export * from "./git-workspace-bundle-verifier.ts";
 export * from "./object-route.ts";

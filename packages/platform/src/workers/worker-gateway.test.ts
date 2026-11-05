@@ -1002,6 +1002,8 @@ describe("WorkerGateway", () => {
     // The commit author: the console App's bot, only for a repository on
     // that App, and only once GitHub named the bot's id.
     const looked: { slug: string; apiBase: string }[] = [];
+    const ledgerRows: [string, unknown][] = [];
+    let ledgerDown = false;
     let botUserId: string | null = "41898282";
     let repositories: Parameters<
       typeof createWorkerGateway
@@ -1032,6 +1034,13 @@ describe("WorkerGateway", () => {
               authorPinned: true,
             }),
           },
+          ledger: {
+            record: async (sessionId, expectation) => {
+              if (ledgerDown) throw new Error("database down");
+              ledgerRows.push([sessionId, expectation]);
+            },
+            list: async () => [],
+          },
           consoleOrigin: null,
           appBotUserId: async (app) => {
             looked.push(app);
@@ -1057,9 +1066,29 @@ describe("WorkerGateway", () => {
     expect(looked).toEqual([
       { slug: "werft-dev", apiBase: "https://api.github.com" },
     ]);
+    // What the claim asked for is kept, for the push's check.
+    expect(ledgerRows).toEqual([
+      [
+        scope.session_id,
+        {
+          author: bot.git_author,
+          coAuthor: null,
+          agentSession: scope.session_id,
+        },
+      ],
+    ]);
 
     botUserId = null;
     expect((await claimOf()).git_author).toBeNull();
+    // A claim that names no bot expects the image's author.
+    expect(ledgerRows.at(-1)).toEqual([
+      scope.session_id,
+      {
+        author: { name: "Werft", email: "noreply@werft.invalid" },
+        coAuthor: null,
+        agentSession: scope.session_id,
+      },
+    ]);
     botUserId = "41898282";
     authorApp = null;
     expect((await claimOf()).git_author).toBeNull();
@@ -1075,6 +1104,12 @@ describe("WorkerGateway", () => {
     repositories = {};
     expect((await claimOf()).git_author).toBeNull();
     expect(looked).toHaveLength(2);
+    // A ledger that cannot write fails the claim, so the worker asks again
+    // instead of running a session no push could be judged for.
+    ledgerDown = true;
+    await expect(claimOf()).rejects.toThrow("database down");
+    ledgerDown = false;
+    expect((await claimOf()).git_author).toBeNull();
 
     // No author pin on the primary repository yet (decision D11): the claim
     // pins it the way a token issue would, then reads the App back through
@@ -2192,6 +2227,73 @@ describe("WorkerGateway", () => {
     // The protocol was consulted for the ready request only: a refusal is
     // answered without reading the pointer.
     expect(protocolCalls).toHaveLength(1);
+  });
+
+  describe("protectedCommits", () => {
+    const build = (
+      protocol: Parameters<typeof createWorkerGateway>[0]["checkpointProtocol"],
+      state: "ok" | "stale_epoch" = "ok",
+    ) =>
+      createWorkerGateway({
+        work: work({
+          async checkpointStateAtomic() {
+            return state === "ok"
+              ? {
+                  outcome: "ok",
+                  pointer: null,
+                  restorable: false,
+                  pendingReason: null,
+                }
+              : { outcome: "stale_epoch" };
+          },
+        }),
+        catalog: { profiles: {}, repositories: {} },
+        checkpoints: acceptAllCheckpoints,
+        ...(protocol === undefined ? {} : { checkpointProtocol: protocol }),
+        options: {
+          sessionCostLimitUsd: 1_000,
+          sessionTokenLimit: null,
+          leaseTtlMs: 30_000,
+        },
+      });
+
+    test("lists what the protocol protects, for the fenced session", async () => {
+      const asked: unknown[] = [];
+      const instance = build({
+        requestCheckpoint: unimplemented,
+        getRestorePlan: unimplemented,
+        protectedCommits: async (input) => {
+          asked.push(input);
+          return ["a".repeat(40)];
+        },
+      });
+      expect(await instance.protectedCommits(principal, scope)).toEqual({
+        commits: ["a".repeat(40)],
+      });
+      expect(asked).toEqual([{ sessionId: scope.session_id, pointer: null }]);
+    });
+
+    test("a stale attempt, a missing object store and a protocol that cannot list are refused, never answered with nothing protected", async () => {
+      await expect(
+        build(
+          {
+            requestCheckpoint: unimplemented,
+            getRestorePlan: unimplemented,
+            protectedCommits: async () => [],
+          },
+          "stale_epoch",
+        ).protectedCommits(principal, scope),
+      ).rejects.toMatchObject({ status: 409, code: "STALE_EPOCH" });
+      await expect(
+        build(undefined).protectedCommits(principal, scope),
+      ).rejects.toMatchObject({ status: 409, code: "CHECKPOINT_UNAVAILABLE" });
+      await expect(
+        build({
+          requestCheckpoint: unimplemented,
+          getRestorePlan: unimplemented,
+        }).protectedCommits(principal, scope),
+      ).rejects.toMatchObject({ status: 409, code: "CHECKPOINT_UNAVAILABLE" });
+    });
   });
 
   test("checkpoint protocol calls are fenced and refused outright without an object store", async () => {

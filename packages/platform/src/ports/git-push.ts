@@ -1,3 +1,23 @@
+import type { AttributionMismatchDetail } from "@werft-ai/contracts";
+import type { AttributionExpectation } from "@werft-ai/runtime-core";
+
+/**
+ * What the pusher holds the new commits to. The server issued the values;
+ * nothing the worker reported is in here.
+ */
+export type GitPushAttribution = {
+  /** Every bundle issued to the session; a commit passes on any one. */
+  expectations: readonly AttributionExpectation[];
+  /** Emails whose Co-authored-by lines no session commit may carry. */
+  stripEmails: readonly string[];
+  /**
+   * The branch the pull request goes to (the catalog entry's), as
+   * `refs/heads/<name>`. Its commits, like the default branch's and the
+   * target's own, are not the session's to vouch for.
+   */
+  baseRef: string;
+};
+
 export type GitPushInput = {
   /** Owned by the caller, empty but for `bundles`, removed by the caller. */
   directory: string;
@@ -17,6 +37,8 @@ export type GitPushInput = {
    * claim's lease, so no second pusher takes the row while this one writes.
    */
   deadline: number;
+  /** Absent, or with no bundle, no commit is checked (a host without a ledger). */
+  attribution?: GitPushAttribution;
 };
 
 export type GitPushResult =
@@ -31,9 +53,12 @@ export type GitPushResult =
         | "default_branch"
         | "non_fast_forward"
         | "push_failed"
-        | "unrelated_history";
+        | "unrelated_history"
+        | "attribution_mismatch";
       /** Safe to log: no header, no remote output. */
       detail: string;
+      /** `attribution_mismatch` only: the commits, oldest first. */
+      mismatches?: AttributionMismatchDetail[];
       /** GitHub refused a change under `.github/workflows/` (no `workflows`). */
       reasonCode?: "workflows_permission_missing";
     };
