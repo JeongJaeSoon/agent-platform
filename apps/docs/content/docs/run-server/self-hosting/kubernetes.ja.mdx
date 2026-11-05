@@ -103,9 +103,9 @@ kill "$PF"
 
 Web コンソールの `/bootstrap` で最初の owner と workspace を作ります。API Pod は起動時にトークンを生成し、ログに `BOOTSTRAP_TOKEN=…` の1行で出力します。最初の owner ができるまでは、そのログを読める人なら誰でも bootstrap できるので、ログを読める人は運用者に限ります。
 
-chart の api は replica が2つなので、Pod ごとに別のトークンを生成し、それぞれのログに出力します(Pod ごとに値が違うことは kind で確認しました)。`/bootstrap` へのリクエストがトークンを読んだ Pod とは別の Pod に届くと 401 になります。避ける方法は2つです。`BOOTSTRAP_TOKEN` を Secret に入れてすべての Pod が同じ値を使うようにするか、replica 1 で始めます。前者は Secret にキー `BOOTSTRAP_TOKEN` を作り、`--set-json 'secrets.catalogEnv=["ANTHROPIC_API_KEY","BOOTSTRAP_TOKEN"]'` で api に渡します。この値は既定値 `["ANTHROPIC_API_KEY"]` を置き換えるので、`ANTHROPIC_API_KEY` も一緒に書きます。この方法でインストールした api が `/readyz` 200 まで起動することは kind で確認しました。そのトークンで owner を作る呼び出しは確認できておらず、replica 1 で始める方法も実行していません。
+chart の api は replica が2つなので、Pod ごとに別のトークンを生成し、それぞれのログに出力します(Pod ごとに値が違うことは kind で確認しました)。`/bootstrap` へのリクエストがトークンを読んだ Pod とは別の Pod に届くと 401 になることがあります(誤ったトークンが 401 になる API の動作から読んだもので、401 自体は再現していません)。避ける方法は2つです。`BOOTSTRAP_TOKEN` を Secret に入れてすべての Pod が同じ値を使うようにするか、replica 1 で始めます。前者は Secret にキー `BOOTSTRAP_TOKEN` を作り、`--set-json 'secrets.catalogEnv=["ANTHROPIC_API_KEY","BOOTSTRAP_TOKEN"]'` で api に渡します。この値は既定値 `["ANTHROPIC_API_KEY"]` を置き換えるので、`ANTHROPIC_API_KEY` も一緒に書きます。自分で決めるトークンは 32〜256 文字で、外れると API は起動しません。この方法でインストールした api が `/readyz` 200 まで起動することは kind で確認しました。そのトークンで owner を作る呼び出しは確認できておらず、replica 1 で始める方法も実行していません。
 
-API key は API Pod の中で発行します。次の `kubectl exec` 形式は checkout が要りません。`bun run keys:k8s` を使う近道は [Kubernetes の設置(Helm chart)](/run-server/self-hosting/operate/kubernetes-deployment#api-key実行権限設定ドキュメント) にあります。
+API key は API Pod の中で発行します。次の `kubectl exec` 形式は checkout が要りません。この方法で key を発行する手順と、発行した key での認証は kind で確認できていません(owner を作れず、`<owner_id>` の手順まで進めませんでした)。`bun run keys:k8s` を使う近道は [Kubernetes の設置(Helm chart)](/run-server/self-hosting/operate/kubernetes-deployment#api-key実行権限設定ドキュメント) にあります。
 
 ```bash
 kubectl -n werft exec deploy/werft-api -c api -- \
@@ -157,7 +157,7 @@ helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSIO
 helm -n werft uninstall werft
 ```
 
-`uninstall` は、scheduler が作った worker Pod、workspace の PVC、自分で作った Secret、`werft-migrate` Job を残します(kind で確認しました)。残った Job は同じ namespace への再インストールを妨げません。PVC を消すと checkpoint されていない作業が失われるので、先にセッションが終わっているか確認します。
+`uninstall` は `werft-migrate` Job を残します(kind で確認しました)。scheduler が作った worker Pod、workspace の PVC、自分で作った Secret も残ると考えられますが、セッションなしで動かした kind では確認していません。残った Job は同じ namespace への再インストールを妨げません。PVC を消すと checkpoint されていない作業が失われるので、先にセッションが終わっているか確認します。
 
 ## 次のステップ
 
