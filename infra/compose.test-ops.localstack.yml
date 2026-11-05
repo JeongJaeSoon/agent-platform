@@ -9,6 +9,7 @@
 # `test-ops.sh reset` empties the installation. docs/operator/test-ops.md.
 services:
   localstack:
+    restart: unless-stopped
     extends:
       file: compose.localstack.yml
       service: localstack
