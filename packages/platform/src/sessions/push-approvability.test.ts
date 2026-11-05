@@ -14,6 +14,7 @@ const request = (
 ) => ({ state, checkpointRevision, gitCommit: COMMIT });
 const source = (read: () => Promise<PushSourceResult>) => ({
   readPushSource: read,
+  readPushSourceAt: read,
 });
 
 describe("pushApprovability", () => {

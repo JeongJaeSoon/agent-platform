@@ -158,7 +158,11 @@ describe("a person's reason survives the tool answer", () => {
         authorization,
         store,
         catalog: CATALOG,
-        source: { readPushSource: async () => ({ status: "none" }) },
+        intents: {} as never,
+        source: {
+          readPushSource: async () => ({ status: "none" }),
+          readPushSourceAt: async () => ({ status: "none" }),
+        },
       });
     const pushes = pushesWith(
       createAuthorizationPolicy({

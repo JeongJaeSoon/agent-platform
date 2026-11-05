@@ -8989,6 +8989,14 @@
                 "type": "null"
               }
             ]
+          },
+          "origin": {
+            "default": "direct",
+            "type": "string",
+            "enum": [
+              "direct",
+              "intent"
+            ]
           }
         },
         "required": [
@@ -9007,7 +9015,8 @@
           "request_receipt_id",
           "resolution_receipt_id",
           "finished_at",
-          "push_receipt_id"
+          "push_receipt_id",
+          "origin"
         ],
         "additionalProperties": false
       },

@@ -136,6 +136,7 @@ beforeEach(async () => {
             },
             get: unused,
             snapshot: unused,
+            requestIntent: unused,
           },
           pullRequests: {
             schedule: unused,

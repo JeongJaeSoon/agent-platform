@@ -6,7 +6,7 @@ exports[`tools/list every tool has a description of its fields and an outputSche
     "_meta": {
       "class": "push",
     },
-    "description": "Request a push of the session's last checkpoint (the state at the end of the previous turn) to branch agent/<session-id>, or agent/<session-id>-<branch> when \`branch\` is given. \`repository_id\` names an attached repository; omitted, the session's own. Returns the push request, which waits for a person when the release requires approval, or \`deferred\` when no checkpoint exists yet.",
+    "description": "Request a push to branch agent/<session-id>, or agent/<session-id>-<branch> when \`branch\` is given. \`repository_id\` names an attached repository; omitted, the session's own. Inside a running turn the push is of the state this turn ends with, and the answer is \`deferred\` with \`push_intent_id\`; the platform makes the push request when the turn ends. Otherwise the last checkpoint is pushed and the push request is returned, which waits for a person when the release requires approval, or \`deferred\` when no checkpoint exists yet. \`source_ref\` is not supported yet.",
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
@@ -86,6 +86,11 @@ exports[`tools/list every tool has a description of its fields and an outputSche
           "minLength": 1,
           "type": "string",
         },
+        "source_ref": {
+          "maxLength": 255,
+          "minLength": 1,
+          "type": "string",
+        },
       },
       "type": "object",
     },
@@ -129,6 +134,14 @@ exports[`tools/list every tool has a description of its fields and an outputSche
                     "id": {
                       "format": "uuid",
                       "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                      "type": "string",
+                    },
+                    "origin": {
+                      "default": "direct",
+                      "enum": [
+                        "direct",
+                        "intent",
+                      ],
                       "type": "string",
                     },
                     "push_receipt_id": {
@@ -388,6 +401,7 @@ exports[`tools/list every tool has a description of its fields and an outputSche
                     "resolution_receipt_id",
                     "finished_at",
                     "push_receipt_id",
+                    "origin",
                   ],
                   "type": "object",
                 },
@@ -406,6 +420,46 @@ exports[`tools/list every tool has a description of its fields and an outputSche
                   "required": [
                     "status",
                     "continuation",
+                  ],
+                  "type": "object",
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "pull_request": {
+                      "enum": [
+                        "scheduled",
+                        "none",
+                      ],
+                      "type": "string",
+                    },
+                    "push_intent_id": {
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                      "type": "string",
+                    },
+                    "repository_id": {
+                      "type": "string",
+                    },
+                    "status": {
+                      "const": "deferred",
+                      "type": "string",
+                    },
+                    "target_branch": {
+                      "type": "string",
+                    },
+                    "waits_for": {
+                      "const": "turn_end",
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "status",
+                    "push_intent_id",
+                    "waits_for",
+                    "repository_id",
+                    "target_branch",
+                    "pull_request",
                   ],
                   "type": "object",
                 },

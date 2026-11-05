@@ -1540,6 +1540,34 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     },
 
     /**
+     * The commit a push of one pinned revision carries, judged in full as
+     * `spoolPushBundles` judges it (the same earlier-revision path). The
+     * pointer may have moved on since; only the revision asked for counts.
+     */
+    async readPushSourceAt(
+      sessionId: string,
+      revision: number,
+    ): Promise<PushSourceResult> {
+      const [row] = await store.listCheckpoints(sessionId, {
+        belowRevision: revision + 1,
+        limit: 1,
+      });
+      if (row?.revision !== revision) return { status: "none" };
+      const judged = await judgeEarlier(row, sessionId);
+      if (judged.verdict !== "verified") {
+        return { status: "unavailable", reason: judged.reason };
+      }
+      return {
+        status: "ready",
+        revision,
+        gitCommit: judged.manifest.workspace.gitCommit,
+        ...(judged.manifest.attribution === undefined
+          ? {}
+          : { mismatches: [...judged.manifest.attribution.mismatches] }),
+      };
+    },
+
+    /**
      * The `out/` files the pointer's own checkpoint lists. Finalize verified
      * and held every stored one before the pointer could name it, so only
      * the manifest is read again here, by its pinned version and digest.

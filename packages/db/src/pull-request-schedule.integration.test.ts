@@ -429,9 +429,9 @@ integration("scheduling a pull request on PostgreSQL", () => {
     const sessionId = await newSession();
     const legacy = await request(sessionId, "legacy");
     const follow = createPostgresPushFollowUpStore(db);
-    expect(
-      await follow.flowOf({ sessionId, pushRequestId: legacy.id }),
-    ).toBe("legacy");
+    expect(await follow.flowOf({ sessionId, pushRequestId: legacy.id })).toBe(
+      "legacy",
+    );
     const other = await newSession();
     const actions = await request(other, "actions");
     expect(

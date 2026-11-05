@@ -72,6 +72,7 @@ const pushRequest: PushRequest = {
   resolution_receipt_id: null,
   finished_at: null,
   push_receipt_id: null,
+  origin: "direct",
 };
 
 const run = {
@@ -108,6 +109,9 @@ function server(failure: SessionServiceError | null) {
         pull_request_error: null,
         pull_request: null,
       }),
+      requestIntent: async () => {
+        throw new Error("not used");
+      },
     },
     pullRequests: {
       schedule: answer({

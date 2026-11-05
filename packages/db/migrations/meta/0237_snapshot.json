@@ -8201,31 +8201,6 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
-        },
-        "dup_check_at": {
-          "name": "dup_check_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "dup_check_claim_token": {
-          "name": "dup_check_claim_token",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "dup_check_lease_expires_at": {
-          "name": "dup_check_lease_expires_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "dup_check_attempts": {
-          "name": "dup_check_attempts",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
         }
       },
       "indexes": {
@@ -8247,22 +8222,6 @@
           ],
           "isUnique": false,
           "where": "\"push_requests\".\"pr_state\" IN ('due','opening')",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "push_requests_dup_check_idx": {
-          "name": "push_requests_dup_check_idx",
-          "columns": [
-            {
-              "expression": "dup_check_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"push_requests\".\"dup_check_at\" IS NOT NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}
