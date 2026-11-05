@@ -11,6 +11,7 @@ import {
   type PushDecider,
   type PushReceiptResult,
   type PushRequest,
+  type PushRequestOrigin,
   type PushRequestState,
   pushBranchFor,
   pushClassOf,
@@ -159,6 +160,7 @@ function publicPushRequest(row: Row): PushRequest {
     resolution_receipt_id: row.decisionReceiptId,
     finished_at: row.finishedAt?.toISOString() ?? null,
     push_receipt_id: row.pushReceiptId,
+    origin: row.origin as PushRequestOrigin,
   };
 }
 

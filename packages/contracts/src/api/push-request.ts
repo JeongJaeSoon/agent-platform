@@ -215,6 +215,8 @@ export const pushRequestSchema = z.object({
   // where the commit went or why it did not.
   finished_at: timestampSchema.nullable(),
   push_receipt_id: receiptIdSchema.nullable(),
+  // A server from before intents sends none: that is a direct request.
+  origin: pushRequestOriginSchema.default("direct"),
 });
 
 export const createPushRequestRequestSchema = z

@@ -5990,6 +5990,11 @@ export interface components {
             resolution_receipt_id: string | null;
             finished_at: string | null;
             push_receipt_id: string | null;
+            /**
+             * @default direct
+             * @enum {string}
+             */
+            origin: "direct" | "intent";
         };
         ListPushRequestsResponse: {
             items: components["schemas"]["PushRequest"][];

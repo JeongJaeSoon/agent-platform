@@ -1,9 +1,17 @@
 import { randomUUID } from "node:crypto";
-import type { PushIntent, PushIntentRefusal } from "@werft-ai/contracts";
-import type { PushIntentStore } from "@werft-ai/platform";
-import { and, desc, eq, sql } from "drizzle-orm";
+import {
+  OPEN_PULL_REQUEST_STAGES,
+  OPEN_PUSH_REQUEST_STATES,
+  type PushIntent,
+  type PushIntentRefusal,
+  type ReceiptActor,
+} from "@werft-ai/contracts";
+import type { PushIntentStore, PushIntentTransition } from "@werft-ai/platform";
+import { and, asc, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { rowsOf } from "./control-unit-of-work.ts";
+import { createPostgresPushRequests } from "./push-requests.ts";
 import type { Database } from "./queries.ts";
-import { pushIntents, sessions, turns } from "./schema.ts";
+import { pushIntents, pushRequests, sessions, turns } from "./schema.ts";
 
 type Row = typeof pushIntents.$inferSelect;
 
@@ -126,6 +134,220 @@ export function createPostgresPushIntents(db: Database): PushIntentStore {
           .returning();
         if (!row) throw new Error("push intent insert returned no row");
         return { outcome: "created", intent: publicPushIntent(row) };
+      });
+    },
+
+    claimNext(leaseMs) {
+      return db.transaction(async (tx) => {
+        const [picked] = await tx
+          .select({ intent: pushIntents, admission: sessions.admissionState })
+          .from(pushIntents)
+          .innerJoin(sessions, eq(sessions.id, pushIntents.sessionId))
+          .where(
+            and(
+              eq(pushIntents.status, "pinned"),
+              or(
+                isNull(pushIntents.leaseExpiresAt),
+                lt(pushIntents.leaseExpiresAt, sql`now()`),
+              ),
+              // Held sessions stay pinned; a closed one is claimed so the
+              // runner can cancel it.
+              or(
+                eq(sessions.admissionState, "closed"),
+                and(
+                  eq(sessions.admissionState, "active"),
+                  isNull(sessions.takeoverRequiredAt),
+                ),
+              ),
+            ),
+          )
+          .orderBy(asc(pushIntents.createdAt))
+          .limit(1)
+          .for("update", { of: pushIntents, skipLocked: true });
+        if (picked === undefined) return null;
+        const { intent } = picked;
+        const claimToken = randomUUID();
+        await tx
+          .update(pushIntents)
+          .set({
+            claimToken,
+            leaseExpiresAt: sql`now() + (${leaseMs} * interval '1 millisecond')`,
+            updatedAt: sql`now()`,
+          })
+          .where(eq(pushIntents.id, intent.id));
+        return {
+          id: intent.id,
+          ownerId: intent.ownerId,
+          sessionId: intent.sessionId,
+          repositoryId: intent.repositoryId,
+          targetBranch: intent.targetBranch,
+          pinnedRevision: intent.pinnedRevision ?? 0,
+          actor: intent.actor as ReceiptActor,
+          pushClass: intent.approvalBasis as "push.primary" | "push.attached",
+          pullRequest: intent.pullRequest,
+          claimToken,
+          sessionClosed: picked.admission === "closed",
+        };
+      });
+    },
+
+    async end(job, status, code) {
+      const rows = await db
+        .update(pushIntents)
+        .set({
+          status,
+          refusalCode: code,
+          claimToken: null,
+          leaseExpiresAt: null,
+          settledAt: sql`now()`,
+          updatedAt: sql`now()`,
+        })
+        .where(
+          and(
+            eq(pushIntents.id, job.id),
+            eq(pushIntents.status, "pinned"),
+            eq(pushIntents.claimToken, job.claimToken),
+          ),
+        )
+        .returning({ id: pushIntents.id });
+      return rows.length > 0;
+    },
+
+    async settleStale() {
+      // Session row first would be the lock order; this is a single
+      // statement over rows no finalize can still pin (their turn is over or
+      // their session closed), so it takes only the intent rows.
+      const rows = await db.execute(sql`
+        UPDATE ${pushIntents} i
+        SET status = 'cancelled',
+            refusal_code = CASE WHEN s.admission_state = 'closed'
+              THEN 'session_closed' ELSE 'turn_finalized_without_pin' END,
+            settled_at = now(), updated_at = now()
+        FROM ${sessions} s, ${turns} t
+        WHERE i.status = 'deferred'
+          AND s.id = i.session_id AND t.id = i.turn_id
+          AND (t.status NOT IN ('queued', 'running', 'needs_input')
+               OR s.admission_state = 'closed')
+        RETURNING i.id`);
+      return rowsOf(rows).length;
+    },
+
+    transition(job, input) {
+      return db.transaction(async (tx): Promise<PushIntentTransition> => {
+        // Session row, then the intent row: the finalize and creation order.
+        await tx
+          .select({ id: sessions.id })
+          .from(sessions)
+          .where(eq(sessions.id, job.sessionId))
+          .for("update");
+        const [row] = await tx
+          .select()
+          .from(pushIntents)
+          .where(eq(pushIntents.id, job.id))
+          .for("update");
+        if (
+          row === undefined ||
+          row.status !== "pinned" ||
+          row.claimToken !== job.claimToken
+        ) {
+          return { outcome: "lost" };
+        }
+        const end = async (
+          status: "failed" | "cancelled",
+          code: PushIntentRefusal,
+        ): Promise<PushIntentTransition> => {
+          await tx
+            .update(pushIntents)
+            .set({
+              status,
+              refusalCode: code,
+              claimToken: null,
+              leaseExpiresAt: null,
+              settledAt: sql`now()`,
+              updatedAt: sql`now()`,
+            })
+            .where(eq(pushIntents.id, job.id));
+          return { outcome: "ended", code };
+        };
+        // A person already turned this commit down for this target.
+        const [rejected] = await tx
+          .select({ id: pushRequests.id })
+          .from(pushRequests)
+          .where(
+            and(
+              eq(pushRequests.sessionId, job.sessionId),
+              eq(pushRequests.repositoryId, job.repositoryId),
+              eq(pushRequests.targetBranch, job.targetBranch),
+              eq(pushRequests.gitCommit, input.gitCommit),
+              eq(pushRequests.state, "rejected"),
+            ),
+          )
+          .limit(1);
+        if (rejected) return end("failed", "rejected_before");
+        // The same target is busy: wait without writing a refusal receipt
+        // on every drain. The common create below still checks it again.
+        const [busy] = await tx
+          .select({ id: pushRequests.id })
+          .from(pushRequests)
+          .where(
+            and(
+              eq(pushRequests.sessionId, job.sessionId),
+              eq(pushRequests.repositoryId, job.repositoryId),
+              eq(pushRequests.targetBranch, job.targetBranch),
+              or(
+                inArray(pushRequests.state, [...OPEN_PUSH_REQUEST_STATES]),
+                inArray(pushRequests.prState, [...OPEN_PULL_REQUEST_STAGES]),
+              ),
+            ),
+          )
+          .limit(1);
+        if (busy) {
+          // A short lease with no token: the drain looks at the next intent
+          // and comes back to this one, instead of re-picking it at once.
+          await tx
+            .update(pushIntents)
+            .set({
+              claimToken: null,
+              leaseExpiresAt: sql`now() + interval '5 seconds'`,
+            })
+            .where(eq(pushIntents.id, job.id));
+          return { outcome: "waiting" };
+        }
+        const result = await createPostgresPushRequests(tx).create({
+          ...input,
+          origin: "intent",
+          // Copied in the same transaction and session row lock as the
+          // request insert, so a later PR reservation sees both or neither.
+          pullRequestIntent: job.pullRequest ?? null,
+          idempotencyKey: `intent-${job.id}`,
+        });
+        if (result.outcome === "refused") {
+          if (result.refusal === "not_found") {
+            return end("cancelled", "session_closed");
+          }
+          // request_open (an earlier push or PR stage): wait, stay pinned.
+          await tx
+            .update(pushIntents)
+            .set({
+              claimToken: null,
+              leaseExpiresAt: sql`now() + interval '5 seconds'`,
+            })
+            .where(eq(pushIntents.id, job.id));
+          return { outcome: "waiting" };
+        }
+        if (result.outcome === "conflict") return { outcome: "waiting" };
+        await tx
+          .update(pushIntents)
+          .set({
+            status: "requested",
+            pushRequestId: result.request.id,
+            claimToken: null,
+            leaseExpiresAt: null,
+            settledAt: sql`now()`,
+            updatedAt: sql`now()`,
+          })
+          .where(eq(pushIntents.id, job.id));
+        return { outcome: "requested", pushRequestId: result.request.id };
       });
     },
 

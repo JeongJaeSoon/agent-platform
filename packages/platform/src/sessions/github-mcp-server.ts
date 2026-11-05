@@ -102,7 +102,7 @@ export function verifyGitHubMcpGrant(
 }
 
 export type GitHubMcpServices = {
-  pushRequests: Pick<PushRequestService, "create" | "get">;
+  pushRequests: Pick<PushRequestService, "create" | "get" | "requestIntent">;
   pullRequests: Pick<
     PullRequestService,
     "open" | "update" | "comment" | "setState"
@@ -256,6 +256,12 @@ export function createGitHubMcpServer(deps: {
   store: GitHubMcpStore;
   /** The session services, made with the authorization they run under. */
   services: (authorization: AuthorizationPolicy) => GitHubMcpServices;
+  /**
+   * AGENT_ACTION_FLOWS, read on each call. On, a `request_push` inside a
+   * running turn is an intent (push what the turn ends with); off, it takes
+   * the legacy path. Absent is off.
+   */
+  actionFlows?: () => boolean;
   /** Where the exception behind an `internal_error` answer goes to be logged. */
   onInternalError?: (
     error: unknown,
@@ -361,6 +367,55 @@ export function createGitHubMcpServer(deps: {
       // turn that started after this one ended.
       turnAtCall =
         tool === "request_push" ? await deps.store.runningTurn(grant) : null;
+      if (tool === "request_push") {
+        const { source_ref, ...body } = parsed.data as z.infer<
+          (typeof GITHUB_MCP_TOOL_ARGUMENTS)["request_push"]
+        >;
+        // Whatever the setting, and before anything is written.
+        if (source_ref !== undefined) {
+          return refused({
+            code: "source_ref_unsupported",
+            by: "platform",
+            retryable: false,
+          });
+        }
+        if (deps.actionFlows?.() === true) {
+          if (turnAtCall === null) {
+            return refused({
+              code: "no_running_turn",
+              by: "platform",
+              retryable: false,
+            });
+          }
+          const asked = await services.pushRequests.requestIntent(
+            actor,
+            sessionId,
+            { attemptId: grant.attemptId, turnId: turnAtCall, body },
+          );
+          if (asked.status === "github_disabled") {
+            return refused({
+              code: "github_disabled",
+              by: "policy",
+              retryable: false,
+            });
+          }
+          if (asked.status === "turn_not_running") {
+            return refused({
+              code: "no_running_turn",
+              by: "platform",
+              retryable: false,
+            });
+          }
+          return done({
+            status: "deferred",
+            push_intent_id: asked.intent.id,
+            waits_for: "turn_end",
+            repository_id: asked.intent.repository_id,
+            target_branch: asked.intent.target_branch,
+            pull_request: "none",
+          });
+        }
+      }
       return done(
         await run(services, actor, sessionId, tool, parsed.data, waitLeft),
       );

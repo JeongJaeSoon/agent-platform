@@ -37,6 +37,7 @@ import {
   createPostgresPullRequestDrain,
   createPostgresPullRequests,
   createPostgresPushFollowUpStore,
+  createPostgresPushIntents,
   createPostgresPushRequests,
   createPostgresRepositoryAttachments,
   createPostgresSecretStore,
@@ -101,6 +102,7 @@ import {
   createPullRequestDrain,
   createPullRequestService,
   createPushExecutor,
+  createPushIntentRunner,
   createPushRequestService,
   createRepositoryAttachmentService,
   createSessionAchievementService,
@@ -895,9 +897,11 @@ const agentGitHub = createAgentGitHubService({
     : { pinned: { apps: githubAppStore, pins: githubPins } }),
 });
 const pushStore = createPostgresPushRequests(db);
+const pushIntentStore = createPostgresPushIntents(db);
 const pushRequests = createPushRequestService({
   authorization,
   store: pushStore,
+  intents: pushIntentStore,
   source: checkpoints.pushSource,
   catalog,
 });
@@ -923,6 +927,7 @@ const repositoryAttachments = createRepositoryAttachmentService({
 });
 const githubMcp = createGitHubMcpServer({
   store: githubMcpStore,
+  actionFlows: () => settings.actionFlows,
   // The same fields the egress authorizer logs for a failed call: no message,
   // which can carry a connection string or GitHub's text.
   onInternalError: (error, { tool, sessionId, requestId }) =>
@@ -936,6 +941,7 @@ const githubMcp = createGitHubMcpServer({
     pushRequests: createPushRequestService({
       authorization: bound,
       store: pushStore,
+      intents: pushIntentStore,
       source: checkpoints.pushSource,
       catalog,
     }),
@@ -965,6 +971,15 @@ const pushExecutor = createPushExecutor({
   bundles: checkpoints.pushSource,
   pusher: createGitPusher({ maxGitMemoryBytes: checkpointGitMemoryBytes }),
   attributions: commitAttributions,
+  logger,
+}).start();
+// The control-host action-broker's intent runner starts whatever
+// AGENT_ACTION_FLOWS says: intents made while it was on are finished after it
+// is turned off. It makes push requests as the stored actor and approves
+// nothing.
+const pushIntentRunner = createPushIntentRunner({
+  store: pushIntentStore,
+  createFromIntent: (job) => pushRequests.createFromIntent(job),
   logger,
 }).start();
 // The pull request drain of the control-host's action-broker starts whether
@@ -1347,6 +1362,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
         : [server, authorizerListener],
       [
         { name: "push-executor", close: () => pushExecutor.stop() },
+        { name: "push-intent-runner", close: () => pushIntentRunner.stop() },
         { name: "pull-request-drain", close: () => pullRequestDrain.stop() },
         { name: "outcome-refresher", close: () => outcomeRefresher.stop() },
         { name: "achievement-judge", close: () => achievementJudge.stop() },
