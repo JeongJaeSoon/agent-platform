@@ -6,7 +6,7 @@ owner가 워크스페이스에 GitHub App을 등록하고 에이전트 상한을
 
 - `app-register` `PUT /v1/workspaces/{id}/github-app`(owner·admin, cookie만, master key 필요) → `github_app`(`app_id`, `slug`, `permissions`, `warnings`)과 `set_github_app` receipt. `GET`은 `check.state: "ok"`와 sandbox 저장소의 `installation_id`.
 - `ceiling` `GET`·`PUT /v1/workspaces/{id}/github-settings`: `ceiling`(workflows·actions·checks·issues·review), `revision`(처음 0, 쓸 때마다 +1, 다르면 `409 REVISION_CONFLICT`), `apps.author.permissions`. `set_github_ceiling` receipt.
-- `agent-github` 릴리스 본문의 `github`(`repositories`, `push_approval`, `features`, `actions_allow`) → `GET /v1/agents/{id}/github`의 `github`·`options`·`unsavable`.
+- `agent-github` 설정(`repositories`, `push_approval`, `features`, `actions_allow`)은 `PUT /v1/agents/{id}/github/settings` `{expected_revision, settings, start_repository_id}`로 저장한다(웹 세션만, API key는 `403 web_session_required`, 어긋난 revision은 `409 REVISION_CONFLICT`). 읽기는 `GET /v1/agents/{id}/github`의 `github`·`settings_revision`·`start_repository_id`·`legacy_defaults`·`options`. 설정 행이 생긴 에이전트에 `github`가 든 릴리스 요청은 `409 github_settings_exist`다. 아래 3단계의 릴리스 본문 `github`는 행이 없는 에이전트의 첫 설정에만 쓴다.
 - `clone` 세션 생성(`agent_release_id`) → worker가 egress proxy로 clone. 게이트가 `mint_github_token`(`purpose: clone`)을 남긴다.
 - `push` `POST …/push-requests` `{}` → `requested` → `POST …/approve` `{git_commit}` → `approved` → `pushing` → `pushed`. `git_commit`은 요청이 고정한 값이어야 한다.
 - `pull-request` `POST …/push-requests/{id}/pull-request` → 201 `created: true`, 다시 부르면 200 `created: false`. GitHub 작성자는 `app/werft-sandbox-agent`.
