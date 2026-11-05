@@ -198,7 +198,9 @@ describe("installed runtimes", () => {
   });
 
   test("a seeded profile keeps the fingerprint main gave it, and an auto base is the same profile in every example", async () => {
-    // Computed on main at 304c2713: sessions and releases pin these.
+    // Computed on main at 304c2713: sessions and releases pin these. The
+    // fake-messages profiles moved once more when the default secret id became
+    // werft/local/fake-messages (94S-1411): the reference is part of the hash.
     // claude-coding-real moved when it gained AskUserQuestion and again when
     // it became auto (94S-1243): a seed only fills an empty
     // installation_profiles table, whose rows keep the digest their sessions
@@ -210,9 +212,9 @@ describe("installed runtimes", () => {
       },
       "fake-model": {
         "claude-coding-local":
-          "sha256:ce5cd0ec2659ff5df68d461bac93fec5cf45a362aeac483de0df4d1fe44b4261",
+          "sha256:72712d90972545ff5b7e0124e9647fab5d30e750b1422b626c217b116b160dd0",
         general:
-          "sha256:573de23784b416dec3ac0d9922f0c833ef5f308752716f9f8503b9d6430d194f",
+          "sha256:6d29ef4da170790c0a7abefac65abf2d33079fab14162b461a811378b170d6a6",
       },
       "local-model": {
         "local-ollama":
@@ -222,9 +224,9 @@ describe("installed runtimes", () => {
       },
       "fake-model-unattended": {
         "claude-coding-auto":
-          "sha256:fa3ea8136562b7b2984deffcba6d5e6ea42df9dd366d364978f6e223d858633a",
+          "sha256:a1e65a5716ac13d4ef2bad746f8aa8f611c0e8994d4195a14ce57f897bb28170",
         "claude-coding-bypass":
-          "sha256:6bfe7b0617ea29eeaaaa383444248f6d92f32fe9200ba22f1a643c00e6dbbf47",
+          "sha256:0c0a448dfd97b6236eea2fb5af8c8b781eb716e0549559649ff81cee5cbf6d8c",
       },
     };
     const shared = new Map<string, string>();
@@ -360,7 +362,7 @@ describe("the settings fixtures", () => {
     expect(
       profilePinned(
         coding,
-        "sha256:a4c77446d640fa3aebb3c5ccc66f2b3d2a1ab475a431435b320f50852c16ac57",
+        "sha256:4be8de033a7e0268fa33d785ef498f3ddc9ed2452ee0c6b9b0461dc14a8fc539",
         [],
       ),
     ).toBe(true);
@@ -377,5 +379,71 @@ describe("the settings fixtures", () => {
     expect(repositoryModeOf(general)).toBe("none");
     expect(general.tools).not.toContain("Bash");
     expect(general.provider).toEqual(coding.provider);
+  });
+});
+
+describe("the default secret ids", () => {
+  const read = (path: string) => Bun.file(join(REPO_ROOT, path)).text();
+  const idsIn = (text: string, pattern: RegExp) =>
+    [...text.matchAll(pattern)].map((match) => match[1] as string);
+
+  // Everything that names a secret in the local stack, and the one writer
+  // that is not the LocalStack init script: the fake GitHub App signs with
+  // a key it stores itself.
+  const SEED = "infra/localstack/secrets-init/10-seed-secrets.sh";
+  const HEALTHCHECKS = [
+    SEED,
+    "infra/compose.local.yml",
+    "deploy/kind/deps-secrets.yaml",
+  ];
+  const DOCUMENTS = [
+    ...Object.values(FIXTURES),
+    ".claude/skills/verify-werft/github-sandbox/settings.json",
+  ];
+
+  test("the seed script, the health checks and every settings document use werft/*", async () => {
+    const seeded = idsIn(await read(SEED), /--name (\S+)/g);
+    const appKey = idsIn(
+      await read("packages/testkit/src/local-github-main.ts"),
+      /const secretId = "([^"]+)"/g,
+    );
+    expect(seeded.sort()).toEqual([
+      "werft/local/fake-mcp",
+      "werft/local/fake-messages",
+    ]);
+    expect(appKey).toEqual(["werft/local/fake-github-app"]);
+
+    for (const path of HEALTHCHECKS) {
+      const probed = idsIn(await read(path), /--secret-id (\S+)/g);
+      expect(probed.length).toBeGreaterThan(0);
+      for (const id of probed) expect(seeded).toContain(id);
+    }
+    for (const path of DOCUMENTS) {
+      const used = idsIn(await read(path), /"secret_id":\s*"([^"]+)"/g);
+      expect(used.length).toBeGreaterThan(0);
+      for (const id of used) expect([...seeded, ...appKey]).toContain(id);
+    }
+  });
+
+  test("no seed, example or fixture names a secret under the old prefix", async () => {
+    const files = [
+      ...HEALTHCHECKS,
+      ...DOCUMENTS,
+      "deploy/helm/werft/values-aws.example.yaml",
+      "packages/testkit/src/local-github-main.ts",
+      "tests/e2e/run.sh",
+      "tests/e2e/settings-fixture.ts",
+      "apps/control-host/src/api/settings.test.ts",
+      "apps/control-host/src/api/settings-seed.integration.test.ts",
+    ];
+    for (const path of files) {
+      expect([
+        path,
+        /agent-platform\/(local|prod)\//.test(await read(path)),
+      ]).toEqual([path, false]);
+    }
+    expect(await read("deploy/helm/werft/values-aws.example.yaml")).toContain(
+      "remoteKey: werft/prod/control-plane",
+    );
   });
 });

@@ -33,7 +33,7 @@ read -rs WERFT_PASSWORD
 WERFT_COOKIE=$(curl -sS -o /dev/null -D - "$API/v1/auth/login" \
   -H 'Content-Type: application/json' -H 'X-Requested-With: werft-web' \
   -d "$(jq -nc --arg e 'owner@example.test' --arg p "$WERFT_PASSWORD" '{email: $e, password: $p}')" \
-  | sed -n 's/^[Ss]et-[Cc]ookie: \(__Host-ap_session=[^;]*\).*/\1/p')
+  | sed -n 's/^[Ss]et-[Cc]ookie: \(__Host-werft_session=[^;]*\).*/\1/p')
 ```
 
 The login cookie has a `__Host-` name and is `Secure`, so curl's cookie jar does not store it over http. Take it from the response headers and send it in a `Cookie` header. Requests that change state need `X-Requested-With: werft-web`.

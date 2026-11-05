@@ -53,54 +53,81 @@ export const LABELS = {
    * the credential: the label is what lets a pass tell whether the container
    * it is about to adopt holds the nonce the registry currently accepts.
    */
-  bootstrapFingerprint: "agent-platform.bootstrap-fingerprint",
+  bootstrapFingerprint: "werft.bootstrap-fingerprint",
   /**
    * On the egress proxy container, set by whoever deploys it: which
    * installation's workers it serves. The backend attaches that container,
    * and only that one, to each worker network it creates.
    */
-  egressProxy: "agent-platform.egress-proxy",
-  executionId: "agent-platform.session-execution-id",
-  generation: "agent-platform.generation",
+  egressProxy: "werft.egress-proxy",
+  executionId: "werft.session-execution-id",
+  generation: "werft.generation",
   /** Which isolation contract the container was created under. */
-  isolation: "agent-platform.isolation",
+  isolation: "werft.isolation",
   /** Which control host owns the container; two installations may share a daemon. */
-  installation: "agent-platform.installation",
+  installation: "werft.installation",
   /**
    * The intent's `launchSpec`: which image and limits the launch was
    * reserved with. Absent on a container whose launch stored none.
    */
-  launchSpec: "agent-platform.launch-spec",
-  managed: "agent-platform.managed",
-  /**
-   * On a workspace `migrateWorkspace` made: the volume it copied. While that
-   * volume still exists the copy is unfinished, and this label is what lets
-   * a re-run remove the copy as its own rather than someone else's.
-   */
-  migratedFrom: "agent-platform.migration-source",
-  /**
-   * On a migration copy: the source's creation time when it was copied. A
-   * source name alone can come back as a different, empty volume — Docker
-   * makes one for any mount of a missing name — and only this tells them
-   * apart. Docker keeps it to the second, which is enough: a source is
-   * copied, removed and remade within the second it was created only if it
-   * was created during the migration, and every source predates it.
-   */
-  migrationSourceCreatedAt: "agent-platform.migration-source-created-at",
-  operationId: "agent-platform.operation-id",
-  sessionId: "agent-platform.session-id",
-  /**
-   * On the preflight's throwaway volume. Deliberately *not* `managed`: GC
-   * judges by that label, and a probe has no session for it to match, so
-   * labelling it managed would hand the reaper something it can only ever
-   * leave alone. This label is what makes the probe ours to delete.
-   */
-  quotaProbe: "agent-platform.quota-probe",
+  launchSpec: "werft.launch-spec",
+  managed: "werft.managed",
+  operationId: "werft.operation-id",
+  sessionId: "werft.session-id",
   /** On a per-execution worker network, beside the execution's own labels. */
-  workerNetwork: "agent-platform.worker-network",
-  /** On the workspace volume: which ceiling it was created under. */
-  workspaceQuota: "agent-platform.workspace-quota",
+  workerNetwork: "werft.worker-network",
 } as const;
+
+/**
+ * The labels a workspace volume carries. Unlike `LABELS`, the prefix is the
+ * install's (`volumeLabelNamespace`): Docker cannot relabel a volume, so an
+ * install whose volumes were made under another prefix names it instead of
+ * losing sight of them. Only the configured prefix is ever read.
+ */
+export function volumeLabelsOf(config: {
+  volumeLabelNamespace: string;
+}): VolumeLabelKeys {
+  const ns = config.volumeLabelNamespace;
+  return {
+    installation: `${ns}.installation`,
+    managed: `${ns}.managed`,
+    /**
+     * On a workspace `migrateWorkspace` made: the volume it copied. While that
+     * volume still exists the copy is unfinished, and this label is what lets
+     * a re-run remove the copy as its own rather than someone else's.
+     */
+    migratedFrom: `${ns}.migration-source`,
+    /**
+     * On a migration copy: the source's creation time when it was copied. A
+     * source name alone can come back as a different, empty volume — Docker
+     * makes one for any mount of a missing name — and only this tells them
+     * apart. Docker keeps it to the second, which is enough: a source is
+     * copied, removed and remade within the second it was created only if it
+     * was created during the migration, and every source predates it.
+     */
+    migrationSourceCreatedAt: `${ns}.migration-source-created-at`,
+    /**
+     * On the preflight's throwaway volume. Deliberately *not* `managed`: GC
+     * judges by that label, and a probe has no session for it to match, so
+     * labelling it managed would hand the reaper something it can only ever
+     * leave alone. This label is what makes the probe ours to delete.
+     */
+    quotaProbe: `${ns}.quota-probe`,
+    sessionId: `${ns}.session-id`,
+    /** Which ceiling the workspace volume was created under. */
+    workspaceQuota: `${ns}.workspace-quota`,
+  };
+}
+
+export type VolumeLabelKeys = {
+  installation: string;
+  managed: string;
+  migratedFrom: string;
+  migrationSourceCreatedAt: string;
+  quotaProbe: string;
+  sessionId: string;
+  workspaceQuota: string;
+};
 
 export {
   ENV,
@@ -207,9 +234,8 @@ const LOG_TAIL_BYTES = 8 * 1024;
 const LOG_TAIL_READ_BYTES = 64 * 1024;
 
 const CONTAINER_NAME_PREFIX = "ap-worker-";
-const NETWORK_PREFIX = "ap-net-";
-const VOLUME_PREFIX = "ap-ws-";
-/** The preflight probe's volume; see `LABELS.quotaProbe` for its labels. */
+const NETWORK_PREFIX = "werft-net-";
+/** The preflight probe's volume; see `volumeLabelsOf().quotaProbe`. */
 const QUOTA_PROBE_PREFIX = "ap-quota-probe-";
 /**
  * How old a probe must be before another preflight takes it for a leftover.
@@ -270,13 +296,18 @@ function safeExecutionId(ref: ExecutionRef): string {
  */
 export function workspaceVolumePrefixFor(
   sessionId: string,
-  installationId: string,
+  config: VolumeNaming,
 ): string {
   if (!SAFE_NAME.test(sessionId)) {
     throw new Error(`Session id ${sessionId} cannot be used as a volume name`);
   }
-  return `${VOLUME_PREFIX}${installationId}-${sessionId}-`;
+  return `${config.volumeNamePrefix}${config.installationId}-${sessionId}-`;
 }
+
+export type VolumeNaming = Pick<
+  LocalDockerBackendConfig,
+  "installationId" | "volumeLabelNamespace" | "volumeNamePrefix"
+>;
 
 /**
  * Where a session's workspace lived before names became single-use: the
@@ -284,9 +315,9 @@ export function workspaceVolumePrefixFor(
  */
 export function legacyWorkspaceVolumeName(
   sessionId: string,
-  installationId: string,
+  config: VolumeNaming,
 ): string {
-  return `${VOLUME_PREFIX}${installationId}-${sessionId}`;
+  return `${config.volumeNamePrefix}${config.installationId}-${sessionId}`;
 }
 
 const SESSION_UUID =
@@ -499,9 +530,10 @@ export class LocalDockerBackend implements ExecutionBackend {
     // `STRAY_PROBE_MIN_AGE_MS`.
     const helperImage = await this.inodeHelperImage(quota);
     const name = `${QUOTA_PROBE_PREFIX}${this.config.installationId}-${crypto.randomUUID().slice(0, 8)}`;
+    const keys = volumeLabelsOf(this.config);
     const labels = {
-      [LABELS.installation]: this.config.installationId,
-      [LABELS.quotaProbe]: "true",
+      [keys.installation]: this.config.installationId,
+      [keys.quotaProbe]: "true",
     };
     // A probe under a name the daemon has already quota'd proves nothing —
     // see `workspaceVolumePrefixFor` — so each one takes a fresh name, and
@@ -517,8 +549,8 @@ export class LocalDockerBackend implements ExecutionBackend {
         STRAY_PROBE_REQUEST_TIMEOUTS * this.config.requestTimeoutMs,
       );
     for (const stray of await this.client.listVolumes([
-      `${LABELS.quotaProbe}=true`,
-      `${LABELS.installation}=${this.config.installationId}`,
+      `${keys.quotaProbe}=true`,
+      `${keys.installation}=${this.config.installationId}`,
     ])) {
       if (Date.parse(stray.CreatedAt ?? "") < cutoff) {
         await this.client.removeVolume(stray.Name).catch(() => undefined);
@@ -542,8 +574,8 @@ export class LocalDockerBackend implements ExecutionBackend {
     // something else already holds answers with *that* volume, and deleting
     // it on the way out would destroy data this host has no claim on.
     if (
-      volume.Labels?.[LABELS.quotaProbe] !== "true" ||
-      volume.Labels?.[LABELS.installation] !== this.config.installationId
+      volume.Labels?.[keys.quotaProbe] !== "true" ||
+      volume.Labels?.[keys.installation] !== this.config.installationId
     ) {
       throw new QuotaProbeNameTakenError(name);
     }
@@ -567,12 +599,16 @@ export class LocalDockerBackend implements ExecutionBackend {
 
   async listWorkspaces(): Promise<ManagedWorkspace[]> {
     const { installationId } = this.config;
+    const keys = volumeLabelsOf(this.config);
     const [labelled, named] = await Promise.all([
       this.client.listVolumes([
-        `${LABELS.managed}=true`,
-        `${LABELS.installation}=${installationId}`,
+        `${keys.managed}=true`,
+        `${keys.installation}=${installationId}`,
       ]),
-      this.client.listVolumes([], `${VOLUME_PREFIX}${installationId}-`),
+      this.client.listVolumes(
+        [],
+        `${this.config.volumeNamePrefix}${installationId}-`,
+      ),
     ]);
     const youngerThan = Date.now() - this.config.workspaceGcMinAgeMs;
     const labelledNames = new Set(labelled.map((volume) => volume.Name));
@@ -582,7 +618,7 @@ export class LocalDockerBackend implements ExecutionBackend {
     const present = new Set([...labelledNames, ...named.map((v) => v.Name)]);
     const migrating = new Set<string>();
     for (const volume of labelled) {
-      const source = volume.Labels?.[LABELS.migratedFrom];
+      const source = volume.Labels?.[keys.migratedFrom];
       if (source !== undefined && present.has(source)) {
         migrating.add(volume.Name);
         migrating.add(source);
@@ -606,12 +642,12 @@ export class LocalDockerBackend implements ExecutionBackend {
     for (const volume of labelled) {
       add(volume, {
         id: volume.Name,
-        sessionId: volume.Labels?.[LABELS.sessionId] ?? null,
+        sessionId: volume.Labels?.[keys.sessionId] ?? null,
       });
     }
     for (const volume of named) {
       if (labelledNames.has(volume.Name)) continue;
-      const sessionId = legacySessionOf(volume, installationId);
+      const sessionId = legacySessionOf(volume, this.config);
       if (sessionId === null) continue;
       add(volume, { id: volume.Name, sessionFrom: "name", sessionId });
     }
@@ -628,20 +664,17 @@ export class LocalDockerBackend implements ExecutionBackend {
     const volume = await this.client.inspectVolume(id);
     if (volume === null) return { outcome: "absent" };
     const labels = volume.Labels ?? {};
+    const keys = volumeLabelsOf(this.config);
     const managed =
-      labels[LABELS.managed] === "true" &&
-      labels[LABELS.installation] === this.config.installationId &&
-      (owner === undefined || labels[LABELS.sessionId] === owner.sessionId);
+      labels[keys.managed] === "true" &&
+      labels[keys.installation] === this.config.installationId &&
+      (owner === undefined || labels[keys.sessionId] === owner.sessionId);
     // A legacy volume has no labels to prove it ours; only a session judged
     // by the caller, whose derived name this is exactly, can claim it.
     const legacy =
       owner !== undefined &&
-      id ===
-        legacyWorkspaceVolumeName(
-          owner.sessionId,
-          this.config.installationId,
-        ) &&
-      legacySessionOf(volume, this.config.installationId) === owner.sessionId;
+      id === legacyWorkspaceVolumeName(owner.sessionId, this.config) &&
+      legacySessionOf(volume, this.config) === owner.sessionId;
     if (!managed && !legacy) return { outcome: "not_ours" };
     try {
       await this.client.removeVolume(id);
@@ -1486,7 +1519,8 @@ export class LocalDockerBackend implements ExecutionBackend {
         "the workspace this replacement was checked against is gone; a new one would start the session on an empty tree",
       );
     }
-    const name = `${workspaceVolumePrefixFor(sessionId, config.installationId)}${crypto.randomUUID().slice(0, 8)}`;
+    const name = `${workspaceVolumePrefixFor(sessionId, config)}${crypto.randomUUID().slice(0, 8)}`;
+    const keys = volumeLabelsOf(config);
     let volume: VolumeInspect;
     try {
       volume = await this.client.createVolume({
@@ -1495,10 +1529,10 @@ export class LocalDockerBackend implements ExecutionBackend {
           ? { DriverOpts: { size: String(quota.sizeBytes) } }
           : {}),
         Labels: {
-          [LABELS.installation]: config.installationId,
-          [LABELS.managed]: "true",
-          [LABELS.sessionId]: sessionId,
-          [LABELS.workspaceQuota]: stamp,
+          [keys.installation]: config.installationId,
+          [keys.managed]: "true",
+          [keys.sessionId]: sessionId,
+          [keys.workspaceQuota]: stamp,
         },
         Name: name,
       });
@@ -1590,11 +1624,12 @@ export class LocalDockerBackend implements ExecutionBackend {
   private async findWorkspaceVolume(
     sessionId: string,
   ): Promise<VolumeInspect | null> {
+    const keys = volumeLabelsOf(this.config);
     const [found, legacy] = await Promise.all([
       this.client.listVolumes([
-        `${LABELS.managed}=true`,
-        `${LABELS.installation}=${this.config.installationId}`,
-        `${LABELS.sessionId}=${sessionId}`,
+        `${keys.managed}=true`,
+        `${keys.installation}=${this.config.installationId}`,
+        `${keys.sessionId}=${sessionId}`,
       ]),
       // Before names became single-use, a workspace was whatever sat under
       // the session's derived name — including the unlabelled volume Docker
@@ -1604,14 +1639,11 @@ export class LocalDockerBackend implements ExecutionBackend {
       // `workspaceVolumeProblem`, which rejects it for the ceiling it cannot
       // prove; `migrateWorkspace` is what moves it.
       this.client.inspectVolume(
-        legacyWorkspaceVolumeName(sessionId, this.config.installationId),
+        legacyWorkspaceVolumeName(sessionId, this.config),
       ),
     ]);
     if (found.length === 0) return legacy;
-    if (
-      legacy !== null &&
-      legacySessionOf(legacy, this.config.installationId) === sessionId
-    ) {
+    if (legacy !== null && legacySessionOf(legacy, this.config) === sessionId) {
       // A labelled workspace beside the legacy one is a migration that has
       // not removed its source yet, so the copy is not known to be whole.
       throw new WorkspaceQuotaError(
@@ -1925,17 +1957,19 @@ export class LocalDockerBackend implements ExecutionBackend {
  */
 export function legacySessionOf(
   volume: VolumeInspect,
-  installationId: string,
+  config: VolumeNaming,
 ): string | null {
-  const prefix = `${VOLUME_PREFIX}${installationId}-`;
+  const { installationId } = config;
+  const keys = volumeLabelsOf(config);
+  const prefix = `${config.volumeNamePrefix}${installationId}-`;
   if (!volume.Name.startsWith(prefix)) return null;
   const sessionId = volume.Name.slice(prefix.length);
   if (!SESSION_UUID.test(sessionId)) return null;
   const labels = volume.Labels ?? {};
-  if (labels[LABELS.managed] !== undefined) return null;
-  const owner = labels[LABELS.installation];
+  if (labels[keys.managed] !== undefined) return null;
+  const owner = labels[keys.installation];
   if (owner !== undefined && owner !== installationId) return null;
-  const labelled = labels[LABELS.sessionId];
+  const labelled = labels[keys.sessionId];
   if (labelled !== undefined && labelled !== sessionId) return null;
   return sessionId;
 }
@@ -1951,7 +1985,8 @@ export function workspaceVolumeProblem(
   config: LocalDockerBackendConfig,
 ): string | null {
   const labels = volume.Labels ?? {};
-  const owner = labels[LABELS.installation];
+  const keys = volumeLabelsOf(config);
+  const owner = labels[keys.installation];
   const quota = config.workspaceQuota;
   const stamp = quotaStampOf(quota);
   // Only a volume that names a *different* owner is an ownership problem.
@@ -1960,11 +1995,11 @@ export function workspaceVolumeProblem(
   if (owner !== undefined && owner !== config.installationId) {
     return `belongs to installation ${owner}, not ${config.installationId}`;
   }
-  if (labels[LABELS.workspaceQuota] !== stamp) {
+  if (labels[keys.workspaceQuota] !== stamp) {
     // Either it predates the quota (implicitly created, unlabelled and
     // unbounded) or it was created under a different ceiling.
     return (
-      `was created under quota ${labels[LABELS.workspaceQuota] ?? "<none>"}, not ${stamp}; ` +
+      `was created under quota ${labels[keys.workspaceQuota] ?? "<none>"}, not ${stamp}; ` +
       "a volume's quota cannot be changed in place, so this session keeps whatever " +
       "worker it still has until the volume is retired deliberately (docker volume rm, " +
       "once its workspace is no longer needed) or the previous setting is restored"
@@ -1985,12 +2020,12 @@ export function workspaceVolumeProblem(
   // them would never be reclaimed either.
   if (
     owner !== config.installationId ||
-    labels[LABELS.managed] !== "true" ||
-    labels[LABELS.sessionId] !== sessionId
+    labels[keys.managed] !== "true" ||
+    labels[keys.sessionId] !== sessionId
   ) {
     return (
-      `is not this session's workspace (managed=${labels[LABELS.managed] ?? "<none>"}, ` +
-      `installation=${owner ?? "<none>"}, session=${labels[LABELS.sessionId] ?? "<none>"})`
+      `is not this session's workspace (managed=${labels[keys.managed] ?? "<none>"}, ` +
+      `installation=${owner ?? "<none>"}, session=${labels[keys.sessionId] ?? "<none>"})`
     );
   }
   return null;

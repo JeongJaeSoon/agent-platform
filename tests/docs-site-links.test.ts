@@ -62,8 +62,6 @@ const ALLOWED: Record<string, string> = {
     "held: pins line numbers to a commit and has an open decisions section",
   "docs/operator/execution.md": "held: no site page yet",
   "docs/operator/server-deployment.md": "held: no site page yet",
-  "docs/operator/test-ops.md":
-    "internal operations procedure that is never published on the site",
 };
 const ALLOWED_PREFIXES: Record<string, string> = {
   "examples/sdk-": "sample code directories and their per-sample READMEs",

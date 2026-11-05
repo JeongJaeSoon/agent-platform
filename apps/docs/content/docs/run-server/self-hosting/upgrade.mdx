@@ -12,7 +12,7 @@ description: 설치한 Werft를 새 게시 버전으로 올리고, 올리기 전
 ## Kubernetes
 
 <Callout type="warn">
-UNVERIFIED. 이 Kubernetes 업그레이드 절차는 운영 문서의 명령을 옮긴 것이고, 이 순서 그대로 클러스터에서 실행해 확인하지 않았다. 새 control-host와 직전 worker 이미지의 조합은 CI가 검사하지 않으므로, 실서버 전에 시험 설치에서 먼저 돌린다. 내용이 다르면 [Kubernetes 설치 (Helm chart)](/run-server/self-hosting/operate/kubernetes-deployment#게시-chart를-올리기)를 따른다.
+이 Kubernetes 업그레이드 절차는 kind 클러스터 한 곳에서 한 번 돌려 확인했다. 이전 main 버전(`0.1.0-main-940b1956d21c`)을 설치한 뒤 `0.1.0-main-3c8a1f15488e`로 올렸고, 1~4단계(`worker-previous.json` 만들기, `helm upgrade`, upgrade-check Job의 `proceed`, rollout과 `/readyz` 200)가 이 순서대로 통과했다. 확인하지 못한 것이 있다. 세션이 없는 상태에서 돌렸으므로 `verdict`는 `proceed`만 봤고, `refused`로 멈추는 경우와 승인 절차는 돌리지 않았다. NetworkPolicy를 적용하는 CNI에서의 동작과 되돌리기도 확인하지 못했다. 새 control-host와 직전 worker 이미지의 조합은 CI가 검사하지 않으므로, 실서버 전에 시험 설치에서 먼저 돌린다. 내용이 다르면 [Kubernetes 설치 (Helm chart)](/run-server/self-hosting/operate/kubernetes-deployment#게시-chart를-올리기)를 따른다.
 </Callout>
 
 이 절차는 `jq`도 쓴다. 게시 chart는 새 worker 이미지만 담고 직전 worker 이미지는 담지 않는다. 직전 이미지는 설치마다 다르기 때문이다. worker 이미지가 바뀌는 업그레이드는 `images.workerPrevious`가 지금 배포된 이미지가 아니면 `refused`로 멈추고, 승인으로도 넘길 수 없다. 그래서 지금 이미지를 파일에 저장해 함께 넘긴다. `--reuse-values`는 쓰지 않는다. 옛 chart의 값이 새 chart의 이미지를 덮는다.
@@ -95,10 +95,14 @@ kill "$PF"
 ## 단일 서버 (Docker Compose)
 
 <Callout type="warn">
-UNVERIFIED. 단일 서버 설치와 업그레이드는 게시 이미지로 처음부터 끝까지 실행해 확인하지 않았다. 아래는 운영 runbook의 순서일 뿐 실행을 보장하지 않으며, 내용이 다르면 [test-ops 운영 runbook](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md#업그레이드)을 따른다.
+단일 서버의 업그레이드는 게시 이미지로 실행해 확인하지 않았다. 아래는 `scripts/test-ops.sh`와 코드를 읽어 쓴 순서일 뿐 실행을 보장하지 않으며, 내용이 다르면 스크립트가 기준이다.
 </Callout>
 
-새 태그의 digest로 `release.json`을 다시 만든 뒤, 새 source commit을 checkout하고 `upgrade`를 부른다. worker 이미지가 바뀌었으면 새 이미지로 현재 checkpoint를 검사하고, 호환되지 않는 세션이 있으면 종료 코드 3으로 거부한다. 승인 절차는 runbook을 따른다.
+새 태그의 digest로 `release.json`을 다시 만든 뒤, 새 source commit을 checkout하고 `upgrade`를 부른다. worker 이미지가 바뀌었으면 새 이미지로 현재 checkpoint를 검사하고, 호환되지 않는 세션이 있으면 종료 코드 3으로 거부한다. 이때 영향을 받는 세션 id가 `$TEST_OPS_STATE_DIR/upgrade-<시각>.sessions`에 적힌다. 목록을 검토하고 사용자에게 알린 뒤, 정확히 그 id를 담은 파일로 `scripts/test-ops.sh upgrade release-new.json --approve-sessions approved.txt`를 다시 부른다. 목록이 하나라도 다르면 거부하고, 진행하면 승인 기록을 상태 디렉터리에 남긴다. 호환되지 않는 세션을 `start_fresh`로 복구하면 이전 checkpoint의 context를 잃는다. 영향받는 세션이 없으면 승인 없이 진행한다.
+
+업그레이드 직전에 [백업](/run-server/self-hosting/single-server#백업과-복원)을 한 번 받는다. 되돌리기는 이전 release 파일로 `upgrade`를 다시 부르는 것이고, worker 이미지가 다시 바뀌므로 같은 규칙이 적용된다.
+
+업그레이드가 새 release가 뜨기 전에(예: scheduler의 quota 검사 실패) 멈추면 설치가 멈춘 채로 남고, 상태 디렉터리의 `pending.json`이 남는다. 이 상태에서는 `status`, `reset`, `pending.json`과 내용이 같은 release 파일을 쓰는 `upgrade`만 허용하고, 이전 release로 되돌리는 `upgrade`를 포함한 다른 명령은 거부한다. 원인을 고친 뒤 같은 대상 release 파일로 `upgrade`를 다시 부르면 풀린다.
 
 ```bash
 git fetch && git checkout <new source_commit> && bun install --frozen-lockfile
