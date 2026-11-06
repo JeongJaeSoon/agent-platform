@@ -611,7 +611,6 @@ export function createAgentService(deps: {
       card?: AgentCard;
       runtime_profile_id?: string;
       model_source?: ModelSource;
-      /** The save brings the agent to its profile's newest version. */
       followsProfile?: boolean;
     },
   ): Promise<SaveAgentResponse> {
@@ -831,12 +830,6 @@ export function createAgentService(deps: {
     }
   }
 
-  /**
-   * "Bring this agent to the newest version of its profile" (design 2.3): the
-   * save of the agent's own card onto that version, and the agent follows
-   * again in the same write. A refusal leaves it pinned and is the release's
-   * `failed` reason, kept on the draft like any save.
-   */
   async function followLatestProfile(
     caller: Caller,
     userId: string,

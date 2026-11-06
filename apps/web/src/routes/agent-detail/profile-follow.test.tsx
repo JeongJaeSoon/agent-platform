@@ -11,7 +11,6 @@ const meOk = { "GET /v1/auth/me": () => json(200, me()) };
 const DETAIL = `/agents/${AGENT_ID}`;
 const PATH = `/v1/agents/${AGENT_ID}`;
 
-/** The agent server with its detail replaced by `extra` until a PATCH lifts it. */
 function serverWith(extra: Partial<AgentDetail>) {
   const server = agentServer();
   let lifted = false;

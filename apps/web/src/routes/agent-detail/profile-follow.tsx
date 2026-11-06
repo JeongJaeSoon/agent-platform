@@ -10,11 +10,6 @@ import { useI18n } from "../../i18n/i18n.tsx";
 import { agentRefusal } from "../agents.tsx";
 import { saveFailureText } from "./effective-behavior.tsx";
 
-/**
- * Where the agent stands against its profile's newest version: pinned to an
- * old one, waiting for the new one, or refused it. One button brings it to
- * the newest and makes it follow again.
- */
 export function ProfileFollow({
   detail,
   manages,

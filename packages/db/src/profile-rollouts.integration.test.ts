@@ -828,12 +828,10 @@ integration("profile rollouts on PostgreSQL (U3b reader)", () => {
       const caller = await owner();
       await lineage(caller);
       const made = await follower(caller, { profile: "op_ops_v2" });
-      // Same form as v2 (the models only reordered): a version, no rollout.
       const same = await save(caller, V3, "op_ops_v2", "fp-3");
       expect(same.outcome).toBe("created");
       expect(await rolloutsOf()).toEqual([]);
 
-      // A changed form: the row is written; the agent is behind it, so one item.
       await save(caller, V4, "op_ops_v3", "fp-4");
       const [rollout] = await rolloutsOf();
       expect(rollout?.targetProfileId).toBe("op_ops_v4");
@@ -844,7 +842,6 @@ integration("profile rollouts on PostgreSQL (U3b reader)", () => {
       await lineage(alone, [[1, V1]]);
       await db.delete(profileRolloutItems);
       await db.delete(profileRollouts);
-      // v1 only exists: the first save of a lineage has nothing to compare.
       expect((await rolloutsOf()).length).toBe(0);
     });
 
@@ -906,10 +903,8 @@ integration("profile rollouts on PostgreSQL (U3b reader)", () => {
             reason: "credential_unbound",
           },
         ],
-        // The fixed agent keeps claude-sonnet-5; v2's default is opus.
         fixed_model_agents: 1,
       });
-      // Another workspace sees none of it.
       const other = await owner();
       expect((await rollouts().summaries(other.ownerId)).size).toBe(0);
 
@@ -924,7 +919,6 @@ integration("profile rollouts on PostgreSQL (U3b reader)", () => {
         (await store().get(caller.ownerId, applied.agent.id))?.profile_rollout,
       ).toBeNull();
 
-      // A person's retry: only inside the workspace the agent is in.
       const ask = (workspaceId: string) => ({
         workspaceId,
         targetProfileId: "op_ops_v2",
@@ -1054,12 +1048,10 @@ integration("profile rollouts on PostgreSQL (U3b reader)", () => {
           reason: "profile_rollout",
         });
       const behaviorRevision = row?.behaviorRevision as number;
-      // Both hold: nothing to switch, the release is already the active one.
       expect(
         (await activate({ behaviorRevision, targetProfileId: "op_ops_v2" }))
           .outcome,
       ).toBe("unchanged");
-      // The revision moved; the target is the newest.
       expect(
         (
           await activate({
@@ -1068,7 +1060,6 @@ integration("profile rollouts on PostgreSQL (U3b reader)", () => {
           })
         ).outcome,
       ).toBe("superseded");
-      // The revision holds; the target is not the newest of its profile.
       expect(
         (await activate({ behaviorRevision, targetProfileId: "op_ops_v1" }))
           .outcome,

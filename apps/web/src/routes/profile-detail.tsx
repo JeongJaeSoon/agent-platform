@@ -980,10 +980,6 @@ function Narrowings({
   );
 }
 
-/**
- * How far this version has reached the agents that follow the profile, who
- * was refused it and why, and the agents a changed default model leaves be.
- */
 function Rollout({
   profile,
   operates,

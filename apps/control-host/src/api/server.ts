@@ -1003,8 +1003,7 @@ const pushIntentRunner = createPushIntentRunner({
 }).start();
 // Moves agents that follow a profile onto its newest version (design 2.3).
 // Every replica runs it; an item's lease and the activation's compare-and-swap
-// make a second one harmless. The sweep puts in what the insert-time write
-// missed; the one-time fill has run before the writer opened (design 5.1).
+// make a second one harmless.
 const profileRolloutRunner = createProfileRolloutRunner({
   rollouts: profileRollouts,
   agentStore,

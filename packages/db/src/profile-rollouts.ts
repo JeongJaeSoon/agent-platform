@@ -56,10 +56,6 @@ export async function isNewestProfile(
   return later.length === 0;
 }
 
-/**
- * The open step of a rollout for an agent: its newest entry in the lineage of
- * the profile it runs, if that is still `pending` or `failed`.
- */
 export async function openRolloutStep(
   db: Database,
   agentId: string,
@@ -145,12 +141,6 @@ async function followers(tx: Database, lineage?: string): Promise<Follower[]> {
   return found.filter((row) => row.lineage !== null);
 }
 
-/**
- * The outbox write of a new profile version (design 2.3 step 1), inside the
- * insert's own transaction. Only a version whose execution form differs from
- * the lineage's previous newest one gets a rollout; it is written even when
- * no agent follows yet, so the sweep and the screens can tell it was made.
- */
 export async function writeProfileRollout(
   tx: Database,
   input: {
@@ -178,7 +168,6 @@ export async function writeProfileRollout(
       ON CONFLICT (target_profile_id, kind) DO NOTHING RETURNING id`,
   );
   if (made.length === 0) return null;
-  // The newest version is the only target; older waiting items go with it.
   await tx.execute(
     sql`UPDATE profile_rollout_items i
       SET status = 'superseded', locked_by = NULL, locked_until = NULL,
@@ -333,8 +322,6 @@ export function createPostgresProfileRolloutStore(
     },
 
     async retryFailed({ workspaceId, targetProfileId, agentId }) {
-      // Only the newest generation: an older failure was answered by a
-      // later entry of the agent and must not run again.
       const reopened = await rows(
         db,
         sql`UPDATE profile_rollout_items i
@@ -355,7 +342,6 @@ export function createPostgresProfileRolloutStore(
     },
 
     async summaries(workspaceId) {
-      // One entry per agent and rollout: its newest generation decides.
       const steps = await rows<{
         profile_id: string;
         agent_id: string;
@@ -412,8 +398,6 @@ export function createPostgresProfileRolloutStore(
         return found;
       };
       for (const step of steps) {
-        // A superseded step moved elsewhere (pinned, another profile): the
-        // count is of the agents this version was meant for.
         if (step.status === "superseded") continue;
         const entry = of(step.profile_id);
         entry.total++;
