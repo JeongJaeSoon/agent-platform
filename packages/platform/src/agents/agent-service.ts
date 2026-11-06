@@ -608,6 +608,7 @@ export function createAgentService(deps: {
       status: "unchanged",
       reason: null,
       release_id: null,
+      version_id: null,
     };
     const identity = {
       ...(fields.name === undefined ? {} : { name: fields.name }),
@@ -720,7 +721,8 @@ export function createAgentService(deps: {
       );
       if (!saved || !version)
         throw new Error("a behavioral save has a version");
-      if (saved.status === "unchanged") return done(result.detail, nothing);
+      if (saved.status === "unchanged")
+        return done(result.detail, { ...nothing, version_id: saved.versionId });
       // Only the release is asked again when the ground moved under it. The
       // save keeps the revision it was given, so a later save that landed in
       // between wins and this one ends superseded instead of being re-issued.
@@ -765,16 +767,32 @@ export function createAgentService(deps: {
           failure: outcome.reason,
         });
         release = kept
-          ? { status: "failed", reason: outcome.reason, release_id: null }
-          : { status: "superseded", reason: null, release_id: null };
+          ? {
+              status: "failed",
+              reason: outcome.reason,
+              release_id: null,
+              version_id: saved.versionId,
+            }
+          : {
+              status: "superseded",
+              reason: null,
+              release_id: null,
+              version_id: saved.versionId,
+            };
       } else if (outcome.status === "applied") {
         release = {
           status: "applied",
           reason: null,
           release_id: outcome.releaseId,
+          version_id: saved.versionId,
         };
       } else {
-        release = { status: "superseded", reason: null, release_id: null };
+        release = {
+          status: "superseded",
+          reason: null,
+          release_id: null,
+          version_id: saved.versionId,
+        };
       }
       const fresh = await store.get(caller.ownerId, agentId);
       if (!fresh) throw NOT_FOUND();
@@ -886,7 +904,12 @@ export function createAgentService(deps: {
           if (request.runtime_profile_id === undefined) {
             return {
               ...withBehavior(result.detail),
-              release: { status: "unchanged", reason: null, release_id: null },
+              release: {
+                status: "unchanged",
+                reason: null,
+                release_id: null,
+                version_id: null,
+              },
             };
           }
           return saveAgent(caller, userId, result.detail.agent.id, {

@@ -166,7 +166,12 @@ export function agentServer({
       team = body.managing_team_id === undefined ? null : TEAM;
       return json(201, {
         ...detail(),
-        release: { status: "unchanged", reason: null, release_id: null },
+        release: {
+          status: "unchanged",
+          reason: null,
+          release_id: null,
+          version_id: null,
+        },
       });
     },
     [`PUT ${path}/managing-team`]: async (request: Request) => {
@@ -234,8 +239,18 @@ export function agentServer({
       return json(200, {
         ...detail(),
         release: fresh
-          ? { status: "failed", reason: "release_refused", release_id: null }
-          : { status: "unchanged", reason: null, release_id: null },
+          ? {
+              status: "failed",
+              reason: "release_refused",
+              release_id: null,
+              version_id: draftId,
+            }
+          : {
+              status: "unchanged",
+              reason: null,
+              release_id: null,
+              version_id: null,
+            },
       });
     },
     [`POST ${path}/releases`]: async (request: Request) => {

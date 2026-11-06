@@ -228,6 +228,7 @@ integration("a card save releases (Z1) on PostgreSQL", () => {
       status: "unchanged",
       reason: null,
       release_id: null,
+      version_id: made.versions[0]?.id as string,
     });
     expect(await releaseCount(made.agent.id)).toBe(1);
     expect(again.behavior_revision).toBe(made.behavior_revision + 1);
@@ -339,6 +340,7 @@ integration("a card save releases (Z1) on PostgreSQL", () => {
       status: "failed",
       reason: "model_not_in_profile",
       release_id: null,
+      version_id: refused.versions.at(-1)?.id as string,
     });
     expect(refused.draft?.failure).toBe("model_not_in_profile");
     expect(refused.agent.active_release_id).toBe(made.release.release_id);

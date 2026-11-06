@@ -306,6 +306,7 @@ describe("a card save asks releaseAgent for what the request changes", () => {
       status: "failed",
       reason: "revision_conflict",
       release_id: null,
+      version_id: VERSION,
     });
     expect(calls.failure).toEqual([
       {
@@ -353,9 +354,18 @@ describe("a card save asks releaseAgent for what the request changes", () => {
       status: "unchanged",
       reason: null,
       release_id: null,
+      version_id: VERSION,
     });
     expect(calls.insert).toEqual([]);
     expect(calls.activate).toEqual([]);
+  });
+
+  test("every answer names the version this request resolved to, not the agent's latest draft", async () => {
+    const applied = await save({}).result;
+    expect(applied.release.version_id).toBe(VERSION);
+    const superseded = await save({ activate: [{ outcome: "superseded" }] })
+      .result;
+    expect(superseded.release.version_id).toBe(VERSION);
   });
 
   test("a model the profile lacks is a failed draft naming model_not_in_profile", async () => {

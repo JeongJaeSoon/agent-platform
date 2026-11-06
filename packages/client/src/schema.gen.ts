@@ -8938,6 +8938,7 @@ export interface components {
                 status: "applied" | "failed" | "unchanged" | "superseded";
                 reason: string | null;
                 release_id: string | null;
+                version_id: string | null;
             };
         };
         CreateAgentReleaseResponse: {

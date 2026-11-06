@@ -897,6 +897,8 @@ export const saveReleaseSchema = z
     status: releaseStatusSchema,
     reason: z.string().min(1).max(128).nullable(),
     release_id: agentReleaseIdSchema.nullable(),
+    /** The version this save wrote or resolved to; null when it sent no card. */
+    version_id: agentVersionIdSchema.nullable(),
   })
   .strict();
 

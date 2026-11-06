@@ -561,7 +561,12 @@ describe("POST /v1/agents", () => {
     expect(saveAgentResponseSchema.parse(await response.json())).toEqual({
       ...detail,
       effective_behavior: { applied: null, draft: null },
-      release: { status: "unchanged", reason: null, release_id: null },
+      release: {
+        status: "unchanged",
+        reason: null,
+        release_id: null,
+        version_id: null,
+      },
     });
     expect(created).toMatchObject({
       slug: "finance",
@@ -743,6 +748,7 @@ describe("PATCH /v1/agents/{id}", () => {
       status: "failed",
       reason: "release_refused",
       release_id: null,
+      version_id: body.versions.at(-1)?.id as string,
     });
   });
 

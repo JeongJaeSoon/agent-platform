@@ -2987,6 +2987,7 @@ describe("편집 중 다른 곳의 저장", () => {
               status: "applied",
               reason: null,
               release_id: body.releases[0]?.id,
+              version_id: body.versions.at(-1)?.id,
             },
           });
         },
@@ -3185,7 +3186,12 @@ describe("편집 중 다른 곳의 저장", () => {
       [`PATCH /v1/agents/${AGENT_ID}`]: () =>
         json(200, {
           ...legacy(server.detail()),
-          release: { status: "unchanged", reason: null, release_id: null },
+          release: {
+            status: "unchanged",
+            reason: null,
+            release_id: null,
+            version_id: null,
+          },
         }),
     });
     const user = await setupUser();
@@ -3405,7 +3411,12 @@ describe("편집 중 다른 곳의 저장", () => {
       [`PATCH /v1/agents/${OTHER}`]: () =>
         json(200, {
           ...otherDetail,
-          release: { status: "unchanged", reason: null, release_id: null },
+          release: {
+            status: "unchanged",
+            reason: null,
+            release_id: null,
+            version_id: null,
+          },
         }),
     });
     // Visit the other agent first so it is cached when we come back to it.
