@@ -1196,3 +1196,7 @@ receipt는 execution이 사라진 것이 관측될 때까지 `accepted`로 남�
 
 `session_id`는 UUID여야 한다. 인자가 틀리거나 `--reason`이 비어 있으면 DB에 연결하기 전에 사용법이 담긴 오류로 끝난다. `DATABASE_URL`이 없어도 인자 검사가 먼저다.
 
+세션 상세의 workspace 상한 줄은 최신 attempt가 기록한 `system/workspace_limit_mode` 이벤트의 바이트·inode 판별을 읽는다. 기록이 없으면 두 축 모두 미확인이다. `workspace_limit_mode` 응답 필드는 선택이며, 사용량이나 초과 횟수가 아니다. `workspace_quota_exceeded_total`은 계속 초과 표본 수를 세며 이 화면에서 세션 수로 표시하지 않는다.
+
+Kubernetes scheduler는 해당 PVC의 `status.capacity.storage`만 읽어 내부 전달값 `WORKER_WORKSPACE_PVC_CAPACITY_BYTES`를 만든다. 운영자가 직접 설정하는 값이 아니며 PVC가 아직 Bound가 아니거나 조회 권한이 없으면 생략한다. capacity가 요청과 같아도 강제의 증거는 아니므로 기본 판별은 미확인이다. StorageClass·PV 읽기와 ClusterRole은 추가하지 않는다.
+

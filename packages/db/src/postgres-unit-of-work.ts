@@ -27,6 +27,8 @@ import {
   type TurnDetail,
   type TurnSummary,
   turnStatusSchema,
+  type WorkspaceLimitMode,
+  workspaceLimitModeSchema,
 } from "@werft-ai/contracts";
 import type { StructuredLogger } from "@werft-ai/observability";
 import type {
@@ -1144,15 +1146,53 @@ export function createPostgresSessionReader(
           // the highest generation need not be the execution that claimed
           // last. The session names its current one; once
           // released, its last attempt does.
-          const [lastAttempt] =
-            row.executionId === null
-              ? await tx
-                  .select({ executionId: attempts.executionId })
-                  .from(attempts)
-                  .where(eq(attempts.sessionId, sessionId))
-                  .orderBy(desc(attempts.leaseEpoch))
-                  .limit(1)
-              : [];
+          const [lastAttempt] = await tx
+            .select({ id: attempts.id, executionId: attempts.executionId })
+            .from(attempts)
+            .where(eq(attempts.sessionId, sessionId))
+            .orderBy(desc(attempts.leaseEpoch))
+            .limit(1);
+          let workspaceLimitMode: WorkspaceLimitMode | undefined;
+          if (lastAttempt !== undefined) {
+            const [classification] = await tx
+              .select({ payload: events.payload })
+              .from(events)
+              .where(
+                and(
+                  eq(events.sessionId, sessionId),
+                  eq(events.attemptId, lastAttempt.id),
+                  eq(events.type, "system"),
+                  sql`${events.payload}->>'subtype' = 'workspace_limit_mode'`,
+                ),
+              )
+              .orderBy(desc(events.id))
+              .limit(1);
+            let payload = classification?.payload;
+            if (payload === undefined) {
+              const chunks = await archiveChunksAfter(tx, sessionId, 0);
+              for (const chunk of chunks.reverse()) {
+                const lines = await archive().lines(chunk);
+                for (const { line } of [...lines].reverse()) {
+                  const event = JSON.parse(line) as {
+                    type: string;
+                    attempt_id: string | null;
+                    payload: { subtype?: string } | null;
+                  };
+                  if (
+                    event.attempt_id === lastAttempt.id &&
+                    event.type === "system" &&
+                    event.payload?.subtype === "workspace_limit_mode"
+                  ) {
+                    payload = event.payload;
+                    break;
+                  }
+                }
+                if (payload !== undefined) break;
+              }
+            }
+            const parsed = workspaceLimitModeSchema.safeParse(payload);
+            if (parsed.success) workspaceLimitMode = parsed.data;
+          }
           const currentExecutionId =
             row.executionId ?? lastAttempt?.executionId ?? null;
           const [execution] = await tx
@@ -1201,6 +1241,9 @@ export function createPostgresSessionReader(
                   .limit(1);
           return {
             ...summary,
+            ...(workspaceLimitMode === undefined
+              ? {}
+              : { workspace_limit_mode: workspaceLimitMode }),
             execution: execution
               ? executionObservationSchema.parse({
                   ...execution,

@@ -22,10 +22,16 @@ export async function main(
   await verifyWorkspace(config.runtime.cwd);
   const requestedBytes = Number(environment.WORKER_WORKSPACE_QUOTA_BYTES);
   const quotaMode = environment.WORKER_WORKSPACE_QUOTA_MODE;
+  const pvcCapacityBytes = Number(
+    environment.WORKER_WORKSPACE_PVC_CAPACITY_BYTES,
+  );
   const observer = new WorkspaceObserver(
     {
       root: environment.WORKER_WORKSPACE_MOUNT_DIR ?? config.runtime.cwd,
       evidence: {
+        ...(Number.isSafeInteger(pvcCapacityBytes) && pvcCapacityBytes > 0
+          ? { pvcCapacityBytes }
+          : {}),
         ...(Number.isSafeInteger(requestedBytes) && requestedBytes > 0
           ? { requestedBytes }
           : {}),

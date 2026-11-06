@@ -5293,6 +5293,14 @@ export interface components {
             created_at: string;
             /** Format: date-time */
             updated_at: string;
+            /** @description The current attempt's workspace limit classification, recorded by the worker as a system event. Hard is storage enforcement, soft is best effort, unknown is unverified. Absent when no classification was recorded or on older servers; absence means unknown on both axes. This is not usage or an exceedance count. */
+            workspace_limit_mode?: {
+                /** @enum {string} */
+                bytes: "hard" | "soft" | "unknown";
+                /** @enum {string} */
+                inodes: "hard" | "soft" | "unknown";
+                reason: string;
+            };
             execution: {
                 /** @enum {string} */
                 backend: "local_docker" | "kubernetes" | "lambda_microvm";

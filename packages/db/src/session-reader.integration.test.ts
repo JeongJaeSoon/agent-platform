@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import type { ReceiptResourceTarget } from "@werft-ai/contracts";
 import { createLogger, MemoryLogSink } from "@werft-ai/observability";
 import {
@@ -20,10 +21,12 @@ import {
   events,
   executions,
   receipts,
+  sessionEventArchives,
   sessions,
   turns,
   users,
 } from "./schema.ts";
+import { encodeArchiveChunk } from "./session-event-archives.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -275,11 +278,36 @@ integration("session reader on PostgreSQL", () => {
     await db
       .insert(attempts)
       .values([attempt("first", earlier, 1), attempt("second", later, 3)]);
+    const mode = {
+      type: "system",
+      subtype: "workspace_limit_mode",
+      bytes: "hard",
+      inodes: "unknown",
+      reason: "storage_declaration_and_capacity",
+    };
+    const [stored] = await db
+      .insert(events)
+      .values({
+        sessionId,
+        attemptId: `second-${sessionId}`,
+        type: "system",
+        payload: mode,
+      })
+      .returning();
+    if (!stored) throw new Error("Classification was not stored");
     await db
       .update(sessions)
       .set({ executionId: later, leaseEpoch: 3, executionGeneration: 2 })
       .where(eq(sessions.id, sessionId));
     const reader = createPostgresSessionReader(db);
+    expect(
+      (await reader.getSession(OWNER, sessionId))?.workspace_limit_mode,
+    ).toEqual({
+      bytes: "hard",
+      inodes: "unknown",
+      reason: "storage_declaration_and_capacity",
+    });
+    expect(await reader.getSession("other-owner", sessionId)).toBeNull();
     expect((await reader.getSession(OWNER, sessionId))?.execution?.state).toBe(
       "running",
     );
@@ -296,6 +324,46 @@ integration("session reader on PostgreSQL", () => {
     expect((await reader.getSession(OWNER, sessionId))?.execution?.state).toBe(
       "suspended",
     );
+    const body = encodeArchiveChunk([
+      JSON.stringify({
+        id: stored.id,
+        type: stored.type,
+        payload: stored.payload,
+        attempt_id: stored.attemptId,
+        turn_id: null,
+        source_sequence: null,
+        created_at: stored.createdAt.toISOString(),
+        occurred_at: null,
+        neutral: null,
+      }),
+    ]);
+    await db.insert(sessionEventArchives).values({
+      sessionId,
+      fromId: stored.id,
+      throughId: stored.id,
+      objectKey: `session-archive/${sessionId}/classification`,
+      versionId: "v1",
+      sha256: createHash("sha256").update(body).digest("hex"),
+      eventCount: 1,
+      bytes: body.length,
+      lastCreatedAt: stored.createdAt,
+      lastOccurredAt: stored.createdAt,
+      activity: (await reader.getSession(OWNER, sessionId))?.activity ?? {},
+      activityThrough: stored.id,
+    });
+    await db.delete(events).where(eq(events.id, stored.id));
+    const archivedReader = createPostgresSessionReader(db, {
+      archivedEvents: { get: async () => body },
+    });
+    expect(
+      (await archivedReader.getSession(OWNER, sessionId))?.workspace_limit_mode,
+    ).toMatchObject({ bytes: "hard", inodes: "unknown" });
+    await db
+      .insert(attempts)
+      .values(attempt("new-without-classification", later, 5));
+    expect(
+      (await archivedReader.getSession(OWNER, sessionId))?.workspace_limit_mode,
+    ).toBeUndefined();
   });
 
   test("a turn does not report a checkpoint revision a restore can no longer reach", async () => {
