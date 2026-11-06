@@ -161,6 +161,8 @@ integration("LocalDockerBackend against a real daemon", () => {
       [
         `${ENV.home}=/home/worker`,
         `${ENV.workspaceDir}=/workspace`,
+        `${ENV.workspaceMountDir}=/workspace`,
+        `${ENV.workspaceQuotaMode}=off`,
         `${ENV.bootstrapNonce}=${await intent.issueBootstrapNonce()}`,
         `${ENV.executionGeneration}=${intent.generation}`,
         `${ENV.executionId}=${intent.executionId}`,
