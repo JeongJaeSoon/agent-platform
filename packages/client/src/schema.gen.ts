@@ -6099,6 +6099,12 @@ export interface components {
             flow: "legacy" | "actions";
             /** @default null */
             pr_state: ("due" | "opening" | "opened" | "closed_unrecorded" | "uncertain" | "failed" | "cancelled") | null;
+            /** @default null */
+            pr_error: string | null;
+            /** @default null */
+            pr_number: number | null;
+            /** @default null */
+            pr_url: string | null;
         };
         ListPushRequestsResponse: {
             items: components["schemas"]["PushRequest"][];

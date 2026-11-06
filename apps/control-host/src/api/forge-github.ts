@@ -377,6 +377,17 @@ export function createGitHubConnection(
       },
       findPullRequestForBranch,
       findPullRequestsForBranch,
+      async isAncestor(ancestor, descendant) {
+        const { data } = await call("commit comparison", () =>
+          client.request("GET /repos/{owner}/{repo}/compare/{basehead}", {
+            ...target,
+            basehead: `${ancestor}...${descendant}`,
+            per_page: 1,
+            headers,
+          }),
+        );
+        return data.status === "ahead" || data.status === "identical";
+      },
       async createPullRequest(input) {
         try {
           const { data } = await client.request(

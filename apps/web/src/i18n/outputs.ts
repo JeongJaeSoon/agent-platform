@@ -97,6 +97,25 @@ export const outputsKo = {
   "session.github.prState.uncertain": "PR 확인 필요",
   "session.github.prState.failed": "PR 실패",
   "session.github.prState.cancelled": "PR 취소됨",
+  "session.github.prError.head_moved":
+    "브랜치가 push한 commit이 아닌 곳을 가리켜 PR을 기록하지 않았습니다.",
+  "session.github.prError.closed_unrecorded":
+    "이 push의 PR이 기록되기 전에 닫혔거나 머지됐습니다.",
+  "session.github.prError.duplicate_pull_request":
+    "맞는 PR이 둘 이상이라 고르지 않았습니다. GitHub에서 확인해 주세요.",
+  "session.github.prError.catalog_changed":
+    "저장소 설정이 요청 때와 달라졌습니다.",
+  "session.github.prError.target_refused": "이 브랜치로는 PR을 열 수 없습니다.",
+  "session.github.prError.github_refused":
+    "GitHub 설정이 PR 열기를 막았습니다.",
+  "session.github.prError.no_forge": "GitHub에 연결할 수 없습니다.",
+  "session.github.prError.forge_failed": "GitHub 호출이 실패했습니다.",
+  "session.github.prError.lookup_failed":
+    "PR이 이미 있는지 확인하지 못했습니다.",
+  "session.github.prError.lease_expired": "PR 열기가 제때 끝나지 않았습니다.",
+  "session.github.prError.intent_invalid":
+    "저장된 PR 요청 내용을 읽을 수 없습니다.",
+  "session.github.prNumber": "PR #{number}",
   "session.github.reason.turn_ended_without_checkpoint":
     "턴이 체크포인트 없이 끝났습니다.",
   "session.github.reason.turn_finalized_without_pin":
@@ -233,6 +252,27 @@ export const outputsJa: Record<keyof typeof outputsKo, string> = {
   "session.github.prState.uncertain": "PR 要確認",
   "session.github.prState.failed": "PR 失敗",
   "session.github.prState.cancelled": "PR キャンセル",
+  "session.github.prError.head_moved":
+    "ブランチが push した commit を指していないため、PR を記録しませんでした。",
+  "session.github.prError.closed_unrecorded":
+    "この push の PR は、記録される前にクローズまたはマージされました。",
+  "session.github.prError.duplicate_pull_request":
+    "当てはまる PR が複数あるため選びませんでした。GitHub で確認してください。",
+  "session.github.prError.catalog_changed":
+    "リポジトリの設定がリクエスト時と変わりました。",
+  "session.github.prError.target_refused":
+    "このブランチでは PR を作成できません。",
+  "session.github.prError.github_refused":
+    "GitHub の設定により PR の作成が拒否されました。",
+  "session.github.prError.no_forge": "GitHub に接続できません。",
+  "session.github.prError.forge_failed": "GitHub の呼び出しに失敗しました。",
+  "session.github.prError.lookup_failed":
+    "PR がすでにあるか確認できませんでした。",
+  "session.github.prError.lease_expired":
+    "PR の作成が時間内に終わりませんでした。",
+  "session.github.prError.intent_invalid":
+    "保存された PR のリクエスト内容を読み取れません。",
+  "session.github.prNumber": "PR #{number}",
   "session.github.reason.turn_ended_without_checkpoint":
     "ターンがチェックポイントなしで終了しました。",
   "session.github.reason.turn_finalized_without_pin":
@@ -370,6 +410,27 @@ export const outputsEn: Record<keyof typeof outputsKo, string> = {
   "session.github.prState.uncertain": "PR needs a check",
   "session.github.prState.failed": "PR failed",
   "session.github.prState.cancelled": "PR cancelled",
+  "session.github.prError.head_moved":
+    "The branch no longer points at the pushed commit, so the PR was not recorded.",
+  "session.github.prError.closed_unrecorded":
+    "This push's PR was closed or merged before it was recorded.",
+  "session.github.prError.duplicate_pull_request":
+    "More than one PR fits, so none was chosen. Check GitHub.",
+  "session.github.prError.catalog_changed":
+    "The repository settings changed since the request.",
+  "session.github.prError.target_refused":
+    "A PR cannot be opened from this branch.",
+  "session.github.prError.github_refused":
+    "The GitHub settings refused opening a PR.",
+  "session.github.prError.no_forge": "GitHub could not be reached.",
+  "session.github.prError.forge_failed": "The GitHub call failed.",
+  "session.github.prError.lookup_failed":
+    "Could not check whether a PR already exists.",
+  "session.github.prError.lease_expired":
+    "Opening the PR did not finish in time.",
+  "session.github.prError.intent_invalid":
+    "The stored PR request could not be read.",
+  "session.github.prNumber": "PR #{number}",
   "session.github.reason.turn_ended_without_checkpoint":
     "The turn ended without a checkpoint.",
   "session.github.reason.turn_finalized_without_pin":

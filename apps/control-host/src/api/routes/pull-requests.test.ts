@@ -78,7 +78,7 @@ function app(
     targetBranch: `agent/${SESSION}`,
     gitCommit: "a".repeat(40),
   };
-  const fail = (call: "lookup" | "comment") => {
+  const fail = (call: "lookup" | "comment" | "compare") => {
     if (options.failing === call) {
       throw new ForgeCredentialError("GitHub failed (502)");
     }
@@ -105,6 +105,10 @@ function app(
     findPullRequestsForBranch: async () => {
       fail("lookup");
       return [];
+    },
+    isAncestor: async () => {
+      fail("compare");
+      return false;
     },
     createPullRequest: async (input) => ({
       number: 5,

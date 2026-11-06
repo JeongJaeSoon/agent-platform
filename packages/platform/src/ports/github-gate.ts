@@ -112,6 +112,11 @@ export interface GitHubApi {
     options?: { limit?: number },
   ): Promise<ForgePullRequestWithBody[]>;
   /**
+   * True when `descendant` is `ancestor` itself or a commit built on it.
+   * One compare request; a failure throws and the caller reads it as "no".
+   */
+  isAncestor(ancestor: string, descendant: string): Promise<boolean>;
+  /**
    * `created` is false when GitHub refused to create one because the head
    * already has an open pull request, and that one is answered instead.
    */

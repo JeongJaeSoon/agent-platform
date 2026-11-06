@@ -14,6 +14,7 @@ import {
   type PullRequestDrainStore,
   type PullRequestJob,
   type PullRequestSettled,
+  pullRequestBackoffMs,
 } from "../ports/pull-request-drain.ts";
 import {
   type FakeFile,
@@ -82,6 +83,9 @@ function harness(
     createdHeadSha?: string;
     /** The base a created pull request reports, when it is not the asked one. */
     createdBase?: string;
+    /** Commits the compare answers are ancestors of the pushed commit. */
+    ancestors?: string[];
+    compareFails?: boolean;
     lookupFails?: boolean;
     createFails?: boolean;
     refuse?: boolean;
@@ -122,6 +126,11 @@ function harness(
       calls.push(`list ${branch}`);
       if (options.lookupFails) throw new ForgeCredentialError("lookup (502)");
       return options.existing ?? [];
+    },
+    isAncestor: async (ancestor, descendant) => {
+      calls.push(`compare ${ancestor.slice(0, 1)}..${descendant.slice(0, 1)}`);
+      if (options.compareFails) throw new ForgeCredentialError("compare (502)");
+      return (options.ancestors ?? []).includes(ancestor);
     },
     createPullRequest: async (input) => {
       calls.push(`create ${input.head}`);
@@ -305,6 +314,86 @@ describe("opening a pull request for a pushed request", () => {
     expect(calls).not.toContain(`create ${HEAD}`);
   });
 
+  test("a head that is still the pushed commit's ancestor waits for the backoff instead of ending", async () => {
+    const old = "b".repeat(40);
+    const { service, calls } = harness({
+      existing: [listed({ headSha: old })],
+      ancestors: [old],
+    });
+    expect(
+      await service.openForPushRequest(job(), { deadline: deadline() }),
+    ).toMatchObject({
+      kind: "retry",
+      error: "head_moved",
+      delayMs: pullRequestBackoffMs(1),
+    });
+    expect(calls).toContain("compare b..a");
+    expect(calls).not.toContain(`create ${HEAD}`);
+  });
+
+  test("a pull request created at a lagging head waits, then the next claim adopts it", async () => {
+    const old = "c".repeat(40);
+    const { service } = harness({ createdHeadSha: old, ancestors: [old] });
+    expect(
+      await service.openForPushRequest(job(), { deadline: deadline() }),
+    ).toMatchObject({ kind: "retry", error: "head_moved" });
+  });
+
+  test("a head that is not an ancestor ends head_moved at once", async () => {
+    const { service } = harness({
+      existing: [listed({ headSha: "d".repeat(40) })],
+      ancestors: [],
+    });
+    expect(
+      await service.openForPushRequest(job(), { deadline: deadline() }),
+    ).toMatchObject({ kind: "stop", stage: "failed", error: "head_moved" });
+  });
+
+  test("a compare that fails closes the question as head_moved", async () => {
+    const { service } = harness({
+      existing: [listed({ headSha: "b".repeat(40) })],
+      ancestors: ["b".repeat(40)],
+      compareFails: true,
+    });
+    expect(
+      await service.openForPushRequest(job(), { deadline: deadline() }),
+    ).toMatchObject({ kind: "stop", stage: "failed", error: "head_moved" });
+  });
+
+  test("the last attempt does not ask the forge again and ends head_moved", async () => {
+    const old = "b".repeat(40);
+    const { service, calls } = harness({
+      existing: [listed({ headSha: old })],
+      ancestors: [old],
+    });
+    expect(
+      await service.openForPushRequest(job({ attempt: 3 }), {
+        deadline: deadline(),
+      }),
+    ).toMatchObject({ kind: "stop", stage: "failed", error: "head_moved" });
+    expect(calls.some((call) => call.startsWith("compare"))).toBe(false);
+  });
+
+  test("a pull request created on the last attempt at a lagging head fails with its number, never uncertain", async () => {
+    const old = "c".repeat(40);
+    const { service, calls } = harness({
+      createdHeadSha: old,
+      ancestors: [old],
+    });
+    expect(
+      await service.openForPushRequest(
+        job({ attempt: PULL_REQUEST_MAX_ATTEMPTS }),
+        { deadline: deadline() },
+      ),
+    ).toMatchObject({
+      kind: "stop",
+      stage: "failed",
+      error: "head_moved",
+      details: { number: 8, actual_sha: old },
+    });
+    expect(calls.some((call) => call.startsWith("compare"))).toBe(false);
+  });
+
   test("a created pull request whose head is not the pushed commit is compared before it is stored", async () => {
     const { service } = harness({ createdHeadSha: "c".repeat(40) });
     expect(
@@ -360,6 +449,48 @@ describe("opening a pull request for a pushed request", () => {
       await service.openForPushRequest(job(), { deadline: deadline() }),
     ).toMatchObject({ kind: "opened", pullRequest: { number: 8 } });
     expect(created).toHaveLength(1);
+  });
+
+  test("a pull request created at a lagging head and closed before the next claim is not created again", async () => {
+    const old = "c".repeat(40);
+    const closed = listed({
+      state: "closed",
+      closedAt: "2026-11-05T00:00:00Z",
+      body: `${pushRequestMarker(PUSH)}\n`,
+      headSha: old,
+    });
+    for (const attempt of [2, 3]) {
+      const { service, created } = harness({
+        existing: [closed],
+        ancestors: [old],
+      });
+      expect(
+        await service.openForPushRequest(job({ attempt }), {
+          deadline: deadline(),
+        }),
+      ).toMatchObject({
+        kind: "stop",
+        stage: "closed_unrecorded",
+        details: { numbers: [7] },
+      });
+      expect(created).toHaveLength(0);
+    }
+  });
+
+  test("an open pull request still at the lagging head is waited for again, never created again", async () => {
+    const old = "c".repeat(40);
+    const { service, created } = harness({
+      existing: [
+        listed({ headSha: old, body: `${pushRequestMarker(PUSH)}\n` }),
+      ],
+      ancestors: [old],
+    });
+    expect(
+      await service.openForPushRequest(job({ attempt: 2 }), {
+        deadline: deadline(),
+      }),
+    ).toMatchObject({ kind: "retry", error: "head_moved" });
+    expect(created).toHaveLength(0);
   });
 
   test("a closed pull request with this request's marker but another commit does not end the stage", async () => {

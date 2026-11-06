@@ -89,6 +89,28 @@ PR 본문 끝에는 플랫폼이 쓰는 꼬리가 붙는다. 세션 id와 commit
 
 세션 안의 에이전트는 내장 MCP 도구로 같은 일을 한다. `open_pull_request`로 열고, `update_pull_request`로 제목·본문을 고치고, `comment_pull_request`로 코멘트를 단다. `close_pull_request`와 `reopen_pull_request`로 이 세션의 push 요청이 연 PR을 머지하지 않고 닫거나 다시 연다. 사람 승인은 받지 않는다. 다른 세션의 PR이나 허용되지 않은 저장소의 PR은 닫지 못한다. 이미 닫힌 PR을 닫거나 열린 PR을 다시 열면 아무것도 바꾸지 않고 `changed: false`로 답한다. 머지된 PR은 `PULL_REQUEST_MERGED`로 거절한다. 닫아도 `agent/<session-id>` 브랜치는 지우지 않는다. 그래서 다시 열 수 있다.
 
+## push가 끝난 뒤 PR이 열리는 방식
+
+push 요청에 PR 요청이 붙어 있으면, push가 `pushed`로 끝난 뒤에 control-host 안의 action-broker가 PR을 연다. 에이전트가 이어 턴에서 `open_pull_request`를 다시 부르지 않아도 된다. 이 일은 `AGENT_ACTION_FLOWS` 설정과 상관없이 control-host가 뜰 때 같이 시작한다. 설정을 끈 채로 다시 띄워도 이미 시작된 PR 단계는 끝까지 처리된다. REST로는 push가 끝나기 전에 `POST /v1/sessions/{id}/push-requests/{push_request_id}/pull-request?schedule=true`를 부르면 409 `PUSH_NOT_PUSHED` 대신 202와 `status: "scheduled"`를 받고, push가 끝나는 대로 PR이 열린다. `schedule` query가 없으면 전과 같이 409다.
+
+PR 단계는 push 요청마다 하나이고, 상태가 아래처럼 바뀐다.
+
+| 상태 | 뜻 |
+| --- | --- |
+| `due` | push가 끝나 PR을 열 차례다. 열기에 실패하면 간격을 두고 다시 시도한다(최대 3번) |
+| `opening` | action-broker 한 곳이 PR을 열고 있다. 그 처리가 멈추면 다른 replica가 이어받는다 |
+| `opened` | PR이 열렸고 기록됐다. 번호와 링크는 PR 행에 있다 |
+| `closed_unrecorded` | 이 push 요청의 PR이 기록되기 전에 닫히거나 머지됐다. 새 PR을 만들지 않는다 |
+| `uncertain` | GitHub에 PR이 있는지 확인하지 못했다(조회가 세 번 실패했거나, 첫 조회가 한도인 10건을 가득 채워 다음 쪽에 더 있을 수 있다). 또는 맞는 PR이 둘 이상이다. 플랫폼이 고르지 않는다 |
+| `failed` | PR을 열지 못했다. 사유가 `pr_error`에 남는다 |
+| `cancelled` | push가 실패해서 열 PR이 없다. 사유가 `pr_error`에 남는다 |
+
+열기 전에 플랫폼은 브랜치를 모든 상태(열림·닫힘·머지됨)로 먼저 찾는다. 응답을 잃은 뒤 다시 시도해도 PR이 하나 더 생기지 않는 이유다. 이미 열린 PR이 있으면 그 PR을 쓰고 꼬리만 새 commit으로 바꾼다. 찾은 PR이나 새로 만든 PR의 head가 push한 commit과 다르면 기록하지 않고 `head_moved`로 끝낸다. 다만 GitHub가 push 직후 잠깐 이전 head를 보여 주는 경우가 있어, 그 head가 push한 commit의 조상이면 끝내지 않고 다음 시도까지 기다린다(마지막 시도 전까지, 비교 요청 1회). 조상이 아니거나 비교가 실패하면 바로 끝낸다. 만들어진 PR은 닫지 않으니 사람이 확인한다. PR 본문의 표시는 누구나 쓸 수 있으므로, 같은 저장소·head·base인 PR만 후보로 본다.
+
+결과는 세션 스레드에 알림으로 온다(PR 열림, 열지 못함, 이미 닫힘, 확인하지 못함). 알림 문구는 세션을 시작한 사람의 언어를 따르고(요청한 사람이 아니다), 결과마다 한 번만 만들어진다. 알림은 세션에 Slack 스레드가 이어져 있고 음소거·권한 제한이 없을 때만 만들어진다. 그렇지 않으면 상태만 바뀌고 알림 행은 생기지 않는다. 알림이 만들어지는 경우에는 상태를 바꾸는 트랜잭션에 함께 기록되므로 상태만 바뀌고 알림이 빠지는 일은 없다.
+
+알려진 한계가 있다. 프로세스가 호출 직전에 오래 멈췄다가 깨어나 이미 보낸 요청이 늦게 도착하면, 같은 브랜치에 PR이 하나 더 생길 수 있고 플랫폼은 PR을 연 뒤에 이를 다시 찾지 않는다. GitHub에는 조건부 생성이 없어서, 플랫폼은 호출 직전에 다시 확인하고 열기 전에 브랜치를 찾아보는 것까지만 한다. 열 때 맞는 PR이 둘 이상이면 새로 만들지 않고 `uncertain`으로 두며 알린다. 자동으로 닫지 않으니 GitHub에서 사람이 고른다.
+
 ## 세션 도중 저장소 붙이기
 
 에이전트는 일하는 도중에 내장 MCP 도구 `attach_repository({ repository_id })`로 다른 저장소를 붙인다. 붙일 수 있는 것은 에이전트 release의 GitHub 설정(`github.repositories`)에 있고 프로필이 허용하는 저장소뿐이다. 사람 승인은 받지 않는다. 그 저장소에 쓰는 일은 지금처럼 push 요청 승인을 거치고, push 승인을 끈 에이전트도 부착 저장소의 push는 사람이 승인한다. 붙일 수 있는 저장소는 에이전트가 `list_repositories`로 본다(주 저장소 `primary`, 붙인 것 `attached`·`pending`·`failed`, 붙일 수 있는 것 `available`). 세션은 시작할 때의 release를 계속 쓴다. 그래서 그 뒤 활성 release에만 더한 저장소는 `allowed_in_newer_release`로 따로 보이고, `attach_repository`도 `repository_not_allowed` 대신 `allowed_in_newer_release`로 거절한다. 다시 허용할 필요는 없고, 새 세션(Slack에서는 새 스레드)에서 붙일 수 있다.

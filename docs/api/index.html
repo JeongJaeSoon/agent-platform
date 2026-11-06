@@ -9132,6 +9132,33 @@
                 "type": "null"
               }
             ]
+          },
+          "pr_error": {
+            "default": null,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "pr_number": {
+            "default": null,
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "pr_url": {
+            "default": null,
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
@@ -9153,7 +9180,10 @@
           "push_receipt_id",
           "origin",
           "flow",
-          "pr_state"
+          "pr_state",
+          "pr_error",
+          "pr_number",
+          "pr_url"
         ],
         "additionalProperties": false
       },
