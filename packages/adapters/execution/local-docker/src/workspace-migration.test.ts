@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { LABELS } from "./backend.ts";
+import { LABELS, volumeLabelsOf } from "./backend.ts";
 import type { LocalDockerBackendConfig } from "./config.ts";
 import type { DockerClient, VolumeInspect } from "./docker-client.ts";
 import {
@@ -12,9 +12,12 @@ const SESSION = "0b1c2d3e-4f50-4617-8293-a4b5c6d7e8f9";
 const QUOTA = 64 * 1024 * 1024;
 const config = {
   installationId: "inst",
+  volumeLabelNamespace: "werft",
+  volumeNamePrefix: "werft-ws-",
   workspaceQuota: { mode: "enforced", sizeBytes: QUOTA },
 } as LocalDockerBackendConfig;
-const LEGACY = `ap-ws-inst-${SESSION}`;
+const VOLUME_LABELS = volumeLabelsOf(config);
+const LEGACY = `werft-ws-inst-${SESSION}`;
 const CREATED = "2026-01-01T00:00:00Z";
 
 function volume(
@@ -38,12 +41,12 @@ function labelled(
   extra: Record<string, string> = {},
 ): VolumeInspect {
   return volume(
-    `ap-ws-inst-${SESSION}-${suffix}`,
+    `werft-ws-inst-${SESSION}-${suffix}`,
     {
       [LABELS.installation]: "inst",
       [LABELS.managed]: "true",
       [LABELS.sessionId]: SESSION,
-      [LABELS.workspaceQuota]: stamp,
+      [VOLUME_LABELS.workspaceQuota]: stamp,
       ...extra,
     },
     stamp.startsWith("enforced:") ? { size: stamp.slice(9) } : null,
@@ -72,8 +75,8 @@ describe("planWorkspaceMigration", () => {
 
   test("a copy an earlier run made of that source is a leftover to redo", () => {
     const copy = labelled("aaaa0001", `enforced:${QUOTA}`, {
-      [LABELS.migratedFrom]: LEGACY,
-      [LABELS.migrationSourceCreatedAt]: CREATED,
+      [VOLUME_LABELS.migratedFrom]: LEGACY,
+      [VOLUME_LABELS.migrationSourceCreatedAt]: CREATED,
     });
     expect(plan([copy], volume(LEGACY))).toEqual({
       kind: "migrate",
@@ -86,8 +89,8 @@ describe("planWorkspaceMigration", () => {
     // Another run finished and removed the source; a late run's mount then
     // made an empty volume under that name. The copy is the work.
     const copy = labelled("aaaa0010", `enforced:${QUOTA}`, {
-      [LABELS.migratedFrom]: LEGACY,
-      [LABELS.migrationSourceCreatedAt]: CREATED,
+      [VOLUME_LABELS.migratedFrom]: LEGACY,
+      [VOLUME_LABELS.migrationSourceCreatedAt]: CREATED,
     });
     const recreated = { ...volume(LEGACY), CreatedAt: "2026-09-23T00:00:00Z" };
     expect(plan([copy], recreated)).toEqual({
@@ -96,7 +99,7 @@ describe("planWorkspaceMigration", () => {
     });
     // Nor is a copy that does not say which one it came from.
     const unmarked = labelled("aaaa0011", `enforced:${QUOTA}`, {
-      [LABELS.migratedFrom]: LEGACY,
+      [VOLUME_LABELS.migratedFrom]: LEGACY,
     });
     expect(plan([unmarked], volume(LEGACY))).toMatchObject({
       kind: "refused",
@@ -120,8 +123,8 @@ describe("planWorkspaceMigration", () => {
   test("with its unfinished copy beside it, the old-quota one is still the source", () => {
     const old = labelled("aaaa0003", "off");
     const copy = labelled("aaaa0004", `enforced:${QUOTA}`, {
-      [LABELS.migratedFrom]: old.Name,
-      [LABELS.migrationSourceCreatedAt]: CREATED,
+      [VOLUME_LABELS.migratedFrom]: old.Name,
+      [VOLUME_LABELS.migrationSourceCreatedAt]: CREATED,
     });
     expect(plan([old, copy], null)).toEqual({
       kind: "migrate",
@@ -132,7 +135,7 @@ describe("planWorkspaceMigration", () => {
 
   test("a finished copy is current: its source is gone", () => {
     const copy = labelled("aaaa0004", `enforced:${QUOTA}`, {
-      [LABELS.migratedFrom]: LEGACY,
+      [VOLUME_LABELS.migratedFrom]: LEGACY,
     });
     expect(plan([copy], null)).toEqual({
       kind: "current",
@@ -143,7 +146,7 @@ describe("planWorkspaceMigration", () => {
   test("a copy whose source is long gone can itself be moved again", () => {
     // Migrated once under the old quota; the quota has changed since.
     const earlier = labelled("aaaa0009", "off", {
-      [LABELS.migratedFrom]: LEGACY,
+      [VOLUME_LABELS.migratedFrom]: LEGACY,
     });
     expect(plan([earlier], null)).toEqual({
       kind: "migrate",
@@ -238,7 +241,7 @@ describe("WorkspaceMigrator", () => {
       }),
     ).rejects.toThrow("was removed and recreated empty");
     const [pinned, unpinned, ...rest] = calls;
-    expect(pinned).toStartWith(`create ap-ws-migrate-pin-inst-${SESSION}-`);
+    expect(pinned).toStartWith(`create werft-ws-migrate-pin-inst-${SESSION}-`);
     expect(unpinned).toBe(pinned?.replace("create", "remove"));
     expect(rest).toEqual([]);
   });

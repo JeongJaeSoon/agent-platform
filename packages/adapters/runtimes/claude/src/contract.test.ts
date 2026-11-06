@@ -826,3 +826,71 @@ describe("gitEnvironment", () => {
     );
   });
 });
+
+describe("trustedTools", () => {
+  const PUSH = "mcp__github__request_push";
+  const tools = ["Bash", PUSH, "mcp__github__submit_review"];
+  const server = {
+    name: "github",
+    binding: `sha256:${"0".repeat(64)}`,
+    url: "http://egress-proxy:3129/mcp/github",
+    token: "t",
+    tools,
+  };
+  const start = (mcpServers: object[]) => ({
+    config: {
+      mode: "new" as const,
+      correlationId: "c",
+      cwd: "/tenant/workspace",
+      home: "/tenant/home",
+      model: "primary",
+      permissionMode: "default" as const,
+      tools,
+    },
+    bindings: {
+      principal: { ownerScope: "owner-a" },
+      provider: {
+        kind: "anthropic" as const,
+        endpoint: "https://api.anthropic.com",
+        auth: { kind: "api_key" as const, value: "placeholder" },
+      },
+    },
+    bundle: {
+      instructions: [],
+      repoInstructions: null,
+      mcpServers: mcpServers as never,
+    },
+  });
+  const deps = { stateDir: "/tenant/config" };
+
+  test("come from a platform server's trusted list, and only its own tools in its allowlist", () => {
+    const config = claudeStartConfig(
+      start([
+        {
+          ...server,
+          platform: true,
+          trusted: [PUSH, "mcp__github__not_exposed", "mcp__other__tool"],
+        },
+      ]),
+      deps,
+    );
+    expect(config.trustedTools).toEqual([PUSH]);
+  });
+
+  test("are absent for a server that is not the platform's, or marks nothing", () => {
+    expect(
+      claudeStartConfig(start([{ ...server, trusted: [PUSH] }]), deps),
+    ).not.toHaveProperty("trustedTools");
+    expect(
+      claudeStartConfig(start([{ ...server, platform: true }]), deps),
+    ).not.toHaveProperty("trustedTools");
+  });
+
+  test("leave the checkpoint fingerprint as it is", () => {
+    expect(
+      claudeRuntimeModule.fingerprint(
+        start([{ ...server, platform: true, trusted: [PUSH] }]),
+      ),
+    ).toEqual(claudeRuntimeModule.fingerprint(start([server])));
+  });
+});

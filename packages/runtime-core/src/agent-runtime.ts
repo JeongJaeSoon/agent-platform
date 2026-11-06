@@ -99,6 +99,16 @@ export type PlatformMcpServer = {
   token: string;
   /** The tool allowlist; the run exposes only this server's share of it. */
   tools: readonly string[];
+  /** The platform's own server, not a remote one an administrator named. */
+  platform?: boolean;
+  /**
+   * Tools of a `platform` server whose every call the server judges itself.
+   * An adapter runs them with no judgment of the engine's (a person's answer
+   * or a classifier's) and only after its own allowlist check, the
+   * checkpoint admission and the ledger record. Absent means the engine
+   * judges every tool as it always did.
+   */
+  trusted?: readonly string[];
 };
 
 export type RuntimeBundle = {

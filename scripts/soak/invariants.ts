@@ -209,11 +209,11 @@ async function listRunning(installation: string): Promise<RunningWorker[]> {
     "docker",
     "ps",
     "--filter",
-    `label=agent-platform.installation=${installation}`,
+    `label=werft.installation=${installation}`,
     "--filter",
     "name=ap-worker-",
     "--format",
-    '{{.Names}}\t{{.Label "agent-platform.session-id"}}\t{{.Label "agent-platform.session-execution-id"}}',
+    '{{.Names}}\t{{.Label "werft.session-id"}}\t{{.Label "werft.session-execution-id"}}',
   ]);
   return stdout
     .split("\n")
@@ -284,7 +284,7 @@ export class ContainerLifetimes {
         "docker",
         "events",
         "--filter",
-        `label=agent-platform.installation=${this.installation}`,
+        `label=werft.installation=${this.installation}`,
         "--filter",
         "type=container",
         "--filter",
@@ -334,9 +334,9 @@ export class ContainerLifetimes {
       this.lifetimes.set(id, {
         container: id,
         die: null,
-        execution: attributes["agent-platform.session-execution-id"] ?? "",
+        execution: attributes["werft.session-execution-id"] ?? "",
         name,
-        session: attributes["agent-platform.session-id"] ?? "",
+        session: attributes["werft.session-id"] ?? "",
         start: at,
       });
     } else if (event.Action === "die") {

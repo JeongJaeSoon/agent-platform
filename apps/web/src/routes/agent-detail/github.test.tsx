@@ -103,6 +103,11 @@ async function activeAgent({
   return { server, release, versionId };
 }
 
+const PULL_REQUEST = {
+  pull_request: { formatting: "inherit", template: null, template_name: null },
+  pull_request_revision: 0,
+};
+
 function routesFor(
   server: ReturnType<typeof agentServer>,
   tab: Tab,
@@ -120,6 +125,7 @@ function routesFor(
         active_release_id: server.detail().agent.active_release_id,
       }),
     [`GET ${PATH}/github/activity`]: () => json(200, { items: [] }),
+    [`GET ${PATH}/github/pull-request`]: () => json(200, PULL_REQUEST),
     [`GET ${PATH}/github/repositories`]: () =>
       json(200, {
         installations: [],
@@ -678,7 +684,7 @@ describe("에이전트 GitHub 탭", () => {
   test("첨부 저장소 push는 저장된 값을 보여 주고, 바꾸면 한 칸만 PUT하며, 되돌리면 초안이 사라진다", async () => {
     const { server } = await activeAgent();
     const sent: unknown[] = [];
-    renderAt(
+    const { api } = renderAt(
       DETAIL,
       routesFor(server, TAB, {
         [`PUT ${PATH}/github/settings`]: async (request) => {
@@ -716,6 +722,14 @@ describe("에이전트 GitHub 탭", () => {
         push_attached: "allow",
       },
     ]);
+    expect(
+      api.calls.filter(
+        (c) => c.path.endsWith("/releases") || c.path.endsWith("/activate"),
+      ),
+    ).toEqual([]);
+    await waitFor(() =>
+      expect(screen.queryByText(/저장하지 않은 변경/)).toBeNull(),
+    );
   });
 
   test("시작 저장소는 고른 저장소 안에서만 정하고, 저장소를 끄면 지정이 풀린다", async () => {
@@ -1105,6 +1119,87 @@ describe("에이전트 GitHub 탭", () => {
     expect(
       within(rows).getByRole("link", { name: /세션/ }).getAttribute("href"),
     ).toBe(`/sessions/${SESSION}`);
+  });
+});
+
+describe("에이전트 GitHub 탭 › Pull request 서식", () => {
+  const PUT = `PUT ${PATH}/github/pull-request`;
+  const saved = (over: object = {}) => ({
+    pull_request: {
+      formatting: "on",
+      template: null,
+      template_name: "feature.md",
+      ...over,
+    },
+    pull_request_revision: 1,
+    receipt_id: RECEIPT_ID,
+  });
+
+  test("화면의 템플릿 최대치는 계약의 최대치와 같다", async () => {
+    const { PULL_REQUEST_TEMPLATE_MAX_BYTES } = await import(
+      "@werft-ai/contracts"
+    );
+    const { AGENT_TEMPLATE_MAX_BYTES } = await import(
+      "./github-pull-request.tsx"
+    );
+    expect(AGENT_TEMPLATE_MAX_BYTES).toBe(PULL_REQUEST_TEMPLATE_MAX_BYTES);
+  });
+
+  test("자기 버튼으로 자기 경로에만 저장한다: GitHub 설정 PUT은 부르지 않는다", async () => {
+    const { server } = await activeAgent();
+    const { api } = renderAt(
+      DETAIL,
+      routesFor(server, TAB, { [PUT]: () => json(200, saved()) }),
+    );
+    const user = await setupUser();
+    await user.selectOptions(await screen.findByLabelText("서식"), "on");
+    await user.type(
+      screen.getByLabelText("저장소 템플릿 파일 이름"),
+      "feature.md",
+    );
+    const card = screen
+      .getByRole("heading", { name: "Pull request 서식" })
+      .closest("section") as HTMLElement;
+    await user.click(within(card).getByRole("button", { name: "서식 저장" }));
+    await waitFor(() =>
+      expect(api.calls.filter((c) => c.method === "PUT")).toHaveLength(1),
+    );
+    const put = api.calls.find((c) => c.method === "PUT");
+    expect(put?.path).toBe(`${PATH}/github/pull-request`);
+    expect(put?.body).toEqual({
+      pull_request: {
+        formatting: "on",
+        template: null,
+        template_name: "feature.md",
+      },
+      revision: 0,
+    });
+  });
+
+  test("다른 곳에서 먼저 바꿨으면 그 문장을 보이고 값을 다시 읽는다", async () => {
+    const { server } = await activeAgent();
+    const { api } = renderAt(
+      DETAIL,
+      routesFor(server, TAB, {
+        [PUT]: () => apiError(409, "REVISION_CONFLICT", "stale"),
+      }),
+    );
+    const user = await setupUser();
+    await user.selectOptions(await screen.findByLabelText("서식"), "off");
+    const card = screen
+      .getByRole("heading", { name: "Pull request 서식" })
+      .closest("section") as HTMLElement;
+    await user.click(within(card).getByRole("button", { name: "서식 저장" }));
+    expect(
+      await screen.findByText(/다른 곳에서 먼저 바꿨습니다/),
+    ).toBeDefined();
+    await waitFor(() =>
+      expect(
+        api.calls.filter(
+          (c) => c.method === "GET" && c.path === `${PATH}/github/pull-request`,
+        ).length,
+      ).toBeGreaterThan(1),
+    );
   });
 });
 

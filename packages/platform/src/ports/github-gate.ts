@@ -78,11 +78,29 @@ export type GitHubRateLimit = {
   retryAfterSeconds: number | null;
 };
 
+export type GitTreeEntry = {
+  name: string;
+  /** Octal mode: 100644 and 100755 are files, 120000 a symlink, 160000 a submodule. */
+  mode: string;
+  type: "blob" | "tree" | "commit";
+  sha: string;
+  size: number | null;
+};
+
 /** REST calls with the one credential a grant holds. */
 export interface GitHubApi {
   /** Longest pull request or comment body GitHub takes. */
   readonly maxBodyLength: number;
   getRepository(): Promise<ForgeRepository>;
+  getBranchHead(
+    branch: string,
+  ): Promise<{ commitSha: string; treeSha: string }>;
+  /** One level of a tree, never recursive. `truncated`: GitHub cut the list. */
+  readTree(
+    treeSha: string,
+  ): Promise<{ entries: GitTreeEntry[]; truncated: boolean }>;
+  /** A blob's bytes, never followed through a link. Failures are GitHubCallError. */
+  readBlob(blobSha: string): Promise<Uint8Array>;
   findPullRequestForBranch(branch: string): Promise<ForgePullRequest | null>;
   /**
    * Every pull request whose head is the branch, in any state, newest first

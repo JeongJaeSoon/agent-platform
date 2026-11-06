@@ -3,7 +3,7 @@ title: "Kubernetes execution backend"
 description: How the scheduler runs workers as Kubernetes Pods, and the settings it reads
 ---
 
-This page describes how the scheduler behaves, and what it reads, when it runs workers as Kubernetes Pods instead of Docker containers. The steps to install with the Helm chart are in [Kubernetes install (Helm chart)](/run-server/self-hosting/operate/kubernetes-deployment). The Docker backend is described in [Execution base and worker isolation](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/execution.md).
+This page describes how the scheduler behaves, and what it reads, when it runs workers as Kubernetes Pods instead of Docker containers. The steps to install with the Helm chart are in [Kubernetes install (Helm chart)](/run-server/self-hosting/operate/kubernetes-deployment). The Docker backend is described in [Execution base and worker isolation](/run-server/self-hosting/operate/execution).
 
 `packages/adapters/execution/kubernetes` creates one worker Pod per launch. Each Pod gets one nonce Secret that it owns, and the session's workspace PVC is mounted.
 
@@ -73,7 +73,7 @@ Scheduler passes are serialized by one PostgreSQL advisory lock (`pg_try_advisor
 
 ## Worker NetworkPolicy
 
-The chart's NetworkPolicy replaces the per-execution internal network of the Docker backend. A worker Pod (`app.kubernetes.io/part-of=agent-platform`, `app.kubernetes.io/component=worker`, `agent-platform.installation=<installationId>`) accepts no connection, and it connects out only to ports 3128 and 3129 of the egress-proxy. It cannot reach the database, the api, other workers or the node and cloud metadata addresses directly. Even the gateway requests to the api go through the proxy. The egress-proxy accepts connections only from workers, and the api's authorizer (3100) accepts them only from the egress-proxy. If the cluster CNI does not enforce NetworkPolicy, this isolation does not exist (kindnet in kind enforces it; on EKS, turn on the network policy agent of the VPC CNI).
+The chart's NetworkPolicy replaces the per-execution internal network of the Docker backend. A worker Pod (`app.kubernetes.io/part-of=werft`, `app.kubernetes.io/component=worker`, `werft.installation=<installationId>`) accepts no connection, and it connects out only to ports 3128 and 3129 of the egress-proxy. It cannot reach the database, the api, other workers or the node and cloud metadata addresses directly. Even the gateway requests to the api go through the proxy. The egress-proxy accepts connections only from workers, and the api's authorizer (3100) accepts them only from the egress-proxy. If the cluster CNI does not enforce NetworkPolicy, this isolation does not exist (kindnet in kind enforces it; on EKS, turn on the network policy agent of the VPC CNI).
 
 ## API server authentication
 

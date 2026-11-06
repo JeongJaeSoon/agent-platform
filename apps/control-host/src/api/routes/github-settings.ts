@@ -2,6 +2,8 @@ import {
   githubSettingsResponseSchema,
   putGitHubOAuthClientSecretRequestSchema,
   putGitHubOAuthClientSecretResponseSchema,
+  putGitHubPullRequestSettingsRequestSchema,
+  putGitHubPullRequestSettingsResponseSchema,
   putGitHubSettingsRequestSchema,
   putGitHubUserLinkAppRequestSchema,
   putGitHubUserLinkAppResponseSchema,
@@ -40,6 +42,21 @@ export function registerGitHubSettingsRoutes(
       ),
     );
     return jsonWithSchema(context, githubSettingsResponseSchema, settings);
+  });
+
+  apiRoute(router, "putGitHubPullRequestSettings", async (context) => {
+    const stored = await mapped(() =>
+      service.putPullRequest(
+        context.get("caller"),
+        lowercaseWorkspaceId(context),
+        () => parseJsonBody(context, putGitHubPullRequestSettingsRequestSchema),
+      ),
+    );
+    return jsonWithSchema(
+      context,
+      putGitHubPullRequestSettingsResponseSchema,
+      stored,
+    );
   });
 
   apiRoute(router, "putGitHubOAuthClientSecret", async (context) => {

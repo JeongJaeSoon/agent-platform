@@ -1,4 +1,7 @@
-import type { OpenPullRequestRequest } from "@werft-ai/contracts";
+import type {
+  OpenPullRequestRequest,
+  PullRequestTemplateRecord,
+} from "@werft-ai/contracts";
 
 /**
  * Why a push request's pull request stage ended without a recorded pull
@@ -65,6 +68,8 @@ export type OpenedPullRequest = {
   title: string | null;
   /** False for a pull request the platform found instead of creating. */
   created: boolean;
+  /** How the body was laid out; null for a pull request the platform did not create. */
+  template?: PullRequestTemplateRecord | null | undefined;
 };
 
 export type PullRequestDrainOutcome =

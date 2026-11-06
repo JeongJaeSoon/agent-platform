@@ -51,6 +51,7 @@ import {
   useI18n,
 } from "../../i18n/i18n.tsx";
 import { AppRepositoryPicker } from "./github-app-repositories.tsx";
+import { AgentPullRequestSettingsCard } from "./github-pull-request.tsx";
 import { type Notify, useToast } from "./toast.tsx";
 import { useCurrentSection } from "./use-current-section.ts";
 import { usePageFits } from "./use-page-fits.ts";
@@ -1311,6 +1312,7 @@ export default function GitHubTab({
             notify={notify}
             sectionKeys={sectionKeys}
           />
+          <AgentPullRequestSettingsCard agentId={agentId} notify={notify} />
         </div>
       </SideNavLayout>
       {toast}

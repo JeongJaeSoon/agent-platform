@@ -436,12 +436,16 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     // model to open a pull request even for a push that asked for none. The
     // flow is read before the decision: a read that fails leaves the request
     // open for another press instead of guessing `legacy`.
-    let flow: Awaited<ReturnType<typeof deps.followUps.flowOf>>;
+    // The request already carries its flow; only a row without one is read.
+    let flow: Awaited<ReturnType<typeof deps.followUps.flowOf>> =
+      request.flow ?? null;
     try {
-      flow = await deps.followUps.flowOf({
-        sessionId: value.s,
-        pushRequestId: request.id,
-      });
+      if (request.flow === undefined) {
+        flow = await deps.followUps.flowOf({
+          sessionId: value.s,
+          pushRequestId: request.id,
+        });
+      }
     } catch (error) {
       deps.logger.warn("Slack push flow not read", {
         agent_id: pressed.agentId,
@@ -475,6 +479,8 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
       );
       return "failed";
     }
+    // An actions-flow push has no continuation turn: the turn that asked for
+    // it already ended, and the platform carries the push on from here.
     if (flow === "actions") {
       await card();
       return decision === "approve" ? "approved" : "rejected";

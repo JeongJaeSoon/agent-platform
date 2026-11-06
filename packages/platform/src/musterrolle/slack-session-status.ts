@@ -126,7 +126,7 @@ export async function slackStatusMaterial(
     answerableRequest: facts.answerableRequest,
     runningTurn: facts.runningTurn,
     queuedTurn: facts.queuedTurn,
-    actionStages: [],
+    actionStages: facts.actionStages,
   };
 }
 

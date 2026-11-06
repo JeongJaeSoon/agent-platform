@@ -195,6 +195,30 @@ export const agentGitHubKo = {
     "워크스페이스 설정 › GitHub 연결 설정 › 저장소 관리에서 이 저장소를 맡을 다른 App을 고르세요",
   "agentGitHub.saveRefused": "저장하지 못했습니다: {reason}",
   "agentGitHub.refused": "거절",
+  "agentPullRequest.title": "Pull request 서식",
+  "agentPullRequest.hint":
+    "이 에이전트가 여는 Pull request의 본문을 워크스페이스 설정 위에 덮어씁니다. 위의 GitHub 설정과 따로 저장하며, 릴리스를 만들지 않습니다. 이후에 여는·갱신하는 PR부터 적용됩니다.",
+  "agentPullRequest.formatting": "서식",
+  "agentPullRequest.formatting.inherit": "워크스페이스 설정을 따름",
+  "agentPullRequest.formatting.on": "템플릿 사용",
+  "agentPullRequest.formatting.off": "템플릿 사용 안 함",
+  "agentPullRequest.formattingHint":
+    "사용 안 함이면 저장소 템플릿과 아래 템플릿을 쓰지 않고 기본 서식으로 채웁니다.",
+  "agentPullRequest.templateName": "저장소 템플릿 파일 이름",
+  "agentPullRequest.templateNameHint":
+    "저장소의 PULL_REQUEST_TEMPLATE 폴더에 파일이 여럿일 때 쓸 파일 이름입니다. 대소문자는 구분하지 않고, 경로로 쓰이지 않습니다.",
+  "agentPullRequest.template": "이 에이전트의 템플릿",
+  "agentPullRequest.templateHint":
+    "비워 두면 워크스페이스의 템플릿을 씁니다. {bytes} / {max} 바이트",
+  "agentPullRequest.save": "서식 저장",
+  "agentPullRequest.saved": "Pull request 서식을 저장했습니다.",
+  "agentPullRequest.conflict":
+    "다른 곳에서 먼저 바꿨습니다. 저장된 값을 다시 불러왔으니 확인한 뒤 저장해 주세요.",
+  "agentPullRequest.tooLarge":
+    "템플릿이 {max} 바이트를 넘어 저장하지 못했습니다.",
+  "agentPullRequest.invalidText": "템플릿이 올바른 UTF-8 텍스트가 아닙니다.",
+  "agentPullRequest.unsupported":
+    "템플릿에 지원하지 않는 마크업이 있거나 주석이 닫히지 않았습니다.",
 };
 
 export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
@@ -393,6 +417,30 @@ export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
     "Choose another App to handle this repository under Workspace settings › GitHub connection › Manage repositories",
   "agentGitHub.saveRefused": "Not saved: {reason}",
   "agentGitHub.refused": "Refused",
+  "agentPullRequest.title": "Pull request layout",
+  "agentPullRequest.hint":
+    "Overrides the workspace's settings for the pull request bodies this agent opens. Saved apart from the GitHub settings above and makes no release. It applies to pull requests opened or updated afterwards.",
+  "agentPullRequest.formatting": "Layout",
+  "agentPullRequest.formatting.inherit": "Follow the workspace",
+  "agentPullRequest.formatting.on": "Use templates",
+  "agentPullRequest.formatting.off": "Do not use templates",
+  "agentPullRequest.formattingHint":
+    "When off, neither the repository's template nor the one below is used and the body is filled in the default layout.",
+  "agentPullRequest.templateName": "Repository template file name",
+  "agentPullRequest.templateNameHint":
+    "Which file to use when the repository's PULL_REQUEST_TEMPLATE folder holds several. Case does not matter, and it is never used as a path.",
+  "agentPullRequest.template": "This agent's template",
+  "agentPullRequest.templateHint":
+    "Leave empty to use the workspace's template. {bytes} / {max} bytes",
+  "agentPullRequest.save": "Save layout",
+  "agentPullRequest.saved": "Saved the pull request layout.",
+  "agentPullRequest.conflict":
+    "Someone changed it first. The saved values were reloaded; check them and save again.",
+  "agentPullRequest.tooLarge":
+    "The template is over {max} bytes and was not saved.",
+  "agentPullRequest.invalidText": "The template is not valid UTF-8 text.",
+  "agentPullRequest.unsupported":
+    "The template has unsupported markup or an unclosed comment.",
 };
 
 export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
@@ -591,4 +639,29 @@ export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
     "ワークスペース設定 › GitHub 連携設定 › リポジトリを管理 で、このリポジトリを担当する別の App を選んでください",
   "agentGitHub.saveRefused": "保存できませんでした: {reason}",
   "agentGitHub.refused": "拒否",
+  "agentPullRequest.title": "Pull request の書式",
+  "agentPullRequest.hint":
+    "このエージェントが開く Pull request の本文について、ワークスペースの設定を上書きします。上の GitHub 設定とは別に保存され、リリースは作りません。以降に開く・更新する PR から適用されます。",
+  "agentPullRequest.formatting": "書式",
+  "agentPullRequest.formatting.inherit": "ワークスペースの設定に従う",
+  "agentPullRequest.formatting.on": "テンプレートを使う",
+  "agentPullRequest.formatting.off": "テンプレートを使わない",
+  "agentPullRequest.formattingHint":
+    "使わない場合は、リポジトリのテンプレートも下のテンプレートも使わず、既定の書式で埋めます。",
+  "agentPullRequest.templateName": "リポジトリのテンプレートのファイル名",
+  "agentPullRequest.templateNameHint":
+    "リポジトリの PULL_REQUEST_TEMPLATE フォルダに複数のファイルがあるときに使うファイル名です。大文字小文字は区別せず、パスとしては使われません。",
+  "agentPullRequest.template": "このエージェントのテンプレート",
+  "agentPullRequest.templateHint":
+    "空にするとワークスペースのテンプレートを使います。{bytes} / {max} バイト",
+  "agentPullRequest.save": "書式を保存",
+  "agentPullRequest.saved": "Pull request の書式を保存しました。",
+  "agentPullRequest.conflict":
+    "先に他の場所で変更されました。保存済みの値を読み込み直したので、確認してからもう一度保存してください。",
+  "agentPullRequest.tooLarge":
+    "テンプレートが {max} バイトを超えているため保存できませんでした。",
+  "agentPullRequest.invalidText":
+    "テンプレートが正しい UTF-8 のテキストではありません。",
+  "agentPullRequest.unsupported":
+    "テンプレートにサポートされないマークアップがあるか、コメントが閉じられていません。",
 };

@@ -5,6 +5,7 @@ import {
 } from "@werft-ai/runtime-core/testing/conformance";
 import type { ClaudeRuntimeConfig } from "./config.ts";
 import { buildSdkOptions } from "./runtime.ts";
+import { TurnLedger } from "./turn-ledger.ts";
 
 const config: ClaudeRuntimeConfig = {
   claudeConfigDir: "/tenant/config",
@@ -38,6 +39,42 @@ const harness: AdapterConformanceHarness = {
       { onPermission: async () => ({ behavior: "allow" }) },
     );
     return { environment: env ?? {}, rest };
+  },
+  async toolJudgment(call) {
+    const ledger = new TurnLedger("conformance");
+    if (call.admission === "fails") {
+      ledger.holdAdmission(async () => {
+        throw new Error("gateway down");
+      });
+    }
+    const pre = buildSdkOptions(
+      {
+        ...config,
+        permissionMode: call.permissionMode,
+        tools: [...call.allowlist],
+        trustedTools: call.trusted,
+      },
+      { onPermission: async () => ({ behavior: "allow" }) },
+      ledger,
+    ).hooks?.PreToolUse?.[0]?.hooks[0];
+    if (pre === undefined) throw new Error("PreToolUse hook is required");
+    const answer = await pre(
+      {
+        hook_event_name: "PreToolUse",
+        tool_name: call.tool,
+        tool_input: {},
+        tool_use_id: "toolu_conformance",
+      } as never,
+      "toolu_conformance",
+      { signal: new AbortController().signal },
+    );
+    const decision =
+      "hookSpecificOutput" in answer
+        ? (answer.hookSpecificOutput as { permissionDecision?: string })
+            .permissionDecision
+        : undefined;
+    if (decision === "deny") return "refused";
+    return decision === "allow" ? "skipped" : "engine";
   },
 };
 

@@ -3,7 +3,7 @@ title: "Kubernetes 실행 backend"
 description: scheduler가 worker를 Kubernetes Pod로 띄울 때의 동작과 설정
 ---
 
-scheduler가 worker를 Docker 컨테이너 대신 Kubernetes Pod로 띄울 때의 동작과 설정이다. Helm chart로 설치하는 절차는 [Kubernetes 설치 (Helm chart)](/run-server/self-hosting/operate/kubernetes-deployment)에, Docker backend의 동작은 [실행 기반과 worker 격리](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/execution.md)에 있다.
+scheduler가 worker를 Docker 컨테이너 대신 Kubernetes Pod로 띄울 때의 동작과 설정이다. Helm chart로 설치하는 절차는 [Kubernetes 설치 (Helm chart)](/run-server/self-hosting/operate/kubernetes-deployment)에, Docker backend의 동작은 [실행 기반과 worker 격리](/run-server/self-hosting/operate/execution)에 있다.
 
 `packages/adapters/execution/kubernetes`는 launch 하나에 worker Pod 하나를 만든다. Pod마다 그 Pod가 소유하는 nonce Secret이 하나 붙고, 세션의 workspace PVC가 마운트된다.
 
@@ -73,7 +73,7 @@ scheduler pass는 PostgreSQL advisory lock(`pg_try_advisory_lock`) 하나로 직
 
 ## worker NetworkPolicy
 
-chart의 NetworkPolicy가 Docker backend의 execution별 internal 네트워크를 대신한다. worker Pod(`app.kubernetes.io/part-of=agent-platform`, `app.kubernetes.io/component=worker`, `agent-platform.installation=<installationId>`)는 아무 연결도 받지 않고, 바깥으로는 egress-proxy의 3128·3129로만 연결한다. DB, api, 다른 worker, node·cloud metadata 주소에 직접 닿지 않는다. api로 가는 gateway 요청도 proxy를 거친다. egress-proxy는 worker에게서만 연결을 받고, api의 authorizer(3100)는 egress-proxy에게서만 받는다. 클러스터 CNI가 NetworkPolicy를 강제하지 않으면 이 격리가 없다(kind의 kindnet은 강제한다. EKS는 VPC CNI의 network policy agent를 켠다).
+chart의 NetworkPolicy가 Docker backend의 execution별 internal 네트워크를 대신한다. worker Pod(`app.kubernetes.io/part-of=werft`, `app.kubernetes.io/component=worker`, `werft.installation=<installationId>`)는 아무 연결도 받지 않고, 바깥으로는 egress-proxy의 3128·3129로만 연결한다. DB, api, 다른 worker, node·cloud metadata 주소에 직접 닿지 않는다. api로 가는 gateway 요청도 proxy를 거친다. egress-proxy는 worker에게서만 연결을 받고, api의 authorizer(3100)는 egress-proxy에게서만 받는다. 클러스터 CNI가 NetworkPolicy를 강제하지 않으면 이 격리가 없다(kind의 kindnet은 강제한다. EKS는 VPC CNI의 network policy agent를 켠다).
 
 ## API server 인증
 

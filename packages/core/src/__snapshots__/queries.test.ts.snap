@@ -206,6 +206,15 @@ exports[`query keys 1`] = `
     "sessions",
     "id-1",
   ],
+  "sessionGithubWork": [
+    {
+      "actor": "user:u-1",
+      "workspace": "w-1",
+    },
+    "sessions",
+    "id-1",
+    "github-work",
+  ],
   "sessionTurns": [
     {
       "actor": "user:u-1",
@@ -842,6 +851,33 @@ exports[`query options and the request each query makes 1`] = `
       ],
       "retry": false,
       "staleTime": 300000,
+    },
+  },
+  "sessionGithubWorkQuery": {
+    "calls": [
+      [
+        "/v1/sessions/{id}/push-requests",
+        {
+          "params": {
+            "path": {
+              "id": "id-1",
+            },
+          },
+        },
+      ],
+    ],
+    "options": {
+      "queryKey": [
+        {
+          "actor": "user:u-1",
+          "workspace": "w-1",
+        },
+        "sessions",
+        "id-1",
+        "github-work",
+      ],
+      "refetchInterval": [Function],
+      "retry": false,
     },
   },
   "sessionQuery": {

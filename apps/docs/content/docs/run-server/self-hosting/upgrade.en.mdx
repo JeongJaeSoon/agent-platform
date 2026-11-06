@@ -12,7 +12,7 @@ There is no `v` tag yet. For now, upgrade to the chart `0.1.0-main-<12>` and the
 ## Kubernetes
 
 <Callout type="warn">
-UNVERIFIED. These Kubernetes upgrade steps are copied from the operator document and have not been run in this order on a cluster. CI does not test the new control-host with the previous worker image, so try them on a test install before a real server. If they differ, follow [Kubernetes install (Helm chart)](/run-server/self-hosting/operate/kubernetes-deployment#upgrading-the-published-chart).
+These Kubernetes upgrade steps were run once on a single kind cluster. An earlier main version (`0.1.0-main-940b1956d21c`) was installed and then upgraded to `0.1.0-main-3c8a1f15488e`, and steps 1 to 4 (writing `worker-previous.json`, `helm upgrade`, the upgrade-check Job's `proceed`, the rollout and `/readyz` 200) passed in this order. Three more things were checked afterwards on a separate kind cluster. Upgrading without `workerPrevious` stops the upgrade-check Job with `refused`, and so does filling `upgrade.approvedSessions` for the same image. A deployed worker image that is not pinned (`unpinned`) or is missing (`absent`) also passes with `proceed` (those two states were made by clearing the scheduler's environment variables or deleting the Deployment, not with an older chart). On kind's default CNI, a Pod with the worker label timed out connecting to the api and postgres, could not resolve the DNS name that was tried, and reached the egress-proxy. Whether other destinations are blocked was not checked. Some things were not checked. The run had no sessions, so the `refused` case caused by affected sessions and the approval step were not run, and rolling back was not checked either. CI does not test the new control-host with the previous worker image, so try them on a test install before a real server. If they differ, follow [Kubernetes install (Helm chart)](/run-server/self-hosting/operate/kubernetes-deployment#upgrading-the-published-chart).
 </Callout>
 
 These steps use `jq` too. The published chart carries the new worker image but not the previous one, because the previous image differs per installation. An upgrade that changes the worker image stops with `refused` unless `images.workerPrevious` is the image deployed now, and an approval cannot get past that. So save the current image to a file and pass it along. Do not use `--reuse-values`: the old chart's values override the new chart's images.
@@ -95,10 +95,16 @@ kill "$PF"
 ## Single server (Docker Compose)
 
 <Callout type="warn">
-UNVERIFIED. The single-server install and upgrade have not been run end to end with the published images. What follows is the order from the operations runbook; it does not promise that it runs. If it differs, follow the [test-ops runbook](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md#업그레이드).
+The single-server upgrade has not been run with the published images. What follows is the order read from `scripts/test-ops.sh` and the code; it does not promise that it runs. If it differs, the script is the reference.
 </Callout>
 
-Rebuild `release.json` from the digests of the new tag, check out the new source commit, then call `upgrade`. If the worker image changed, it checks the current checkpoints against the new image and refuses with exit code 3 if any session is incompatible. Follow the runbook for the approval steps.
+Rebuild `release.json` from the digests of the new tag, check out the new source commit, then call `upgrade`. If the worker image changed, it checks the current checkpoints against the new image and refuses with exit code 3 if any session is incompatible. The ids of the affected sessions are written to `$TEST_OPS_STATE_DIR/upgrade-<timestamp>.sessions`. Review the list, tell the users, then call `scripts/test-ops.sh upgrade release-new.json --approve-sessions approved.txt` again with a file that holds exactly those ids. It refuses if the list differs by even one id, and when it proceeds it leaves an approval record in the state directory. Recovering an incompatible session with `start_fresh` loses the context of its earlier checkpoint. With no affected sessions it proceeds without approval.
+
+Take a [backup](/run-server/self-hosting/single-server#backup-and-restore) right before upgrading. Rolling back means calling `upgrade` again with the previous release file; the worker image changes again, so the same rules apply.
+
+If an upgrade stops before the new release is up (for example, the scheduler's quota check fails), the installation can stay stopped and `pending.json` stays in the state directory. In that state only `status`, `reset` and an `upgrade` whose release file has the same content as `pending.json` are allowed; every other command is refused, including an `upgrade` back to the previous release. Fix the cause and call `upgrade` again with the same target release file to clear it.
+
+If the installation was only taken down by a `compose down` or a host reboot, not by an upgrade, bring it back on the same volumes with `scripts/test-ops.sh start`, not `upgrade` or `deploy` ([Take it down](/run-server/self-hosting/single-server#take-it-down)). `start` refuses while `pending.json` exists.
 
 ```bash
 git fetch && git checkout <new source_commit> && bun install --frozen-lockfile

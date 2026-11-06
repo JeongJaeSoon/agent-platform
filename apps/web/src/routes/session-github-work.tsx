@@ -1,12 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
-import { isApiError, unwrap } from "@werft-ai/client";
+import { isApiError } from "@werft-ai/client";
 import type {
   ListPushRequestsResponse,
   PushIntent,
   PushRequest,
   SessionDetail,
 } from "@werft-ai/contracts";
-import { queryKeysOf } from "@werft-ai/core";
+import { sessionGithubWorkQuery } from "@werft-ai/core";
 import { useWerft } from "@werft-ai/react";
 import {
   Badge,
@@ -22,15 +22,6 @@ import { useId } from "react";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 
-// Something is moving (waiting for approval, a turn to end, a pull request to
-// open): look often. Otherwise the same minute the outcomes list uses.
-const ACTIVE_REFETCH_MS = 10_000;
-const IDLE_REFETCH_MS = 60_000;
-
-const OPEN_REQUEST = new Set(["requested", "approved", "pushing"]);
-const OPEN_PR = new Set(["due", "opening"]);
-const WAITING_INTENT = new Set(["deferred", "pinned"]);
-
 const REQUEST_BADGE = {
   requested: "blue",
   approved: "blue",
@@ -39,15 +30,6 @@ const REQUEST_BADGE = {
   rejected: "gray",
   failed: "red",
 } as const;
-
-const isActive = (data: ListPushRequestsResponse | undefined) =>
-  data !== undefined &&
-  (data.items.some(
-    (request) =>
-      OPEN_REQUEST.has(request.state) ||
-      (request.pr_state !== null && OPEN_PR.has(request.pr_state)),
-  ) ||
-    data.intents.some((intent) => WAITING_INTENT.has(intent.status)));
 
 type Row =
   | { kind: "request"; at: string; request: PushRequest }
@@ -67,7 +49,7 @@ function rowsOf(data: ListPushRequestsResponse): Row[] {
         request,
       }),
     ),
-    ...data.intents
+    ...(data.intents ?? [])
       .filter((intent) => intent.status !== "requested")
       .map(
         (intent): Row => ({ kind: "intent", at: intent.created_at, intent }),
@@ -88,7 +70,7 @@ function RequestRow({ request }: { readonly request: PushRequest }) {
           <Badge variant={REQUEST_BADGE[request.state]}>
             {t(`session.github.state.${request.state}`)}
           </Badge>
-          {request.pr_state === null ? null : (
+          {!request.pr_state ? null : (
             <Badge variant="gray">
               {t(`session.github.prState.${request.pr_state}`)}
             </Badge>
@@ -139,19 +121,11 @@ export function SessionGitHubWork({
   const { t } = useI18n();
   const { client } = useWerft();
   const titleId = useId();
-  const work = useQuery({
-    queryKey: [...queryKeysOf(client).session(session.id), "github-work"],
-    queryFn: () =>
-      unwrap(
-        client.GET("/v1/sessions/{id}/push-requests", {
-          params: { path: { id: session.id } },
-        }),
-      ) as Promise<ListPushRequestsResponse>,
-    retry: false,
-    enabled: Boolean(session.repository),
-    refetchInterval: (query) =>
-      isActive(query.state.data) ? ACTIVE_REFETCH_MS : IDLE_REFETCH_MS,
-  });
+  const work = useQuery(
+    sessionGithubWorkQuery(client, session.id, {
+      enabled: Boolean(session.repository),
+    }),
+  );
   if (work.error && !isApiError(work.error, "NOT_FOUND")) {
     return (
       <LoadFailure error={work.error} onRetry={() => void work.refetch()} />

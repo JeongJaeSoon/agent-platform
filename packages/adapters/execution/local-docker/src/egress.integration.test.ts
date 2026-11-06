@@ -113,6 +113,8 @@ integration("worker egress is confined to the proxy allowlist", () => {
     tmpfsSizeBytes: 16 * 1024 * 1024,
     user: "1000:1000",
     workspaceDir: "/workspace",
+    volumeLabelNamespace: "werft",
+    volumeNamePrefix: "werft-ws-",
     workspaceGcMinAgeMs: 0,
     // Neither Docker Desktop nor a stock Linux runner puts its storage on a
     // quota-capable filesystem; the quota itself is covered by

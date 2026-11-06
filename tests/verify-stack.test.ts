@@ -113,7 +113,7 @@ esac
         `ap-net-verify-ap-a-exec-${octet}-g1`,
         [`192.168.${octet}.0/24`],
         {
-          "agent-platform.installation": "verify-ap-a",
+          "werft.installation": "verify-ap-a",
         },
       ),
     ),

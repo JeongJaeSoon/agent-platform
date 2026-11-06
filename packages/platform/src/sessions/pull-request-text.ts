@@ -18,8 +18,7 @@ const closingKeyword =
 const crossReference = /\b([A-Za-z0-9-]+\/[A-Za-z0-9._-]+)#(\d)/g;
 const mention = /(^|[^\w])@([A-Za-z0-9])/g;
 
-/** Breaks mentions, cross-repository references, closing keywords and HTML comments. */
-export function neutralizeReferences(text: string): string {
+export function breakReferences(text: string): string {
   return text
     .replace(
       closingKeyword,
@@ -27,8 +26,11 @@ export function neutralizeReferences(text: string): string {
         `${word[0]}${ZWSP}${word.slice(1)}${gap}`,
     )
     .replace(crossReference, `$1#${ZWSP}$2`)
-    .replace(mention, `$1@${ZWSP}$2`)
-    .replaceAll("<!--", `<!${ZWSP}--`);
+    .replace(mention, `$1@${ZWSP}$2`);
+}
+
+export function neutralizeReferences(text: string): string {
+  return breakReferences(text).replaceAll("<!--", `<!${ZWSP}--`);
 }
 
 // Lines an engine appends to a pull request body on its own (Claude Code's
@@ -82,19 +84,23 @@ export function cleanBodies(
   max: number,
   redact: (line: string) => string,
 ): string[] {
-  let inKey = false;
+  const redactLine = lineRedactor(redact);
   return texts.map((text) => {
-    const redacted = text
-      .split("\n")
-      .map((line) => {
-        if (keyBegin.test(line)) inKey = true;
-        const hidden = inKey || credentialLine.test(line);
-        if (keyEnd.test(line)) inKey = false;
-        return hidden ? REDACTED_LINE : redact(line);
-      })
-      .join("\n");
+    const redacted = text.split("\n").map(redactLine).join("\n");
     return cut(neutralizeReferences(redacted), max, TRUNCATED);
   });
+}
+
+export function lineRedactor(
+  redact: (line: string) => string,
+): (line: string) => string {
+  let inKey = false;
+  return (line) => {
+    if (keyBegin.test(line)) inKey = true;
+    const hidden = inKey || credentialLine.test(line);
+    if (keyEnd.test(line)) inKey = false;
+    return hidden ? REDACTED_LINE : redact(line);
+  };
 }
 
 /** One line, redacted and neutralized, at most `PULL_REQUEST_TITLE_MAX`. */

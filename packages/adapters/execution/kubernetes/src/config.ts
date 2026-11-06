@@ -47,6 +47,12 @@ export type KubernetesBackendConfig = {
   /** See `LocalDockerBackendConfig.workspaceGcMinAgeMs`. */
   workspaceGcMinAgeMs: number;
   /**
+   * The name prefix of workspace PVCs, trailing `-` included. A claim is
+   * found by this derived name, which Kubernetes cannot change, so an install
+   * whose claims were made under another prefix sets it here.
+   */
+  volumeNamePrefix: string;
+  /**
    * The Pod's `terminationGracePeriodSeconds`, handed to the worker as
    * `WORKER_STOP_GRACE_SEC` so it sizes its drain to fit.
    */
@@ -95,6 +101,9 @@ export const DEFAULT_WORKER_EPHEMERAL_STORAGE_MB = 1024;
 // RFC 1123 label, kept short: it is part of every Pod, Secret and PVC name.
 const INSTALLATION_ID = /^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$/;
 const DNS_LABEL = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/;
+export const DEFAULT_VOLUME_NAME_PREFIX = "werft-ws-";
+// Part of a PVC name, so a DNS label fragment that ends where the id begins.
+const VOLUME_NAME_PREFIX = /^[a-z0-9][a-z0-9-]{0,30}-$/;
 const DNS_SUBDOMAIN =
   /^(?=.{1,253}$)[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/;
 
@@ -174,6 +183,9 @@ export function kubernetesConfigFromEnv(
         min: 0,
       }) * 1_000,
     workspaceSizeBytes: quotaMb * 1024 * 1024,
+    volumeNamePrefix:
+      nonEmpty(environment.EXECUTION_VOLUME_NAME_PREFIX) ??
+      DEFAULT_VOLUME_NAME_PREFIX,
   });
 }
 
@@ -281,6 +293,11 @@ export function validateKubernetesConfig(
   ) {
     throw new Error(
       `EXECUTION_EGRESS_CREDENTIAL_PORT ${config.egressCredentialPort} must be a port other than the proxy's own`,
+    );
+  }
+  if (!VOLUME_NAME_PREFIX.test(config.volumeNamePrefix)) {
+    throw new Error(
+      `EXECUTION_VOLUME_NAME_PREFIX ${config.volumeNamePrefix} must be lowercase letters, digits or "-" and end with "-"`,
     );
   }
   for (const [name, value] of [

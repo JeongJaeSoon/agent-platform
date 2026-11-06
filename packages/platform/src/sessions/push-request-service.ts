@@ -542,7 +542,7 @@ export function createPushRequestService(deps: {
           sessionId,
           pushRequestId,
         );
-        if (request?.origin === "intent") {
+        if (request?.origin === "intent" && request.state === "requested") {
           const pinned = await source.readPushSourceAt(
             sessionId,
             request.checkpoint_revision,

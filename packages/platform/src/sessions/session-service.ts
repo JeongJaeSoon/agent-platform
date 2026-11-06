@@ -409,6 +409,9 @@ export function createSessionService(deps: {
   // The platform prompt revision new sessions of an agent release get;
   // absent is 0, none.
   promptRevision?: PlatformPromptRevision;
+  // AGENT_ACTION_FLOWS, read when a session is created: it picks the prompt
+  // wording for `request_push`, and the session keeps it for good.
+  actionFlows?: () => boolean;
   // Who a requester refused for an unbound credential is told to ask.
   credentials?: Pick<CredentialBindingStore, "contacts">;
   limits: InputLimits & {
@@ -827,6 +830,7 @@ export function createSessionService(deps: {
               repositoryId === null || pair?.repository == null
                 ? null
                 : pair.repository.url,
+            actionFlows: deps.actionFlows?.() === true,
           })
         : undefined;
       const result = await inputs.acceptInputAtomic({
