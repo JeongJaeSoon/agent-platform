@@ -13,7 +13,7 @@
 # Findings never fail this script: whether they fail anything is the
 # caller's policy (the `supply-chain` job and `publish` in images.yml). A
 # scan that could not run exits non-zero and leaves `error` in the result
-# file.
+# file; the build job fails with it.
 set -euo pipefail
 
 app="$1"
@@ -43,7 +43,7 @@ case "$(uname -m)" in
     ;;
 esac
 
-curl -fsSL --retry 3 -o "${work}/grype.tar.gz" \
+curl -fsSL --retry 5 --retry-delay 15 --retry-all-errors -o "${work}/grype.tar.gz" \
   "https://github.com/anchore/grype/releases/download/v${GRYPE_VERSION}/grype_${GRYPE_VERSION}_linux_${GRYPE_ARCH}.tar.gz"
 (cd "$work" && echo "${GRYPE_SHA256}  grype.tar.gz" | sha256sum -c - && tar -xzf grype.tar.gz grype)
 
