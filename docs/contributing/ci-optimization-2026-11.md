@@ -44,9 +44,9 @@
 
 CI의 lint·라이선스 검사를 typecheck runner에 합친다. 표본 세 건에서 이 두 runner는 각각 합계 50·53·51초를 사용했고, 직접 확인한 run 42072555391의 검사 자체는 lint 4초·라이선스 0초였다. 네 unit 부분과 integration 도메인은 계속 병렬로 돈다. 새 required context는 만들지 않는다. branch protection API가 반환한 `check`, `integration`, `e2e`, `quickstart`, `supply-chain`은 그대로다.
 
-PR concurrency와 Bun 캐시는 이미 적용돼 있어 반복 추가하지 않는다. main push의 run별 concurrency 분리, 수동 `only=check`, `allow_parallel`, Images·release·publish·배포 job은 유지한다. `check (typecheck)`·`check (lint)`·`check (licenses)`는 필수 체크가 아닌 내부 matrix context이며 `check (static)`으로 모인다. 세 검사는 독립 step으로 남아 로그에서 원인을 구분한다.
+PR concurrency와 Bun 캐시는 이미 적용돼 있어 반복 추가하지 않는다. main push의 run별 concurrency 분리, 수동 `only=check`, `allow_parallel`, Images·release·publish·배포 job은 유지한다. `check (typecheck)`·`check (lint)`·`check (licenses)`를 필수 체크가 아닌 `check (static)` job으로 모은다. 세 검사는 독립 step으로 남아 로그에서 원인을 구분한다.
 
-문서 전용 감지는 quickstart·API 가이드의 실행 검증, 사이트 조립, supply-chain을 함께 판단해야 하므로 별도 PR에서 설계한다. 이 정적 검사 통합 PR에서는 draft의 무거운 job 생략을 적용하지 않는다.
+문서 전용 감지는 [CI 경로 계획](ci-path-plan.md)에서 quickstart·API 가이드의 실행 검증, 사이트 조립, supply-chain을 함께 판단한다. draft의 무거운 job 생략은 적용하지 않는다.
 
 ## 재현
 

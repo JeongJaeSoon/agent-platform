@@ -51,7 +51,9 @@ import {
   describeMismatches,
   type ImageRuntime,
   parseImageRuntime,
+  pinnedObjectsOf,
   planArchiveRepin,
+  planProblems,
   planRepin,
   planRuntime,
   restoreClaims,
@@ -423,38 +425,14 @@ async function plans(image: { name: string } | undefined): Promise<number> {
       );
       ok = false;
     }
-    const pinned = [
-      {
-        bytes: manifestBytes.byteLength,
-        key: plan.manifestRef,
-        sha256: sha256Hex(manifestBytes),
-        version: plan.manifestVersion,
-      },
-      ...plan.artifacts.flatMap((artifact) => artifact.objects),
-    ];
-    for (const object of pinned) {
-      if (object.version === undefined) {
-        fail(`${tag}: ${object.key} has no version in the plan`);
-        ok = false;
-        continue;
-      }
-      const bytes = await objects.get(object.key, object.version);
-      if (
-        bytes === undefined ||
-        bytes.byteLength !== object.bytes ||
-        sha256Hex(bytes) !== object.sha256
-      ) {
-        fail(
-          `${tag}: ${object.key} version ${object.version} does not read back`,
-        );
-        ok = false;
-        continue;
-      }
-      const head = await objects.head(object.key, object.version);
-      if (head?.held !== true) {
-        fail(`${tag}: ${object.key} version ${object.version} is not held`);
-        ok = false;
-      }
+    const pinned = pinnedObjectsOf(
+      plan,
+      claudeCheckpointCodec.decode(manifestBytes),
+      manifestBytes,
+    );
+    for (const problem of await planProblems(objects, pinned)) {
+      fail(`${tag}: ${problem}`);
+      ok = false;
     }
     if (ok) {
       console.log(

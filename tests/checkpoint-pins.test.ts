@@ -23,9 +23,11 @@ import {
 } from "@werft-ai/runtime-claude";
 import type {
   CheckpointManifest,
+  CheckpointOutput,
   ObjectRef,
   TranscriptRevision,
 } from "@werft-ai/runtime-core";
+import { storedOutputs } from "@werft-ai/runtime-core";
 import { createGitWorkspaceBundleVerifier } from "@werft-ai/storage";
 import {
   createMemoryCheckpointObjectStore,
@@ -56,7 +58,9 @@ import {
   earlierProfileKey,
   ownToolsKey,
   parseImageRuntime,
+  pinnedObjectsOf,
   planArchiveRepin,
+  planProblems,
   planRepin,
   planRuntime,
   refsOf,
@@ -84,6 +88,7 @@ async function seed(
   untracked: readonly { path: string; text: string }[] = [],
   workspaceBundle?: GitBundleFixture,
   profileSha256 = "0".repeat(64),
+  outputFiles: readonly { path: string; text: string }[] = [],
 ): Promise<Seeded> {
   const sessionId = randomUUID();
   const attemptId = `attempt-${randomUUID().slice(0, 8)}`;
@@ -131,6 +136,28 @@ async function seed(
       ...(put.outcome === "created" ? { version: put.version } : {}),
     });
   }
+  const outputs: CheckpointOutput[] = [];
+  for (const file of outputFiles) {
+    const bytes = new TextEncoder().encode(file.text);
+    const digest = sha256Hex(bytes);
+    const key = `${prefix}outputs/${digest}`;
+    const put = await objects.putImmutable(key, bytes);
+    outputs.push({
+      bytes: bytes.byteLength,
+      key,
+      path: file.path,
+      sha256: digest,
+      ...(put.outcome === "created" ? { version: put.version } : {}),
+    });
+  }
+  // An omitted output is listed but has no object to back up.
+  if (outputs.length > 0) {
+    outputs.push({
+      bytes: 1 << 30,
+      omitted: "too_large",
+      path: "out/huge.bin",
+    });
+  }
   const manifest: CheckpointManifest = {
     createdAt: new Date(0).toISOString(),
     cwd: "/workspace",
@@ -138,6 +165,7 @@ async function seed(
     resume: engineSession,
     revision: 0,
     runtime: { ...CLAUDE_RUNTIME_FINGERPRINT, profileSha256 },
+    ...(outputs.length === 0 ? {} : { outputs }),
     sessionId,
     transcripts: {
       root: await pin(captured.root),
@@ -612,6 +640,128 @@ describe("backup → restore re-pin", () => {
           expect((await restored.head(ref.key, ref.version))?.held).toBe(true);
         }
       }
+    });
+  });
+
+  test("a checkpoint's stored outputs are captured, re-pinned and held; an omitted one is skipped", async () => {
+    await withDir(async (dir) => {
+      const source = createMemoryCheckpointObjectStore({ versioned: true });
+      const seeded = await seed(source, [], undefined, undefined, [
+        { path: "out/report.md", text: "# report" },
+      ]);
+      const stored = (seeded.manifest.outputs ?? []).find(
+        (output) => !("omitted" in output),
+      );
+      if (stored === undefined || "omitted" in stored) {
+        throw new Error("no stored output");
+      }
+      expect(refsOf(seeded.manifest).map((ref) => ref.key)).toContain(
+        stored.key,
+      );
+
+      await source.overwrite(stored.key, new TextEncoder().encode("tampered"));
+      await syncDown(source, dir);
+      const { replaced } = await captureCheckpointObjects({
+        codecs,
+        objects: source,
+        objectsDir: dir,
+        rows: [seeded.row],
+      });
+      expect(replaced).toContain(stored.key);
+      expect(await readFile(join(dir, stored.key), "utf8")).toBe("# report");
+      const restored = await restoredBucket();
+      await syncUp(dir, restored, new Set([seeded.row.manifestRef]));
+      const planned = await planRepin({
+        codecs,
+        objects: restored,
+        objectsDir: dir,
+        rows: [seeded.row],
+      });
+      const [row] = await applyRepin({ objects: restored, planned });
+      if (row === undefined) throw new Error("no row");
+      const bytes = await restored.get(
+        seeded.row.manifestRef,
+        row.manifestVersion,
+      );
+      if (bytes === undefined) throw new Error("manifest not written");
+      const written = claudeCheckpointCodec.decode(bytes);
+
+      const repinned = (written.outputs ?? []).find(
+        (output) => !("omitted" in output),
+      );
+      if (repinned === undefined || "omitted" in repinned) {
+        throw new Error("no repinned output");
+      }
+      expect(repinned.version).toBeDefined();
+      expect(repinned.version).not.toBe(stored.version);
+      expect(repinned.version).toBe((await restored.head(stored.key))?.version);
+      expect((await restored.head(repinned.key, repinned.version))?.held).toBe(
+        true,
+      );
+      expect(written.outputs?.at(-1)).toEqual({
+        bytes: 1 << 30,
+        omitted: "too_large",
+        path: "out/huge.bin",
+      });
+
+      const result = await restorePlan(
+        restored,
+        pointerOf({ ...seeded.row, ...row }),
+        seeded,
+      );
+      expect(result.status).toBe("ready");
+    });
+  });
+
+  test("verify-restore's plan check reads back and holds a stored output like a transcript part", async () => {
+    await withDir(async (dir) => {
+      const source = createMemoryCheckpointObjectStore({ versioned: true });
+      const seeded = await seed(source, [], undefined, undefined, [
+        { path: "out/report.md", text: "# report" },
+      ]);
+      await syncDown(source, dir);
+      const restored = await restoredBucket();
+      await syncUp(dir, restored, new Set([seeded.row.manifestRef]));
+      const planned = await planRepin({
+        codecs,
+        objects: restored,
+        objectsDir: dir,
+        rows: [seeded.row],
+      });
+      const [row] = await applyRepin({ objects: restored, planned });
+      if (row === undefined) throw new Error("no row");
+      const bytes = await restored.get(
+        seeded.row.manifestRef,
+        row.manifestVersion,
+      );
+      if (bytes === undefined) throw new Error("manifest not written");
+      const manifest = claudeCheckpointCodec.decode(bytes);
+      const result = await restorePlan(
+        restored,
+        pointerOf({ ...seeded.row, ...row }),
+        seeded,
+      );
+      if (result.status !== "ready") throw new Error(result.status);
+      const stored = storedOutputs(manifest.outputs)[0];
+      if (stored?.version === undefined) throw new Error("no stored output");
+
+      // The plan's artifacts do not list outputs; the manifest does.
+      expect(
+        result.plan.artifacts.flatMap((a) => a.objects).map((o) => o.key),
+      ).not.toContain(stored.key);
+      const pinned = pinnedObjectsOf(result.plan, manifest, bytes);
+      expect(pinned.map((o) => o.key)).toContain(stored.key);
+      expect(await planProblems(restored, pinned)).toEqual([]);
+
+      restored.releaseHold(stored.key, stored.version);
+      expect(await planProblems(restored, pinned)).toEqual([
+        `${stored.key} version ${stored.version} is not held`,
+      ]);
+
+      restored.purgeVersion(stored.key, stored.version);
+      expect(await planProblems(restored, pinned)).toEqual([
+        `${stored.key} version ${stored.version} does not read back`,
+      ]);
     });
   });
 
