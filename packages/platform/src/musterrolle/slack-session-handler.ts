@@ -359,7 +359,6 @@ export function createSlackSessionHandler(
         ...ids,
         code: error.code,
         reason_code: reasonCodeOf(error.details),
-        message: error.message,
       });
       if (
         error.code === "UNSUPPORTED_CAPABILITY" &&
