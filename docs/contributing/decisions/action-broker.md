@@ -195,7 +195,7 @@ type ActionResult<T> = { ok: true; result: T } | { ok: false; refusal: ActionRef
 | 입력 | 지금 입력(`repository_id?`, `branch?`)에 `source_ref?`(L4b 전에는 `source_ref_unsupported`). strict |
 | 플랫폼이 정하는 것 | 대상 브랜치 `agent/<session-id>[-<branch>]`, 고정 commit(이 턴 끝 checkpoint의 HEAD), 승인 방식, 실행 시점(턴 끝) |
 | 출력 | `AGENT_ACTION_FLOWS` on: `{ status: "deferred", push_intent_id, waits_for: "turn_end", repository_id, target_branch, pull_request, next }` (`next`는 승인 대기여도 같은 턴에 `open_pull_request({ push_intent_id })`를 부르라고 알린다; 푸시 뒤 PR을 여는 후속 턴은 없다). off: 지금 결과를 봉투에 넣고 `message`만 뺀다 |
-| 멱등 | 같은 턴에서 같은 대상을 다시 부르면 같은 의도. 같은 대상의 열린 push 요청은 하나(`request_open`). 사람이 거절한 commit의 재요청은 `rejected_before` |
+| 멱등 | 같은 턴에서 같은 대상을 다시 부르면 같은 의도. 같은 턴·같은 저장소의 다른 대상(`branch` 접미사만 다름)은 `source_ref_unsupported`(`details.reason = one_target_per_turn`, `details.target_branch` = 이미 잡힌 대상)로 거절한다. 모든 의도가 같은 턴 끝 checkpoint를 가리켜 같은 commit이 두 번 push되기 때문이다(D10). 모델은 남은 묶음을 사람에게 말하고 다음 입력을 기다린다. 같은 대상의 열린 push 요청은 하나(`request_open`). 사람이 거절한 commit의 재요청은 `rejected_before` |
 | 정책 | `push.primary`·`push.attached`. `ask`면 T3 push 폼 |
 
 턴 끝 뒤의 결과는 모델이 `get_push_request`(L5, 부류 `repository.read`)로 읽고, 사람에게는 T1 `action_notice`로 나간다.
