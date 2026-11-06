@@ -52,6 +52,38 @@ Kubernetes 설치는 `scripts/test-ops.sh`를 쓰지 않는다. 같은 일을 �
 
 compose 파일(`infra/compose.core.yml` + `infra/compose.test-ops.yml` + object store layer)과 postgres 초기 SQL, LocalStack 초기화 스크립트를 checkout에서 읽으므로, 업그레이드 사이에는 checkout을 배포한 commit에 그대로 둔다.
 
+### 디스크: xfs `prjquota`가 필수인 이유와 ext4 서버 준비
+
+세션마다 workspace volume이 생기고 같은 디스크의 postgres, LocalStack, 다른 세션과 공간을 나눈다. 용량(`EXECUTION_WORKSPACE_QUOTA_MB`, 기본 4096MiB)과 inode(`EXECUTION_WORKSPACE_QUOTA_INODES`, 기본 1,000,000) 상한은 xfs project quota가 강제한다. `prjquota`가 없으면(ext4 포함) Docker가 `size` 옵션을 거절해 scheduler의 quota probe가 실패한다. `EXECUTION_WORKSPACE_QUOTA=off`는 `scripts/lib/test-ops.ts`의 렌더 검사가 거부하므로 이 설치에서는 쓰지 않는다. ext4를 허용하지 않고 xfs `prjquota`를 필수로 유지하기로 했다.
+
+확인:
+
+```bash
+findmnt -no FSTYPE,OPTIONS -T "$(docker info -f '{{.DockerRootDir}}')"   # xfs, 옵션에 prjquota
+P="quota-probe-$(date +%s)"; docker volume create --driver local --opt size=64m "$P" && docker volume rm "$P"
+```
+
+ext4 서버는 xfs 이미지 파일을 `/var/lib/docker`에 `loop,prjquota`로 mount한다. 아래는 한 줄로 이어져 있어 어느 단계든 실패하면 Docker 시작까지 가지 않는다. 기존 `/var/lib/docker`는 `.old`로 옮겼다가 mount 뒤 `rsync`로 되돌리고, 처음 쓰는 서버면 그 두 단계는 건너뛴다.
+
+```bash
+[ ! -e /var/lib/docker.old ] &&
+sudo apt-get install -y xfsprogs rsync &&
+sudo systemctl stop docker docker.socket &&
+{ [ ! -e /var/lib/docker ] || sudo mv /var/lib/docker /var/lib/docker.old; } &&
+sudo truncate -s 60G /var/lib/docker.xfs.img &&
+sudo mkfs.xfs -q /var/lib/docker.xfs.img &&
+sudo mkdir -p /var/lib/docker &&
+echo '/var/lib/docker.xfs.img /var/lib/docker xfs loop,prjquota 0 0' | sudo tee -a /etc/fstab &&
+sudo mount /var/lib/docker &&
+mount | grep 'on /var/lib/docker .*prjquota' &&
+{ [ ! -e /var/lib/docker.old ] || sudo rsync -aHAX /var/lib/docker.old/ /var/lib/docker/; } &&
+sudo systemctl start docker
+```
+
+`/var/lib/docker.old`가 이미 있으면 첫 단계에서 멈추니 내용을 치운 뒤 다시 한다. 중간에 멈추면 Docker는 멈춘 채로 두고 원인을 고친다. 이미 옮겼다면 `/var/lib/docker.old`가 원본이다. 60G는 Docker 전체의 천장이고, sparse 파일은 줄어들지 않는다. CI의 `workspace-quota` job이 `truncate`·`mkfs.xfs`·`mount -o loop,prjquota`를 8G 이미지로 돌린다. `/etc/fstab` 줄과 `rsync` 이전은 실행해 보지 않았다(미검증).
+
+Kubernetes 경로(chart)에는 이 조건이 없다. workspace는 세션마다 PVC이고 상한은 `worker.workspace.quotaMb`(기본 4096MiB) 요청이 전부다. 실제로 막는 것은 StorageClass이고 inode 상한은 없다. 표는 `apps/docs/content/docs/run-server/self-hosting/kubernetes.mdx`의 "workspace 저장소와 상한"에 있다.
+
 ## AWS 준비(`s3`에서만)
 
 `TEST_OPS_OBJECT_STORE=s3`로 배포할 때만 필요하다.
