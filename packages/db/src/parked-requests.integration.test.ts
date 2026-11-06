@@ -2011,6 +2011,46 @@ integration("parked pending requests on PostgreSQL", () => {
     expect((await intentOf(sessionId)).status).toBe("pinned");
   });
 
+  test("a revocation that cancels the carrying turn gives the push back to the parked turn, and a resume carries it again", async () => {
+    const { owner, sessionId, worker } = await runningSession();
+    const requestId = await register(worker);
+    const parkedRowId = await deferPush(owner, sessionId, worker);
+    await parkRows(worker, [requestId]);
+    await executionGone(worker);
+    await answer(owner, sessionId, requestId);
+    const [first] = await continuations(parkedRowId);
+    expect((await intentOf(sessionId)).turnId).toBe(first?.id);
+
+    const now = new Date();
+    await revokeExecutionAtomic(db, {
+      sessionId,
+      reason: "grant revoked",
+      now,
+    });
+    await restoreExecutionAtomic(db, {
+      sessionId,
+      reason: "grant reissued",
+      now,
+    });
+    expect(await continuations(parkedRowId)).toEqual([]);
+    expect(await intentOf(sessionId)).toMatchObject({
+      status: "deferred",
+      turnId: parkedRowId,
+    });
+    expect(await createPostgresPushIntents(db).settleStale()).toBe(0);
+
+    expect((await resumeBy(owner, sessionId)).outcome).toBe("accepted");
+    const [second] = await continuations(parkedRowId);
+    expect(second?.id).not.toBe(first?.id);
+    expect(await intentOf(sessionId)).toMatchObject({
+      status: "deferred",
+      turnId: second?.id,
+    });
+    const next = await claim(sessionId);
+    await completed(next.worker);
+    expect((await intentOf(sessionId)).status).toBe("pinned");
+  });
+
   // Turn 1 drain-parked and left open, then turn 2 parked behind it by the
   // system, both groups waiting.
   async function twoParks() {
