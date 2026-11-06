@@ -22,6 +22,8 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
     "저장 한도를 다 썼습니다 — 운영자에게 한도를 늘려 달라고 요청하세요.",
   BUDGET_EXCEEDED:
     "세션 비용 또는 토큰 한도를 다 썼습니다 — 운영자에게 한도를 늘려 달라고 요청하세요.",
+  WORKSPACE_QUOTA_EXCEEDED:
+    "작업 공간 한도를 넘었습니다 — 파일을 정리해 사용량을 줄인 뒤 다시 시도하세요.",
   INTERNAL_ERROR: "서버에서 처리하지 못했습니다 — 잠시 뒤 다시 시도하세요.",
   REVISION_CONFLICT: "다른 사람이 먼저 바꿨습니다 — 최신 내용을 확인하세요.",
   IDEMPOTENCY_CONFLICT:
@@ -153,6 +155,8 @@ const ERROR_GUIDANCE_EN: Record<ApiErrorCode, string> = {
     "The storage limit is used up — ask an operator to raise it.",
   BUDGET_EXCEEDED:
     "The session's cost or token limit is used up — ask an operator to raise it.",
+  WORKSPACE_QUOTA_EXCEEDED:
+    "The workspace exceeded its quota — remove files to reduce usage, then try again.",
   INTERNAL_ERROR: "The server couldn't handle it — try again shortly.",
   REVISION_CONFLICT: "Someone changed it first — check the latest version.",
   IDEMPOTENCY_CONFLICT:
@@ -293,6 +297,8 @@ const ERROR_GUIDANCE_JA: Record<ApiErrorCode, string> = {
     "保存容量の上限に達しました — 運用者に上限の引き上げを依頼してください。",
   BUDGET_EXCEEDED:
     "セッションの費用またはトークンの上限に達しました — 運用者に上限の引き上げを依頼してください。",
+  WORKSPACE_QUOTA_EXCEEDED:
+    "作業領域の上限を超えました — ファイルを整理して使用量を減らしてから、もう一度お試しください。",
   INTERNAL_ERROR:
     "サーバーで処理できませんでした — しばらくしてからもう一度お試しください。",
   REVISION_CONFLICT:
