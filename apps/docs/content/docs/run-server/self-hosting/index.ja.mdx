@@ -3,34 +3,45 @@ title: "セルフホスティング"
 description: 複数人で使う Werft サーバーの設置方法を選ぶ
 ---
 
-Werft サーバーを自分で設置し、チームで共有する方法です。ひとりで試すだけなら [開発用サーバーの実行](/run-server/dev-server) で足ります。設置方法は2つあります。自分の方法のページが、`/readyz` が 200 を返すところまでの設置手順を案内します。Kubernetes の設置は公開 chart を使って kind で確認しましたが、DB Secret の手順はドキュメントのブロックそのままではなく、修正した kind の Secret ブロックは実行していません。Kubernetes のアップグレードは kind でセッションがない状態で一度、手順1〜4を実行し、`proceed` の判定だけを確認しました。単一サーバーのページは、LocalStack の設置で手順1〜6と `key create` まで実行して確認しました。
+Werft サーバーを自分で設置し、チームで共有する方法です。ひとりで試すだけなら [開発用サーバーの実行](/run-server/dev-server) で足ります。設置方法は単一サーバーと Kubernetes の2つです。下の表から1つ選ぶと、そのページが `/readyz` が 200 を返すところまでの設置手順を案内します。
 
 ## 設置方法を選ぶ
 
-| 方法 | 実行基盤 | ページ |
-| --- | --- | --- |
-| 単一サーバー | Linux サーバー1台、Docker Compose。セッションごとに worker コンテナ | [単一サーバーの設置](/run-server/self-hosting/single-server) |
-| Kubernetes | 公開された Helm chart。セッションごとに worker Pod | [Kubernetes の設置](/run-server/self-hosting/kubernetes) |
+| 方法 | 実行基盤 | 前提 | ページ |
+| --- | --- | --- | --- |
+| 単一サーバー | Linux サーバー1台、Docker Compose。セッションごとに worker コンテナ。HA は対象外 | Docker 28 以上、Compose 2.24.6 以上、`prjquota` で mount した XFS の Docker データルート、リポジトリの checkout | [単一サーバーの設置](/run-server/self-hosting/single-server) |
+| Kubernetes | 公開された Helm chart。セッションごとに worker Pod | NetworkPolicy を強制する CNI、`helm` 3、PostgreSQL 16、S3 互換のオブジェクトストア(既定の保護モードは versioning、Object Lock、SSE-S3 が有効な bucket が必要)。リポジトリの checkout は不要 | [Kubernetes の設置](/run-server/self-hosting/kubernetes) |
 
-すでに設置済みなら [アップグレード](/run-server/self-hosting/upgrade) を読んでください。
+選ぶ基準は単純です。サーバー1台に載せて `scripts/test-ops.sh` で運用するなら単一サーバー、すでにクラスター、PostgreSQL、オブジェクトストアがあり chart で設置するなら Kubernetes です。どちらも `ghcr.io` から公開パッケージをログインなしで取得できる必要があります。すでに設置済みなら [アップグレード](/run-server/self-hosting/upgrade) を読んでください。
 
-どちらの方法でも、サーバーは API(Web コンソールを含む)、scheduler、reconciler、egress proxy、PostgreSQL、S3 互換のオブジェクトストアで構成されます。Git サーバーはないため、セッションが使う GitHub リポジトリは設定ドキュメントかコンソールで追加します。単一サーバーの設置では HA は対象外です。
+どちらの方法でも、サーバーは API(Web コンソールを含む)、scheduler、reconciler、egress proxy、PostgreSQL、S3 互換のオブジェクトストアで構成されます。Git サーバーはないため、セッションが使う GitHub リポジトリは設定ドキュメントかコンソールで追加します。
 
 ## 公開されたパッケージ
 
-設置には自分でビルドしたものではなく、`main` にマージされるたびに公開されるパッケージを使います。
+設置には自分でビルドしたものではなく、公開されたパッケージを使います。`main` にマージされると [Images workflow](https://github.com/JeongJaeSoon/werft/blob/main/.github/workflows/images.yml) が承認なしでイメージと chart を公開します。`v*` タグは `release` 環境の承認を経ます。
 
-| パッケージ | アドレス | 備考 |
-| --- | --- | --- |
-| イメージ | `ghcr.io/jeongjaesoon/werft-control-host`、`werft-worker`、`werft-egress-proxy` | タグは `main-<12>`。`linux/amd64` と `linux/arm64` を含む index。設置では digest で固定する |
-| Helm chart | `oci://ghcr.io/jeongjaesoon/werft` | バージョンは `0.1.0-main-<12>`。イメージの digest と worker runtime を含む |
-| SDK | npm `@werft-ai/sdk` | [SDK のインストール](/getting-started/install) |
+| パッケージ | アドレス | `main` マージ | `v*` タグ |
+| --- | --- | --- | --- |
+| イメージ | `ghcr.io/jeongjaesoon/werft-control-host`、`werft-worker`、`werft-egress-proxy` | タグ `main-<12>` | タグ `v<バージョン>` |
+| Helm chart | `oci://ghcr.io/jeongjaesoon/werft` | バージョン `0.1.0-main-<12>` | バージョン `<バージョン>`(`v` なし) |
+| SDK | npm `@werft-ai/sdk` | [SDK のインストール](/getting-started/install) | [SDK のインストール](/getting-started/install) |
 
-パッケージはログインなしで取得できます。`<12>` は commit SHA の先頭12文字です。
+イメージは `linux/amd64` と `linux/arm64` を含む index で、設置では digest で固定します。chart は3つのイメージの digest と worker runtime を含みます。パッケージはログインなしで取得できます。`<12>` は commit SHA の先頭12文字です。`main` のバージョン同士に順序の意味はないため、Images workflow で正常終了した実行の commit を選び、正確なバージョンを固定します。
 
 <Callout type="warn">
-`v` タグはまだありません。`main-<12>` はリリースではなく、対応するソースの保管を一部確認できないまま公開されることがあります。最初の `v` タグができると、イメージのタグは `v<バージョン>`、chart のバージョンは `v` を除いた `<バージョン>` になります。設置ページのコマンドは同じままで、単一サーバーでは同じタグを checkout します。公開イメージを取得できない場合は、リポジトリを checkout して[3つのイメージを自分でビルド](/run-server/self-hosting/single-server#イメージを自分でビルドするとき)します。
+`v` タグはまだありません。`main-<12>` はリリースではなく、対応するソースの保管を一部確認できないまま公開されることがあります。最初の `v` タグができると、設置ページのコマンドはタグの値だけが変わり、単一サーバーでは同じタグを checkout します。`v` タグの経路(承認、GitHub Release、`release-manifest.json`)は一度も実行されていません。公開イメージを取得できない場合は、リポジトリを checkout して[3つのイメージを自分でビルド](/run-server/self-hosting/single-server#イメージを自分でビルドするとき)します。
 </Callout>
+
+## 実測の状態
+
+公開された `main-<12>` パッケージで実際に実行した結果です。実行していないものを確認したとは書きません。手順と条件は、各設置ページとこの表の下の注記を参照してください。
+
+| 方法 | VERIFIED | NOT VERIFIED |
+| --- | --- | --- |
+| 単一サーバー | LocalStack の設置で手順1〜6と `key create`、`/readyz` 200。`/bootstrap` 画面で最初の owner を作った後のログイン API 200。`reset --yes` の後に再度 `deploy`。ボリュームを残した `stop` と `start`。`backup`、`restore-drill`、`reseed` がそれぞれ exit 0。`orb restart` の後に `start` で同じデータのまま `/readyz` 200 | `backup --stop`、再起動、`reseed` を続けて実行したこと。未回収の checkpoint がある再起動。S3 設置での `upgrade` と再起動。単一サーバーのアップグレード |
+| Kubernetes | kind で公開 chart の設置と `/readyz` 200。Secret の `BOOTSTRAP_TOKEN` で最初の owner を作成(誤ったトークンは 401、同じトークンの再使用は 409)、`key create`、key ありで `GET /v1/sessions` が 200、なしで 401(API のレプリカ数2)。アップグレード手順1〜4で `proceed`、承認できない `refused` の2つの場合、kind 既定の CNI での NetworkPolicy の隔離 | セッションと worker Pod の実行。影響を受けるセッションがある `refused`。kind 既定以外の CNI。worker の pin がない実際の古い chart からのアップグレード(pin なし・chart なしの分岐は状態を合成して確認) |
+
+バックアップの確認は、オブジェクト0個、checkpoint 0行のスタックで行いました。この状態では `restore-drill` に比較する対象がありませんでした。Kubernetes の DB Secret ブロックは、`read -rs` が端末を要求するため、値を標準入力で渡して実行しました。
 
 ## リリース manifest を読む
 

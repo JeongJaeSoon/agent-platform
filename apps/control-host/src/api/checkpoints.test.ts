@@ -74,6 +74,9 @@ const store: CheckpointStore = {
   async listCheckpoints() {
     return [];
   },
+  async listPinnedCommits() {
+    return [];
+  },
 };
 
 function sha256(bytes: Uint8Array): string {

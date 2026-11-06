@@ -39,6 +39,7 @@ type SettingsValues = {
   features: unknown;
   actionsAllow: unknown;
   startRepositoryId: string | null;
+  pushAttached: string | null;
 };
 
 /** The columns a person edits, as the receipt records them. */
@@ -48,6 +49,7 @@ const valuesOf = (row: SettingsValues) => ({
   features: row.features,
   actions_allow: row.actionsAllow,
   start_repository_id: row.startRepositoryId,
+  push_attached: row.pushAttached,
 });
 
 // jsonb returns keys in its own order, so the comparison sorts them.
@@ -148,6 +150,12 @@ export function createPostgresAgentGitHubStore(db: Database): AgentGitHubStore {
           features: input.settings.features,
           actionsAllow: input.settings.actions_allow,
           startRepositoryId: input.startRepositoryId,
+          // Left out: a first save is `allow` (owner decision D6), a later
+          // one keeps what the row holds, which for a row from before the
+          // column is null and keeps asking a person.
+          pushAttached:
+            input.pushAttached ??
+            (held === undefined ? "allow" : held.pushAttached),
         };
         // A row a migration wrote has no `updated_by`; saving it, even
         // unchanged, is what makes it a person's (design 3.7), so it counts.

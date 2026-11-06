@@ -47,6 +47,7 @@ const ALLOWED: Record<string, string> = {
   "docs/contributing":
     "developer-only: repository setup, CI and design records for contributors; the site contributing page lists them",
   "docs/contributing/architecture.md": "contributor document",
+  "docs/contributing/console-demo.md": "contributor document",
   "docs/contributing/ci.md": "contributor document",
   "docs/contributing/development.md": "contributor document",
   "docs/contributing/i18n-glossary.md": "contributor document",

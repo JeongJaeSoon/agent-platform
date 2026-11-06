@@ -7,6 +7,7 @@ import {
   type WorkerScope,
 } from "@werft-ai/contracts";
 import {
+  ATTRIBUTION_PROBLEMS,
   type AttributionExpectation,
   type AttributionMismatch,
   rangeAttribution,
@@ -127,7 +128,8 @@ export async function repairAttribution(input: {
  * The commits this workspace holds that no remote-tracking ref does, judged
  * against the claim's values. Advice for request_push: the worker shares a
  * container with the agent, and the push re-checks from what the server
- * issued. Empty when nothing is wrong or the check could not run.
+ * issued. Empty when nothing is wrong, or when there is nothing to judge
+ * against; a check that fails to run reports every problem on the tip.
  */
 export async function workspaceMismatches(input: {
   root: string;
@@ -200,9 +202,50 @@ export async function workspaceMismatches(input: {
       not: ["--remotes", ...held],
       expectations: [input.expectation],
       stripEmails: input.stripEmails,
+      trailersOf: isolatedTrailers,
     });
-    return judged.status === "ok" ? judged.mismatches : [];
+    return judged.status === "ok" ? judged.mismatches : unverified(input.tip);
   } catch {
-    return [];
+    return unverified(input.tip);
   }
+}
+
+/**
+ * The trailer block git reads in `message`, parsed outside any repository and
+ * with no config, as the commit hook does: the workspace's own `trailer.*`
+ * settings cannot rename a key and hide a line. Null when git fails.
+ */
+async function isolatedTrailers(message: string): Promise<string | null> {
+  try {
+    const pending = run(
+      "git",
+      ["interpret-trailers", "--parse", "--no-divider"],
+      {
+        cwd: "/",
+        env: {
+          PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin",
+          GIT_CONFIG_NOSYSTEM: "1",
+          GIT_CONFIG_GLOBAL: "/dev/null",
+          GIT_CONFIG_COUNT: "0",
+          GIT_TERMINAL_PROMPT: "0",
+          LC_ALL: "C",
+        },
+        maxBuffer: 16 * 1024 * 1024,
+        timeout: GIT_TIMEOUT_MS,
+      },
+    );
+    pending.child.stdin?.end(message);
+    return (await pending).stdout;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A check that could not run is not a pass. The entry keeps the checkpoint
+ * out of the protected list (see checkpoint-service protectedCommits), so the
+ * next turn looks again, and request_push refuses until a check has run.
+ */
+function unverified(tip: string): AttributionMismatch[] {
+  return [{ commit: tip, problems: [...ATTRIBUTION_PROBLEMS] }];
 }

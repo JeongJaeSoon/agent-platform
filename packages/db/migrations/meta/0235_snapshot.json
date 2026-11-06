@@ -1,5 +1,5 @@
 {
-  "id": "8c3a5092-b897-4bb2-9085-2b3efdcb791a",
+  "id": "9c75c977-91dc-42fe-b8d6-01fa0128f419",
   "prevId": "da6e200f-b8ff-452e-95d5-93c317defaae",
   "version": "7",
   "dialect": "postgresql",
@@ -1226,6 +1226,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "push_attached": {
+          "name": "push_attached",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "revision": {
           "name": "revision",
           "type": "integer",
@@ -1270,6 +1276,10 @@
         "agent_github_settings_start_check": {
           "name": "agent_github_settings_start_check",
           "value": "\"agent_github_settings\".\"start_repository_id\" IS NULL OR \"agent_github_settings\".\"repositories\" ? \"agent_github_settings\".\"start_repository_id\""
+        },
+        "agent_github_settings_push_attached_check": {
+          "name": "agent_github_settings_push_attached_check",
+          "value": "\"agent_github_settings\".\"push_attached\" IS NULL OR \"agent_github_settings\".\"push_attached\" IN ('allow','ask','deny')"
         }
       },
       "isRLSEnabled": false
@@ -1450,84 +1460,6 @@
         "agent_identities_credential_ref_check": {
           "name": "agent_identities_credential_ref_check",
           "value": "\"agent_identities\".\"credential_ref\" ~ '^[a-z0-9][a-z0-9._:/-]{0,127}$'"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.agent_pull_request_settings": {
-      "name": "agent_pull_request_settings",
-      "schema": "",
-      "columns": {
-        "agent_id": {
-          "name": "agent_id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "formatting": {
-          "name": "formatting",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "template": {
-          "name": "template",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "template_name": {
-          "name": "template_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "revision": {
-          "name": "revision",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 1
-        },
-        "updated_by": {
-          "name": "updated_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "agent_pull_request_settings_agent_fk": {
-          "name": "agent_pull_request_settings_agent_fk",
-          "tableFrom": "agent_pull_request_settings",
-          "tableTo": "agents",
-          "columnsFrom": ["workspace_id", "agent_id"],
-          "columnsTo": ["workspace_id", "id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "agent_pull_request_settings_formatting_check": {
-          "name": "agent_pull_request_settings_formatting_check",
-          "value": "\"agent_pull_request_settings\".\"formatting\" IN ('inherit', 'on', 'off')"
         }
       },
       "isRLSEnabled": false
@@ -4756,19 +4688,6 @@
           "type": "jsonb",
           "primaryKey": false,
           "notNull": false
-        },
-        "pull_request": {
-          "name": "pull_request",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "pull_request_revision": {
-          "name": "pull_request_revision",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
         },
         "oauth_client_secret_set": {
           "name": "oauth_client_secret_set",

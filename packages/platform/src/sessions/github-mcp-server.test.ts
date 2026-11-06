@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 import {
   type AgentGitHub,
   GITHUB_MCP_FIXED_TOOLS,
+  GITHUB_MCP_TOOL_CLASSES,
   GITHUB_MCP_TOOL_OUTPUTS,
+  type GitHubMcpTool,
   type PushRequestState,
   type ReceiptActor,
 } from "@werft-ai/contracts";
@@ -424,6 +426,55 @@ describe("tools/list", () => {
     expect(toolNames(await list({ review: true }))).not.toContain(
       "dispatch_workflow",
     );
+  });
+
+  test("every listed tool carries its class, on a release session and on an agent session alike", async () => {
+    const classes = (answer: unknown) =>
+      Object.fromEntries(
+        (
+          answer as {
+            result: {
+              tools: Array<{ name: string; _meta: { class: string } }>;
+            };
+          }
+        ).result.tools.map((tool) => [tool.name, tool._meta.class]),
+      );
+    const onRelease = classes(await list({ actions: true, review: true }));
+    const onAgent = classes(
+      await harness({
+        github: github({}),
+        source: "agent",
+      }).handle(
+        grant,
+        { jsonrpc: "2.0", id: 1, method: "tools/list" },
+        "req-1",
+      ),
+    );
+    for (const listed of [onRelease, onAgent]) {
+      expect(Object.keys(listed).length).toBeGreaterThan(0);
+      for (const [name, tool] of Object.entries(listed)) {
+        expect(tool).toBe(GITHUB_MCP_TOOL_CLASSES[name as GitHubMcpTool]);
+      }
+    }
+    expect(onRelease.request_push).toBe("push");
+    expect(onRelease.submit_review).toBe("review");
+    expect(onRelease.dispatch_workflow).toBe("workflow");
+    expect(onRelease.list_repositories).toBe("repository.read");
+  });
+
+  test("a name that has no class is neither listed nor callable", async () => {
+    const answer = await harness({ github: github({}) }).handle(
+      grant,
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "constructor", arguments: {} },
+      },
+      "req-2",
+    );
+    expect(answer).toMatchObject({ error: { code: -32602 } });
+    expect(toolNames(await list({}))).not.toContain("constructor");
   });
 
   test("no argument schema takes a session id", async () => {

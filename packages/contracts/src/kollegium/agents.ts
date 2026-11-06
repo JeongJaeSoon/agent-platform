@@ -391,6 +391,37 @@ export const agentGitHubSettingsSchema = agentGitHubSchema.extend({
 });
 
 /**
+ * Whether a push to an attached repository (not the session's own) needs a
+ * person. Stored on `agent_github_settings.push_attached`, never on a release
+ * pin: a pin means `ask`.
+ */
+export const PUSH_ATTACHED_VALUES = ["allow", "ask", "deny"] as const;
+export const pushAttachedSchema = z.enum(PUSH_ATTACHED_VALUES);
+export type PushAttached = z.infer<typeof pushAttachedSchema>;
+
+const PUSH_ATTACHED_STRICTNESS: Record<PushAttached, number> = {
+  allow: 0,
+  ask: 1,
+  deny: 2,
+};
+
+/** The stricter of two values: `deny > ask > allow`. */
+export function meetPushAttached(a: PushAttached, b: PushAttached) {
+  return PUSH_ATTACHED_STRICTNESS[a] >= PUSH_ATTACHED_STRICTNESS[b] ? a : b;
+}
+
+/**
+ * A stored value as it applies. A row saved before the column has none and
+ * keeps asking a person (the behavior before the column existed); a value
+ * this image does not know is refused, never guessed at.
+ */
+export function pushAttachedOf(stored: unknown): PushAttached {
+  if (stored === null || stored === undefined) return "ask";
+  const parsed = pushAttachedSchema.safeParse(stored);
+  return parsed.success ? parsed.data : "deny";
+}
+
+/**
  * The agent's settings as a session read them when it started
  * (`sessions.github_policy_start`). The envelope is not strict so a later
  * image may add a field; `settings` is, so a list this image cannot read
@@ -402,6 +433,11 @@ export const githubPolicyStartSchema = z.object({
   /** `agent_github_settings.revision` the snapshot was taken from. */
   revision: z.number().int(),
   settings: agentGitHubSettingsSchema,
+  /**
+   * `push_attached` at start. On the envelope, not in `settings`, so an image
+   * from before it still reads the snapshot. Absent: `ask`.
+   */
+  push_attached: pushAttachedSchema.optional(),
 });
 export type GitHubPolicyStart = z.infer<typeof githubPolicyStartSchema>;
 
@@ -451,6 +487,8 @@ export type AgentGitHubSettingsRow = {
   features: unknown;
   actionsAllow: unknown;
   startRepositoryId: string | null;
+  /** Null on a row saved before the column; reads as `ask`. */
+  pushAttached: string | null;
   revision: number;
   /**
    * Who saved the row; null for a row a migration wrote. Required so a read
@@ -498,9 +536,27 @@ export type EffectiveGitHubPolicy = {
   startActionsAllow: AgentGitHub["actions_allow"] | null;
   /** False when GitHub was off for the agent as the session started. */
   enabledAtStart: boolean;
+  /**
+   * Whether a push to an attached repository needs a person. Like the other
+   * fields it only narrows after the session starts. A release pin has no
+   * value of its own and means `ask`; a row can take it to `deny`, never to
+   * `allow`.
+   */
+  pushAttached: PushAttached;
 };
 
+/**
+ * A release means `ask`; the row a person saved can only take that to `deny`.
+ * A row a migration wrote (no `updatedBy`) changes nothing.
+ */
+function releasePushAttached(row: AgentGitHubSettingsRow): PushAttached {
+  return row.updatedBy === null
+    ? "ask"
+    : meetPushAttached("ask", pushAttachedOf(row.pushAttached));
+}
+
 const UNSET = {
+  pushAttached: "ask" as PushAttached,
   startRepositoryId: null,
   agentSettingsRevision: null,
   currentRepositories: null,
@@ -579,6 +635,7 @@ export function effectiveGitHubPolicy(input: {
         settings: null,
         agentSettingsRevision: agentRow.revision,
         currentRepositories: current.data.repositories,
+        pushAttached: releasePushAttached(agentRow),
       };
     }
     return {
@@ -587,6 +644,7 @@ export function effectiveGitHubPolicy(input: {
       settings: meetGitHubSettings(pin.data, current.data),
       agentSettingsRevision: agentRow.revision,
       startActionsAllow: pin.data.actions_allow,
+      pushAttached: releasePushAttached(agentRow),
     };
   }
   if (input.source !== "agent") {
@@ -603,13 +661,26 @@ export function effectiveGitHubPolicy(input: {
     agentSettingsRevision: agentRow.revision,
   };
   if (input.start === null || input.start === undefined) {
-    return { ...base, settings: current.data };
+    return {
+      ...base,
+      settings: current.data,
+      // A session with no snapshot began before this setting existed, when
+      // an attached push always needed a person: later saves only narrow it.
+      pushAttached: meetPushAttached(
+        "ask",
+        pushAttachedOf(agentRow.pushAttached),
+      ),
+    };
   }
   const start = githubPolicyStartSchema.safeParse(input.start);
   if (!start.success) return invalid("agent");
   return {
     ...base,
     settings: meetGitHubSettings(start.data.settings, current.data),
+    pushAttached: meetPushAttached(
+      start.data.push_attached ?? "ask",
+      pushAttachedOf(agentRow.pushAttached),
+    ),
     startActionsAllow: start.data.settings.actions_allow,
     enabledAtStart: start.data.enabled,
   };
@@ -620,11 +691,16 @@ export function newSessionGitHubPolicy(
   agentRow: AgentGitHubSettingsRow | null,
   releasePin: unknown,
 ): EffectiveGitHubPolicy {
-  return effectiveGitHubPolicy({
+  const policy = effectiveGitHubPolicy({
     source: agentRow === null ? "release" : "agent",
     releasePin,
     agentRow,
   });
+  // No snapshot caps an existing session at `ask`; a new session's snapshot is
+  // taken from this value, so it starts at the row's own.
+  return agentRow !== null && policy.source === "agent"
+    ? { ...policy, pushAttached: pushAttachedOf(agentRow.pushAttached) }
+    : policy;
 }
 
 /** The repository a session starts on: asked, else what its policy names. */

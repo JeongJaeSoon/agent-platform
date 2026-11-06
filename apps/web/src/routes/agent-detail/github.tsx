@@ -61,14 +61,18 @@ type Settings = NonNullable<GitHubTabData["github"]>;
 type Feature = keyof Settings["features"];
 type AllowEntry = Settings["actions_allow"][number];
 type Receipt = components["schemas"]["Receipt"];
+type PushAttached = GitHubTabData["push_attached"];
+const PUSH_ATTACHED: readonly PushAttached[] = ["allow", "ask", "deny"];
 type Draft = {
   readonly settings: Settings;
   readonly start: string | null;
+  readonly pushAttached: PushAttached;
   // What the draft was made from. A refetch after another save cannot turn
   // the draft into an overwrite: the revision it sends is the one it read.
   readonly from: {
     readonly base: Settings;
     readonly start: string | null;
+    readonly pushAttached: PushAttached;
     readonly revision: number | null;
   };
 };
@@ -122,11 +126,14 @@ export function pendingCount(
   draft: Settings,
   baseStart: string | null = null,
   draftStart: string | null = null,
+  basePushAttached: PushAttached = "ask",
+  draftPushAttached: PushAttached = basePushAttached,
 ): number {
   const repos = new Set(base.repositories);
   const drafted = new Set(draft.repositories);
   return (
     Number(baseStart !== draftStart) +
+    Number(basePushAttached !== draftPushAttached) +
     [...drafted].filter((id) => !repos.has(id)).length +
     [...repos].filter((id) => !drafted.has(id)).length +
     Number(base.push_approval !== draft.push_approval) +
@@ -486,8 +493,10 @@ function GitHubSettings({
   const base = draft?.from.base ?? data.github ?? data.legacy_defaults;
   // `null` is a real start value, so `??` would swap it for the server's.
   const baseStart = draft ? draft.from.start : data.start_repository_id;
+  const basePushAttached = draft ? draft.from.pushAttached : data.push_attached;
   const settings = draft?.settings ?? base;
   const start = draft ? draft.start : baseStart;
+  const pushAttached = draft ? draft.pushAttached : basePushAttached;
   const saveError = useRef<HTMLDivElement>(null);
   const pendingRegion = useRef<HTMLDivElement>(null);
   const editable = manages && data.enabled && base !== null;
@@ -505,9 +514,11 @@ function GitHubSettings({
           ? {
               settings: base,
               start: baseStart,
+              pushAttached: basePushAttached,
               from: {
                 base,
                 start: baseStart,
+                pushAttached: basePushAttached,
                 revision: data.settings_revision,
               },
             }
@@ -520,6 +531,7 @@ function GitHubSettings({
             expected_revision: toSave.from.revision,
             settings: toSave.settings,
             start_repository_id: toSave.start,
+            push_attached: toSave.pushAttached,
           },
         }),
       );
@@ -546,6 +558,7 @@ function GitHubSettings({
   const edit = (
     change: (current: Settings) => Settings,
     nextStart: (current: string | null) => string | null = (s) => s,
+    nextAttached: PushAttached = pushAttached,
   ) => {
     if (readOnly || !settings || !base) return;
     const next = change(settings);
@@ -556,23 +569,41 @@ function GitHubSettings({
         ? nextStartId
         : null;
     // Undone by hand: drop the draft so the tab follows the agent again.
-    if (pendingCount(base, next, baseStart, kept) === 0) {
+    if (
+      pendingCount(
+        base,
+        next,
+        baseStart,
+        kept,
+        basePushAttached,
+        nextAttached,
+      ) === 0
+    ) {
       setDraft(null);
       return;
     }
     setDraft({
       settings: next,
       start: kept,
+      pushAttached: nextAttached,
       from: draft?.from ?? {
         base,
         start: baseStart,
+        pushAttached: basePushAttached,
         revision: data.settings_revision,
       },
     });
   };
   const pending =
     base && draft
-      ? pendingCount(base, draft.settings, baseStart, draft.start)
+      ? pendingCount(
+          base,
+          draft.settings,
+          baseStart,
+          draft.start,
+          basePushAttached,
+          draft.pushAttached,
+        )
       : 0;
   // A first save turns the github MCP on whatever else it changes, so it
   // keeps its own title instead of a change count.
@@ -1129,6 +1160,37 @@ function GitHubSettings({
                       </AlertDescription>
                     </Alert>
                   )}
+                  <Field>
+                    <FieldLabel>{t("agentGitHub.pushAttached")}</FieldLabel>
+                    <NativeSelect
+                      value={pushAttached}
+                      disabled={readOnly}
+                      aria-label={t("agentGitHub.pushAttached")}
+                      onChange={(event) =>
+                        edit(
+                          (current) => current,
+                          (s) => s,
+                          event.target.value as PushAttached,
+                        )
+                      }
+                    >
+                      {PUSH_ATTACHED.map((value) => (
+                        <NativeSelectOption key={value} value={value}>
+                          {t(`agentGitHub.pushAttached.${value}`)}
+                        </NativeSelectOption>
+                      ))}
+                    </NativeSelect>
+                    <Text as="span" variant="meta">
+                      {t("agentGitHub.pushAttachedHint")}
+                    </Text>
+                  </Field>
+                  {pushAttached === "allow" ? (
+                    <Alert variant="amber">
+                      <AlertDescription>
+                        {t("agentGitHub.pushAttachedAllowNote")}
+                      </AlertDescription>
+                    </Alert>
+                  ) : null}
                 </div>
               </Section>
             </div>

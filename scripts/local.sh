@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The local stack's lifecycle in one place: the compose project
-# `agent-platform` from compose.yaml, on the loopback ports docs/quickstart.md
+# `werft` from compose.yaml, on the loopback ports docs/quickstart.md
 # lists.
 #
 #   scripts/local.sh up [--fake-model]   check Docker, ports and the key, build, start, wait for /readyz,
@@ -49,8 +49,9 @@
 # their CLI refuses any profile that would call a real provider.
 #
 # PLATFORM_SECRET_KEY comes from the shell or .env; failing both, `up` makes
-# one per project under AGENT_PLATFORM_STATE_DIR (~/.local/state/agent-platform)
-# and keeps it, since what the console stores opens with no other key.
+# one per project under AGENT_PLATFORM_STATE_DIR (~/.local/state/werft)
+# and keeps it, since what the console stores opens with no other key. With no
+# key file but the project's postgres-data volume present it makes none and stops.
 #
 # COMPOSE_PROJECT_NAME, COMPOSE_FILE and EXECUTION_INSTALLATION_ID are
 # compose's to resolve: the ports checked, the /readyz waited on
@@ -107,9 +108,21 @@ secret_key() {
     grep -q '^PLATFORM_SECRET_KEY=' "${AGENT_PLATFORM_DOTENV:-.env}"; then
     return 0
   fi
-  local dir="${AGENT_PLATFORM_STATE_DIR:-$HOME/.local/state/agent-platform}"
-  local file="$dir/${COMPOSE_PROJECT_NAME:-agent-platform}.secret-key"
+  local dir="${AGENT_PLATFORM_STATE_DIR:-$HOME/.local/state/werft}"
+  # The project as compose resolves it (-p, the environment, .env or `name:`).
+  local project
+  project=$(rendered | jq -r '.name // empty') && [ -n "$project" ] ||
+    die "cannot read the compose project name; nothing was started"
+  local file="$dir/${project}.secret-key"
   if [ ! -s "$file" ]; then
+    # A new key cannot open what an earlier key sealed in this project's database.
+    local volume existing
+    volume="${project}_postgres-data"
+    existing=$(docker volume ls -q --filter "name=^${volume}\$") ||
+      die "cannot check for the volume $volume; nothing was started"
+    if [ -n "$existing" ]; then
+      die "no secret key at $file but the volume $volume exists; a new key would make its stored secrets unreadable. Put the project's key there, or set PLATFORM_SECRET_KEY; nothing was started"
+    fi
     (umask 077 && mkdir -p "$dir" && openssl rand -hex 32 >"$file")
   fi
   PLATFORM_SECRET_KEY=$(cat "$file")
@@ -119,7 +132,6 @@ secret_key() {
 # The mode `up` and `reset` take, settled before either touches Docker.
 mode() {
   local key_status
-  secret_key
   case "$*" in
     "")
       key_status=0
@@ -211,6 +223,7 @@ readyz() {
 
 up() {
   preflight
+  secret_key
   if ! compose up -d --build; then
     echo "local.sh: the stack did not start; last API log lines:" >&2
     compose logs --no-color --tail 20 api >&2 || true
@@ -363,7 +376,7 @@ case "${1:-}" in
   down) shift; down "$@" ;;
   # Checked before down too, so a reset that cannot start deletes nothing.
   # Not `down && up`: errexit would not hold inside down.
-  reset) shift; mode "$@"; preflight; down; up ;;
+  reset) shift; mode "$@"; preflight; secret_key; down; up ;;
   status) status ;;
   key) shift; key "$@" ;;
   forget-lost-checkpoints) forget_lost_checkpoints ;;

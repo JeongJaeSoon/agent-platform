@@ -3214,6 +3214,11 @@ export const agentGitHubSettings = pgTable(
     actionsAllow: jsonb("actions_allow").$type<unknown[]>().notNull(),
     // A session named no repository starts on this one.
     startRepositoryId: text("start_repository_id"),
+    // `allow` | `ask` | `deny` for a push to an attached repository. Null on
+    // a row saved before the column, which reads as `ask`; no column default,
+    // because the save writes the value and a default would also rewrite what
+    // those rows mean.
+    pushAttached: text("push_attached"),
     revision: integer().notNull().default(1),
     /** No foreign key: the row outlives the account. */
     updatedBy: uuid("updated_by"),
@@ -3234,6 +3239,10 @@ export const agentGitHubSettings = pgTable(
     check(
       "agent_github_settings_start_check",
       sql`${table.startRepositoryId} IS NULL OR ${table.repositories} ? ${table.startRepositoryId}`,
+    ),
+    check(
+      "agent_github_settings_push_attached_check",
+      sql`${table.pushAttached} IS NULL OR ${table.pushAttached} IN ('allow','ask','deny')`,
     ),
   ],
 );

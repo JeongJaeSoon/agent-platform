@@ -162,6 +162,15 @@ export function createGitHubGate(deps: {
       if (!own && !ANOTHER_REPOSITORY_PURPOSES.has(work.purpose)) {
         return await refuse("repository_not_allowed");
       }
+      // Whoever approved the request, a push the agent's settings now deny
+      // does not get a credential (`push.attached = deny` narrows at once).
+      if (
+        !own &&
+        work.purpose === "push" &&
+        context.policy.pushAttached === "deny"
+      ) {
+        return await refuse("repository_not_allowed");
+      }
       let entry: SessionCatalog["repositories"][string];
       if (own) {
         if (
