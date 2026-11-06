@@ -378,16 +378,25 @@ integration("session reader on PostgreSQL", () => {
     expect(
       (await archivedReader.getSession(OWNER, sessionId))?.workspace_limit_mode,
     ).toMatchObject({ bytes: "hard", inodes: "unknown" });
-    await db
-      .insert(attempts)
-      .values({
-        ...attempt("new-without-classification", later, 5),
-        startedAt: new Date(stored.createdAt.getTime() + 1000),
-      });
+    await db.insert(attempts).values({
+      ...attempt("new-without-classification", later, 5),
+      startedAt: new Date(stored.createdAt.getTime() + 1000),
+    });
+    let oldDownloads = 0;
+    const newAttemptReader = createPostgresSessionReader(db, {
+      archivedEvents: {
+        get: async () => {
+          oldDownloads++;
+          return body;
+        },
+      },
+    });
     expect(
-      (await archivedReader.getSession(OWNER, sessionId))?.workspace_limit_mode,
+      (await newAttemptReader.getSession(OWNER, sessionId))
+        ?.workspace_limit_mode,
     ).toBeUndefined();
     expect(downloads).toBe(1);
+    expect(oldDownloads).toBe(0);
   });
 
   test("a turn does not report a checkpoint revision a restore can no longer reach", async () => {

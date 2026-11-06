@@ -59,7 +59,7 @@ test("only the matching attempt's latest valid system classification is read", a
     bytes: "hard",
     inodes: "unknown",
     reason: "storage_declaration_and_capacity",
-  };
+  } as const;
   const archive = {
     lines: async () => [
       {
