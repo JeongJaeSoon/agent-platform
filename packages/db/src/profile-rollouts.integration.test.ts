@@ -660,11 +660,17 @@ integration("profile rollouts on PostgreSQL (U3b reader)", () => {
           .from(profileRolloutItems)
           .where(eq(profileRolloutItems.agentId, late.agent.id)),
       ).toHaveLength(1);
-      // The fill is one-time: its marker is not a rollout, but a rollout now
-      // exists, so a second real fill is refused as before.
+      // The fill is one-time: once recorded, a run reports and writes nothing,
+      // so an agent that came after it is never pinned by a repeat.
+      const another = await follower(caller);
       expect(await rollouts().backfill({ dryRun: false })).toEqual({
-        refused: "rollouts_exist",
+        dryRun: false,
+        pinned: [],
+        modelFollowsProfile: [],
       });
+      expect((await agentRow(another.agent.id))?.profileTracking).toBe(
+        "follow",
+      );
     });
 
     test("an install filled by the earlier code has no marker: its agents are held until the fill is run once more, which records it and a repeat reports nothing", async () => {
@@ -725,34 +731,37 @@ integration("profile rollouts on PostgreSQL (U3b reader)", () => {
     test("a lineage with a rollout and a failed item does not block the fill of a lineage without one", async () => {
       const caller = await owner();
       await lineage(caller);
-      const waiting = await follower(caller);
-      for (const [version, profile] of [
-        [1, V1],
-        [2, V2],
-      ] as const) {
-        await db.insert(installationProfiles).values({
+      await db.insert(installationProfiles).values(
+        [1, 2].map((version) => ({
           id: `op_other_v${version}`,
           name: "other",
           version,
-          origin: "console",
-          definition: definitionOf(profile),
-          permissionMode: "default",
+          origin: "console" as const,
+          definition: definitionOf(version === 1 ? V1 : V2),
+          permissionMode: "default" as const,
           fingerprint: `fp-other-${version}`,
           repositoryIds: [],
           createdBy: userOf(caller),
-        });
-      }
-      const opened = await follower(caller, { profile: "op_other_v1" });
+        })),
+      );
+      const waiting = await follower(caller, { profile: "op_other_v1" });
+      const failed = await follower(caller);
+      // Fixed on its profile's own model, so a model fill would take it.
+      const fixed = await follower(caller, {
+        profile: "op_ops_v2",
+        card: card("v1", "claude-opus-5"),
+        model_source: "fixed",
+      });
       const rolloutId = randomUUID();
       await db.insert(profileRollouts).values({
         id: rolloutId,
         kind: "profile_update",
-        targetProfileId: "op_other_v2",
+        targetProfileId: "op_ops_v2",
         createdBy: userOf(caller),
       });
       await db.insert(profileRolloutItems).values({
         rolloutId,
-        agentId: opened.agent.id,
+        agentId: failed.agent.id,
         generation: 0,
         status: "failed",
         reasonCode: "release_refused",
@@ -763,10 +772,17 @@ integration("profile rollouts on PostgreSQL (U3b reader)", () => {
         items: 0,
         held: 1,
       });
+      const dry = await rollouts().backfill({ dryRun: true });
       const filled = await rollouts().backfill({ dryRun: false });
-      if ("refused" in filled) throw new Error("fill refused");
+      if ("refused" in dry || "refused" in filled)
+        throw new Error("fill refused");
       expect(filled.pinned).toEqual([waiting.agent.id]);
-      expect((await agentRow(opened.agent.id))?.profileTracking).toBe("follow");
+      expect(filled).toEqual({ ...dry, dryRun: false });
+      expect(filled.modelFollowsProfile).not.toContain(fixed.agent.id);
+      expect((await agentRow(fixed.agent.id))?.modelSource).toBe("fixed");
+      expect((await agentRow(failed.agent.id))?.profileTracking).toBe(
+        "follow",
+      );
       expect(await db.select().from(profileFill)).toHaveLength(1);
     });
 
@@ -905,7 +921,7 @@ integration("profile rollouts on PostgreSQL (U3b reader)", () => {
       expect(again.modelFollowsProfile).toEqual([]);
     });
 
-    test("a real run is refused once a rollout exists", async () => {
+    test("a real run is refused when the only agents behind are in a lineage that has a rollout", async () => {
       const caller = await owner();
       await lineage(caller);
       const made = await follower(caller);

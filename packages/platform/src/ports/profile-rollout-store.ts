@@ -83,7 +83,8 @@ export interface ProfileRolloutStore {
    * Writes the outbox, so it is run only once the writer is open.
    * Agents behind their profile in a lineage that has no rollout of its own,
    * before a recorded fill, belong to the one-time fill: nothing is written
-   * for them (a rollout would close the fill for good) and `held` counts them.
+   * for them (a rollout there would keep the fill from pinning them) and `held`
+   * counts them.
    */
   sweep(): Promise<{ rollouts: number; items: number; held?: number }>;
   inspect(input: {

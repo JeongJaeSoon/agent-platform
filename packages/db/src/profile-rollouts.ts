@@ -576,6 +576,10 @@ export function createPostgresProfileRolloutStore(
     }): Promise<BackfillReport | { refused: "rollouts_exist" }> {
       return db.transaction(async (tx) => {
         await lockWrites(tx);
+        // Once recorded, the fill is done: agents that came after it are the
+        // sweep's, so a later run reports nothing and writes nothing.
+        if ((await rows(tx, sql`SELECT 1 FROM profile_fill`)).length > 0)
+          return { dryRun, pinned: [], modelFollowsProfile: [] };
         const { behind: allBehind } = await behindLatest(tx);
         // A lineage that already has a rollout belongs to the sweep: pinning
         // its agents here would race the items the writer put in. They are
@@ -590,20 +594,24 @@ export function createPostgresProfileRolloutStore(
           a.agent_id < b.agent_id ? -1 : a.agent_id > b.agent_id ? 1 : 0,
         );
         let pinned = behindSorted.map((agent) => agent.agent_id);
-        const same = await rows<{
-          id: string;
-          revision: number;
-          behavior: number;
-        }>(
-          tx,
-          sql`SELECT a.id, a.activation_revision AS revision,
-              a.behavior_revision AS behavior FROM agents a
+        const same = (
+          await rows<{
+            id: string;
+            revision: number;
+            behavior: number;
+            lineage: string | null;
+          }>(
+            tx,
+            sql`SELECT a.id, a.activation_revision AS revision,
+              a.behavior_revision AS behavior, ${LINEAGE("p")} AS lineage
+            FROM agents a
             JOIN agent_releases r ON r.id = a.active_release_id
             JOIN installation_profiles p ON p.id = r.runtime_profile_id
             WHERE a.model_source = 'fixed'
               AND r.runtime_config_snapshot ->> 'model' = p.definition ->> 'model'
             ORDER BY a.id`,
-        );
+          )
+        ).filter((row) => row.lineage === null || !opened.has(row.lineage));
         let modelFollowsProfile = same.map((row) => row.id);
         // Agent changes do not take the profile lock, so each update holds
         // only if the agent's release has not moved since it was read. The
