@@ -257,6 +257,33 @@ export const githubKo = {
   "github.permissions.name.issues": "Issues",
   "github.permissions.name.workflows": "Workflows",
   "github.permissions.name.administration": "Administration",
+  "github.pullRequest.title": "Pull request",
+  "github.pullRequest.hint":
+    "에이전트가 여는 Pull request의 본문과 커밋에 남기는 세션 링크를 정합니다. 이후에 여는·갱신하는 PR과 다음 커밋부터 적용되고, GitHub에 이미 있는 글은 바꾸지 않습니다.",
+  "github.pullRequest.formatting": "저장소·워크스페이스 템플릿 사용",
+  "github.pullRequest.formattingHint":
+    "끄면 저장소 템플릿과 아래 템플릿을 모두 쓰지 않고, 본문은 기본 서식으로 채웁니다.",
+  "github.pullRequest.mode": "템플릿을 고르는 방식",
+  "github.pullRequest.mode.repository_first":
+    "저장소 템플릿 먼저, 없으면 아래 템플릿",
+  "github.pullRequest.mode.override": "저장소 템플릿 대신 아래 템플릿 사용",
+  "github.pullRequest.template": "기본 템플릿",
+  "github.pullRequest.templateHint":
+    "비워 두면 기본 서식을 씁니다. {bytes} / {max} 바이트",
+  "github.pullRequest.sessionLink": "세션 링크",
+  "github.pullRequest.sessionLink.url": "세션 주소 (URL)",
+  "github.pullRequest.sessionLink.id": "세션 ID만",
+  "github.pullRequest.sessionLinkHint":
+    "PR 본문 끝과 커밋의 Agent-Session 줄에 쓰입니다.",
+  "github.pullRequest.saved": "Pull request 설정을 저장했습니다.",
+  "github.pullRequest.failed": "Pull request 설정을 저장하지 못했습니다.",
+  "github.pullRequest.conflict":
+    "다른 곳에서 먼저 바꿨습니다. 지금 저장된 값을 다시 불러왔으니 확인한 뒤 저장해 주세요.",
+  "github.pullRequest.tooLarge":
+    "템플릿이 {max} 바이트를 넘어 저장하지 못했습니다.",
+  "github.pullRequest.invalidText": "템플릿이 올바른 UTF-8 텍스트가 아닙니다.",
+  "github.pullRequest.unsupported":
+    "템플릿에 지원하지 않는 마크업이 있거나 주석이 닫히지 않았습니다.",
 };
 
 export const githubEn: Record<keyof typeof githubKo, string> = {
@@ -522,6 +549,34 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
   "github.permissions.name.issues": "Issues",
   "github.permissions.name.workflows": "Workflows",
   "github.permissions.name.administration": "Administration",
+  "github.pullRequest.title": "Pull requests",
+  "github.pullRequest.hint":
+    "Sets how pull request bodies and the session link in commits are written. It applies to pull requests opened or updated afterwards and to later commits; text already on GitHub is not rewritten.",
+  "github.pullRequest.formatting": "Use repository and workspace templates",
+  "github.pullRequest.formattingHint":
+    "When off, neither the repository template nor the template below is used and the body is filled in the default layout.",
+  "github.pullRequest.mode": "How the template is chosen",
+  "github.pullRequest.mode.repository_first":
+    "Repository template first, else the template below",
+  "github.pullRequest.mode.override":
+    "Use the template below instead of the repository's",
+  "github.pullRequest.template": "Default template",
+  "github.pullRequest.templateHint":
+    "Leave empty for the default layout. {bytes} / {max} bytes",
+  "github.pullRequest.sessionLink": "Session link",
+  "github.pullRequest.sessionLink.url": "Session address (URL)",
+  "github.pullRequest.sessionLink.id": "Session ID only",
+  "github.pullRequest.sessionLinkHint":
+    "Used at the end of the pull request body and in the commit's Agent-Session line.",
+  "github.pullRequest.saved": "Saved the pull request settings.",
+  "github.pullRequest.failed": "Could not save the pull request settings.",
+  "github.pullRequest.conflict":
+    "Someone changed it first. The saved values were reloaded; check them and save again.",
+  "github.pullRequest.tooLarge":
+    "The template is over {max} bytes and was not saved.",
+  "github.pullRequest.invalidText": "The template is not valid UTF-8 text.",
+  "github.pullRequest.unsupported":
+    "The template has unsupported markup or an unclosed comment.",
 };
 
 export const githubJa: Record<keyof typeof githubKo, string> = {
@@ -788,4 +843,34 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
   "github.permissions.name.issues": "Issues",
   "github.permissions.name.workflows": "Workflows",
   "github.permissions.name.administration": "Administration",
+  "github.pullRequest.title": "Pull request",
+  "github.pullRequest.hint":
+    "エージェントが開く Pull request の本文と、コミットに残すセッションリンクを設定します。以降に開く・更新する PR と次のコミットから適用され、GitHub 上の既存の文章は書き換えません。",
+  "github.pullRequest.formatting":
+    "リポジトリ・ワークスペースのテンプレートを使う",
+  "github.pullRequest.formattingHint":
+    "オフにすると、リポジトリのテンプレートも下のテンプレートも使わず、本文は既定の書式で埋めます。",
+  "github.pullRequest.mode": "テンプレートの選び方",
+  "github.pullRequest.mode.repository_first":
+    "リポジトリのテンプレートを優先し、なければ下のテンプレート",
+  "github.pullRequest.mode.override":
+    "リポジトリのテンプレートの代わりに下のテンプレートを使う",
+  "github.pullRequest.template": "既定のテンプレート",
+  "github.pullRequest.templateHint":
+    "空にすると既定の書式を使います。{bytes} / {max} バイト",
+  "github.pullRequest.sessionLink": "セッションリンク",
+  "github.pullRequest.sessionLink.url": "セッションのアドレス (URL)",
+  "github.pullRequest.sessionLink.id": "セッション ID のみ",
+  "github.pullRequest.sessionLinkHint":
+    "PR 本文の末尾とコミットの Agent-Session 行に使われます。",
+  "github.pullRequest.saved": "Pull request の設定を保存しました。",
+  "github.pullRequest.failed": "Pull request の設定を保存できませんでした。",
+  "github.pullRequest.conflict":
+    "先に他の場所で変更されました。保存済みの値を読み込み直したので、確認してからもう一度保存してください。",
+  "github.pullRequest.tooLarge":
+    "テンプレートが {max} バイトを超えているため保存できませんでした。",
+  "github.pullRequest.invalidText":
+    "テンプレートが正しい UTF-8 のテキストではありません。",
+  "github.pullRequest.unsupported":
+    "テンプレートにサポートされないマークアップがあるか、コメントが閉じられていません。",
 };

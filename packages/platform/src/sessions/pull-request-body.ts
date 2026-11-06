@@ -108,7 +108,6 @@ type Cleaned = {
   related: string[];
 };
 
-/** What each field puts in a body, without its heading. */
 function blocksOf(fields: Cleaned): SectionBlocks {
   const bullets = (items: readonly string[]) =>
     items.map((item) => `- ${item}`).join("\n");
@@ -122,10 +121,6 @@ function blocksOf(fields: Cleaned): SectionBlocks {
   };
 }
 
-/**
- * The fields on the platform's default layout, or on the repository's
- * template when there is one: its own sections kept, the fields put in.
- */
 function assemble(
   fields: Cleaned,
   locale: UserLocale,
@@ -180,6 +175,7 @@ function cleanAll(
 }
 
 const FENCE_RUN = /`{3,}|~{3,}/g;
+const FENCE_LINE = /^\s{0,3}(`{3,}|~{3,})/;
 const breakRun = (run: string) => [...run].join(ZWSP);
 
 // A task item with no text, in a list, a quote or both, takes the next line
@@ -260,12 +256,9 @@ export function renderPullRequestBody(input: {
     id: string;
     repositories: Readonly<Record<string, { url: string }>>;
   };
-  /** The repository's template, made inert; absent: the default layout. */
   template?: PreparedTemplate | null | undefined;
 }): { body: string; relatedDropped: number; templateUsed: boolean } {
   const { fields, locale, tail, maxLength, redact } = input;
-  // The template is the repository's text, but what is posted goes through
-  // the same redaction as the agent's.
   const redactRow = lineRedactor(redact);
   let template: PreparedTemplate | null =
     input.template == null
@@ -278,7 +271,9 @@ export function renderPullRequestBody(input: {
         };
   // The validation judged the comment boundaries on the text as read. A row
   // inside or at the edge of a comment that redaction rewrote may have lost
-  // its `-->` (or its `<!--`), so the checked structure no longer holds.
+  // its `-->` (or its `<!--`), and a rewritten fence line may have lost its
+  // marker, so a closing fence would open one: the checked structure no longer
+  // holds.
   if (
     template !== null &&
     input.template != null &&
@@ -286,6 +281,7 @@ export function renderPullRequestBody(input: {
       (row, at) =>
         row.text !== template?.rows[at]?.text &&
         (row.startsInComment ||
+          FENCE_LINE.test(row.text) ||
           row.text.includes("<!--") ||
           row.text.includes("-->")),
     )
@@ -336,8 +332,6 @@ export function renderPullRequestBody(input: {
     const field = SHRINK_ORDER.find(shrinkable);
     if (field === undefined) {
       if (template !== null) {
-        // The fields are gone and the template alone is too long: the
-        // platform's own layout, with the fields as they were given.
         template = null;
         return renderPullRequestBody({ ...input, template: null });
       }

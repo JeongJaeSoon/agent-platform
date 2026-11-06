@@ -512,6 +512,7 @@ function agentStore() {
     }),
     findRelease: async (_workspace: string, id: string) =>
       releases.get(id) ?? null,
+    hasGitHubSettings: async () => false,
     insertRelease: async ({ release }: { release: AgentRelease }) => {
       const stored = {
         ...release,

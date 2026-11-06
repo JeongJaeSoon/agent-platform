@@ -157,6 +157,7 @@ function store(overrides: Partial<AgentStore> = {}): AgentStore {
     releaseSuperseded: async () => false,
     create: async () => ({ outcome: "created", detail }),
     update: async () => ({ outcome: "updated", detail }),
+    hasGitHubSettings: async () => false,
     insertRelease: async ({ release }) => ({
       outcome: "created",
       release: {

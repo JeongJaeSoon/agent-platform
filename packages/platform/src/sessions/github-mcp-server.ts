@@ -6,6 +6,7 @@ import {
   GITHUB_MCP_FIXED_TOOLS,
   GITHUB_MCP_SERVER,
   GITHUB_MCP_TOOL_ARGUMENTS,
+  GITHUB_MCP_TOOL_CLASSES,
   GITHUB_MCP_TOOL_DESCRIPTIONS,
   GITHUB_MCP_TOOL_FEATURES,
   GITHUB_MCP_TOOL_OUTPUTS,
@@ -270,6 +271,9 @@ export function createGitHubMcpServer(deps: {
         unrepresentable: "any",
       }),
       outputSchema: outputSchemaOf(name),
+      // The policy unit the tool is judged under; `_meta` is MCP's slot for
+      // fields a client need not understand.
+      _meta: { class: GITHUB_MCP_TOOL_CLASSES[name] },
     }));
 
   async function call(
@@ -331,7 +335,14 @@ export function createGitHubMcpServer(deps: {
     let turnAtCall: number | null = null;
     try {
       if (tool === "list_repositories") {
-        return done(await services.attachments.list(sessionId));
+        return done(
+          await services.attachments.list(
+            sessionId,
+            parsed.data as z.infer<
+              (typeof GITHUB_MCP_TOOL_ARGUMENTS)["list_repositories"]
+            >,
+          ),
+        );
       }
       if (tool === "attach_repository") {
         const { repository_id, wait_seconds } = parsed.data as z.infer<
@@ -502,7 +513,8 @@ export function createGitHubMcpServer(deps: {
     const name = params.name;
     if (
       typeof name !== "string" ||
-      !Object.hasOwn(GITHUB_MCP_TOOL_ARGUMENTS, name)
+      !Object.hasOwn(GITHUB_MCP_TOOL_ARGUMENTS, name) ||
+      !(GITHUB_MCP_FIXED_TOOLS as readonly string[]).includes(name)
     ) {
       return fail(-32602, "Unknown tool");
     }

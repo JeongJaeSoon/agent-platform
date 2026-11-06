@@ -13,6 +13,7 @@ import {
   agentDetailSchema,
   agentGitHubActivityResponseSchema,
   agentGitHubResponseSchema,
+  agentPullRequestResponseSchema,
   apiRootResponseSchema,
   auditReadResponseSchema,
   auditRetentionResponseSchema,
@@ -98,8 +99,11 @@ import {
   postSessionMessageResponseSchema,
   pushRequestSchema,
   putAgentGitHubEnabledResponseSchema,
+  putAgentGitHubSettingsResponseSchema,
+  putAgentPullRequestSettingsResponseSchema,
   putGitHubAppResponseSchema,
   putGitHubOAuthClientSecretResponseSchema,
+  putGitHubPullRequestSettingsResponseSchema,
   putGitHubRepositoryAppPinResponseSchema,
   putGitHubUserLinkAppResponseSchema,
   putSlackBindingResponseSchema,
@@ -206,6 +210,11 @@ export const responseSchemas = {
   "GET /v1/workspaces/{id}/slack/apps": listWorkspaceSlackAppsResponseSchema,
   "PUT /v1/workspaces/{id}/github-settings/oauth-client-secret":
     putGitHubOAuthClientSecretResponseSchema,
+  "PUT /v1/workspaces/{id}/github-settings/pull-request":
+    putGitHubPullRequestSettingsResponseSchema,
+  "GET /v1/agents/{id}/github/pull-request": agentPullRequestResponseSchema,
+  "PUT /v1/agents/{id}/github/pull-request":
+    putAgentPullRequestSettingsResponseSchema,
   "GET /v1/workspaces/{id}/github-packages":
     githubPackagesSettingsResponseSchema,
   "PUT /v1/workspaces/{id}/github-packages/token":
@@ -225,6 +234,7 @@ export const responseSchemas = {
   "PUT /v1/agents/{id}/slack/app/settings": slackAppSettingsSchema,
   "GET /v1/agents/{id}/github": agentGitHubResponseSchema,
   "PUT /v1/agents/{id}/github/enabled": putAgentGitHubEnabledResponseSchema,
+  "PUT /v1/agents/{id}/github/settings": putAgentGitHubSettingsResponseSchema,
   "GET /v1/agents/{id}/github/repositories":
     listAgentGitHubRepositoriesResponseSchema,
   "POST /v1/agents/{id}/github/repositories":

@@ -84,7 +84,9 @@ const row = (
   features: { ...GITHUB_CEILING_NONE },
   actionsAllow: [],
   startRepositoryId: "docs",
+  pushAttached: null,
   revision: 3,
+  updatedBy: null,
   ...overrides,
 });
 
@@ -116,6 +118,10 @@ describe("with no settings row, every reader answers as before", () => {
       settings: null,
       startRepositoryId: null,
       agentSettingsRevision: null,
+      currentRepositories: null,
+      startActionsAllow: null,
+      enabledAtStart: true,
+      pushAttached: "ask",
     });
     expect(newSessionGitHubPolicy(null, SETTINGS)).toMatchObject({
       source: "release",

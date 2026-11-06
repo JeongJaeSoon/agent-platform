@@ -5,13 +5,13 @@ import {
   apiErrorResponseSchema,
   CSRF_HEADER_NAME,
   CSRF_HEADER_VALUE,
-  type GitHubAppRepositories,
   getGitHubRepositoryAppPinsResponseSchema,
   githubRepositoryWriteResponseSchema,
   listAgentGitHubRepositoriesResponseSchema,
   listGitHubRepositoriesResponseSchema,
   pickAgentGitHubRepositoryResponseSchema,
   REQUEST_BODY_MAX_BYTES,
+  type RepositoryCeiling,
   WEB_SESSION_COOKIE_NAME,
 } from "@werft-ai/contracts";
 import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
@@ -24,7 +24,6 @@ import {
   type GitHubPinStore,
   type GitHubRepositoryPin,
   type IdentityStore,
-  type InstallationProfileEntry,
   type MembershipRole,
   type ResolvedWebSession,
 } from "@werft-ai/platform";
@@ -281,19 +280,15 @@ const memory = memoryRepositories();
 const pins = memoryPins();
 let changes = 0;
 
-const ceiling = (
-  id: string,
-  apps: GitHubAppRepositories,
-): [string, InstallationProfileEntry] => [
-  id,
-  {
-    id,
-    origin: "console",
-    state: "usable",
-    repository_ids: [],
-    github_app_repositories: apps,
-  },
-];
+// The workspace's ceiling; the listed-ceiling test swaps it for its own run.
+let workspaceCeiling: RepositoryCeiling = {
+  repository_ids: [],
+  github_app_repositories: "installed",
+};
+const LISTED_CEILING: RepositoryCeiling = {
+  repository_ids: [],
+  github_app_repositories: "listed",
+};
 
 function appWith() {
   const app = createApiApp({
@@ -312,26 +307,12 @@ function appWith() {
           directory: createGitHubAppDirectory({ retryAfterBaseMs: 1 }),
           agents: {
             async get(_workspaceId, agentId) {
-              const profile =
-                agentId === AGENT
-                  ? "op_open_v1"
-                  : agentId === LISTED_AGENT
-                    ? "op_closed_v1"
-                    : null;
-              return profile === null
-                ? null
-                : ({
-                    active_release: { runtime_profile_id: profile },
-                  } as unknown as AgentDetail);
+              return agentId === AGENT || agentId === LISTED_AGENT
+                ? ({ active_release: null } as unknown as AgentDetail)
+                : null;
             },
           },
-          catalog: {
-            profiles: {},
-            installation: new Map([
-              ceiling("op_open_v1", "installed"),
-              ceiling("op_closed_v1", "listed"),
-            ]),
-          },
+          repositoryCeiling: async () => workspaceCeiling,
           changed: async () => {
             changes += 1;
           },
@@ -628,18 +609,27 @@ describe("the GitHub repository API", () => {
     expect(absent.status).toBe(400);
     expect(code(absent.json).details).toEqual({ reason_code: "not_installed" });
 
-    expect(
-      listAgentGitHubRepositoriesResponseSchema.parse(
-        (await call("GET", agentPath(LISTED_AGENT), { cookie: owner })).json,
-      ),
-    ).toMatchObject({ repositories: [], unavailable: "ceiling_listed" });
-    const listed = await call("POST", agentPath(LISTED_AGENT), {
-      cookie: owner,
-      body: {
-        installation_id: INSTALLATION,
-        github_repository_id: idOf("acme/other"),
-      },
-    });
+    workspaceCeiling = LISTED_CEILING;
+    let listed: Awaited<ReturnType<typeof call>>;
+    try {
+      expect(
+        listAgentGitHubRepositoriesResponseSchema.parse(
+          (await call("GET", agentPath(LISTED_AGENT), { cookie: owner })).json,
+        ),
+      ).toMatchObject({ repositories: [], unavailable: "ceiling_listed" });
+      listed = await call("POST", agentPath(LISTED_AGENT), {
+        cookie: owner,
+        body: {
+          installation_id: INSTALLATION,
+          github_repository_id: idOf("acme/other"),
+        },
+      });
+    } finally {
+      workspaceCeiling = {
+        repository_ids: [],
+        github_app_repositories: "installed",
+      };
+    }
     expect(listed.status).toBe(400);
     expect(code(listed.json).details).toEqual({
       reason_code: "repository_not_allowed",

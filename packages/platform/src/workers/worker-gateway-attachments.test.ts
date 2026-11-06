@@ -91,6 +91,10 @@ function wired() {
     kind: "app",
     githubCom: true,
     appId: 7,
+    installedOn: async (repos) =>
+      new Map(
+        repos.map((repo) => [`${repo.owner}/${repo.name}`.toLowerCase(), true]),
+      ),
     quotaKey: async () => "app:7",
     installed: async () => true,
     credential: async () => ({

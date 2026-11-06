@@ -10,19 +10,31 @@ export function releasePolicy(
     settings,
     startRepositoryId: null,
     agentSettingsRevision: null,
+    currentRepositories: null,
+    startActionsAllow: null,
+    enabledAtStart: true,
+    pushAttached: "ask",
   };
 }
 
 /** A session on its agent's settings row, as the resolver answers it. */
 export function agentPolicy(
   settings: EffectiveGitHubPolicy["settings"],
-  options: { startRepositoryId?: string | null; revision?: number } = {},
+  options: {
+    startRepositoryId?: string | null;
+    revision?: number;
+    pushAttached?: EffectiveGitHubPolicy["pushAttached"];
+  } = {},
 ): EffectiveGitHubPolicy {
   return {
     source: "agent",
     settings,
     startRepositoryId: options.startRepositoryId ?? null,
     agentSettingsRevision: options.revision ?? 1,
+    currentRepositories: null,
+    startActionsAllow: null,
+    enabledAtStart: true,
+    pushAttached: options.pushAttached ?? "ask",
   };
 }
 

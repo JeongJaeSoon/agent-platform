@@ -176,12 +176,18 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
   "routes/agent-github.test.ts": [
     "GET /v1/agents/{id}/github",
     "PUT /v1/agents/{id}/github/enabled",
+    "PUT /v1/agents/{id}/github/settings",
     "GET /v1/agents/{id}/github/activity",
+  ],
+  "routes/agent-pull-request.test.ts": [
+    "GET /v1/agents/{id}/github/pull-request",
+    "PUT /v1/agents/{id}/github/pull-request",
   ],
   "routes/github-settings.test.ts": [
     "GET /v1/workspaces/{id}/github-settings",
     "PUT /v1/workspaces/{id}/github-settings",
     "PUT /v1/workspaces/{id}/github-settings/oauth-client-secret",
+    "PUT /v1/workspaces/{id}/github-settings/pull-request",
     "PUT /v1/workspaces/{id}/github-settings/user-link-app",
   ],
   "routes/github-packages.test.ts": [

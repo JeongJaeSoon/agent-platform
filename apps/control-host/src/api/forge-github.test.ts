@@ -575,6 +575,61 @@ describe("the App registered in the console", () => {
     expect(github.tokenRequests.length).toBe(before);
   });
 
+  test("installedOn answers many repositories from the installation's list, case-insensitively", async () => {
+    const registered = registeredFor({
+      role: "author",
+      store: { credentials: async () => [credential()] },
+    });
+    await registered.refresh();
+    const answers = await registered
+      .connection()
+      ?.installedOn([
+        repo,
+        { owner: "ACME", name: "Other" },
+        { owner: "acme", name: "absent" },
+        { owner: "elsewhere", name: "app" },
+      ]);
+    expect([...(answers ?? [])]).toEqual([
+      ["acme/app", true],
+      ["acme/other", true],
+      ["acme/absent", false],
+      ["elsewhere/app", false],
+    ]);
+    expect((await registered.connection()?.installedOn([]))?.size).toBe(0);
+  });
+
+  test("installedOn takes one installation token for any number of repositories", async () => {
+    const registered = registeredFor({
+      role: "author",
+      store: { credentials: async () => [credential()] },
+    });
+    await registered.refresh();
+    const before = github.tokenRequests.length;
+    await registered
+      .connection()
+      ?.installedOn([
+        repo,
+        { owner: "acme", name: "other" },
+        { owner: "acme", name: "absent" },
+      ]);
+    expect(github.tokenRequests.length - before).toBe(1);
+  });
+
+  test("installedOn on a catalog App counts only its named installation", async () => {
+    const catalogApp = (installationId: number) =>
+      createGitHubConnection({
+        apiBase: github.origin,
+        credentials: { kind: "app", appId: 101, installationId, privateKey },
+        paced: false,
+      });
+    expect((await catalogApp(1).installedOn([repo])).get("acme/app")).toBe(
+      true,
+    );
+    expect((await catalogApp(202).installedOn([repo])).get("acme/app")).toBe(
+      false,
+    );
+  });
+
   test("a catalog App is installed only where its named installation covers the repository", async () => {
     const catalogApp = (installationId: number) =>
       createGitHubConnection({

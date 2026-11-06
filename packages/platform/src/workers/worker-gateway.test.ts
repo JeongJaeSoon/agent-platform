@@ -996,6 +996,58 @@ describe("WorkerGateway", () => {
     );
     expect(agentKey.git).toEqual({ co_author: null, session_url: sessionUrl });
     expect(asked).toEqual([scope.session_id, scope.session_id]);
+
+    // The workspace chose `id`: the claim sends no address, so the worker's
+    // trailer names the session id. Asked for the claim's workspace.
+    const linksAsked: string[] = [];
+    const idOnly = createWorkerGateway({
+      work: work({
+        claimAtomic: async () => ({ outcome: "claimed", binding }),
+      }),
+      catalog: { profiles: { "claude-coding-v1": profile }, repositories: {} },
+      checkpoints: acceptAllCheckpoints,
+      attribution: {
+        store: { attribution: async () => null },
+        consoleOrigin: "https://console.example.com",
+        sessionLink: async (workspaceId) => {
+          linksAsked.push(workspaceId);
+          return "id";
+        },
+      },
+      options: {
+        sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
+        leaseTtlMs: 30_000,
+      },
+    });
+    const bare = await idOnly.bootstrapClaim({ kind: "bootstrap" }, request);
+    expect(bare.git).toEqual({ co_author: null, session_url: null });
+    expect(linksAsked).toEqual([binding.ownerScope]);
+
+    // A failing settings read is the claim's failure, not a silent default:
+    // a wrong address in a commit is worse than a session that retries.
+    const unreadable = createWorkerGateway({
+      work: work({
+        claimAtomic: async () => ({ outcome: "claimed", binding }),
+      }),
+      catalog: { profiles: { "claude-coding-v1": profile }, repositories: {} },
+      checkpoints: acceptAllCheckpoints,
+      attribution: {
+        store: { attribution: async () => null },
+        consoleOrigin: "https://console.example.com",
+        sessionLink: async () => {
+          throw new Error("connection refused");
+        },
+      },
+      options: {
+        sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
+        leaseTtlMs: 30_000,
+      },
+    });
+    await expect(
+      unreadable.bootstrapClaim({ kind: "bootstrap" }, request),
+    ).rejects.toThrow("connection refused");
     // No bot lookup wired: the claim leaves the image's author alone.
     expect("git_author" in linked).toBe(false);
 
@@ -3566,6 +3618,13 @@ describe("egress and claim through the real GitHub gate", () => {
       kind: "app",
       githubCom: true,
       appId: 7,
+      installedOn: async (repos) =>
+        new Map(
+          repos.map((repo) => [
+            `${repo.owner}/${repo.name}`.toLowerCase(),
+            true,
+          ]),
+        ),
       quotaKey: async () => "app:7",
       installed: async () => true,
       credential: async (repo) => ({

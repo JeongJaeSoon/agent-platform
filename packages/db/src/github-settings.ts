@@ -4,8 +4,10 @@ import {
   type EffectiveGitHubPolicy,
   effectiveGitHubPolicy,
   GITHUB_CEILING_NONE,
+  GITHUB_POLICY_CLOSED,
   type GitHubCeiling,
   type GitHubFeatures,
+  type GitHubPolicyStart,
   githubCeilingSchema,
   newSessionGitHubPolicy,
   type RepositoryCeiling,
@@ -63,18 +65,25 @@ async function readSettings(db: Database, workspaceId: string) {
  * What `githubPolicyOfRow` reads off a session. The query joins
  * `agentGitHubSettings` on the agent of the session's release.
  */
-const agentPolicyColumns = {
-  releasePin: sql<unknown>`${agentReleases.policyPins} -> 'github'`,
+export const agentSettingsColumns = {
   settingsRepositories: agentGitHubSettings.repositories,
   settingsPushApproval: agentGitHubSettings.pushApproval,
   settingsFeatures: agentGitHubSettings.features,
   settingsActionsAllow: agentGitHubSettings.actionsAllow,
   settingsStartRepositoryId: agentGitHubSettings.startRepositoryId,
+  settingsPushAttached: agentGitHubSettings.pushAttached,
   settingsRevision: agentGitHubSettings.revision,
+  settingsUpdatedBy: agentGitHubSettings.updatedBy,
+};
+
+const agentPolicyColumns = {
+  releasePin: sql<unknown>`${agentReleases.policyPins} -> 'github'`,
+  ...agentSettingsColumns,
 };
 
 export const githubPolicyColumns = {
   githubPolicySource: sessions.githubPolicySource,
+  githubPolicyStart: sessions.githubPolicyStart,
   ...agentPolicyColumns,
 };
 
@@ -84,7 +93,9 @@ export function agentGitHubSettingsRowOf(row: {
   settingsFeatures: unknown;
   settingsActionsAllow: unknown;
   settingsStartRepositoryId: string | null;
+  settingsPushAttached: string | null;
   settingsRevision: number | null;
+  settingsUpdatedBy: string | null;
 }): AgentGitHubSettingsRow | null {
   if (row.settingsRevision === null || row.settingsPushApproval === null) {
     return null;
@@ -95,13 +106,16 @@ export function agentGitHubSettingsRowOf(row: {
     features: row.settingsFeatures,
     actionsAllow: row.settingsActionsAllow,
     startRepositoryId: row.settingsStartRepositoryId,
+    pushAttached: row.settingsPushAttached,
     revision: row.settingsRevision,
+    updatedBy: row.settingsUpdatedBy,
   };
 }
 
 export function githubPolicyOfRow(
   row: Parameters<typeof agentGitHubSettingsRowOf>[0] & {
     githubPolicySource: unknown;
+    githubPolicyStart: unknown;
     releasePin: unknown;
   },
 ): EffectiveGitHubPolicy {
@@ -109,6 +123,7 @@ export function githubPolicyOfRow(
     source: row.githubPolicySource,
     releasePin: row.releasePin,
     agentRow: agentGitHubSettingsRowOf(row),
+    start: row.githubPolicyStart,
   });
 }
 
@@ -129,6 +144,144 @@ export async function workspaceRepositoryCeiling(
   return (await readSettings(db, workspaceId)).repositoryCeiling;
 }
 
+/**
+ * Writes the workspace's repository ceiling as "every repository the console
+ * App reaches", plus any explicit ids, without taking away what it holds:
+ * ids already listed stay, and a ceiling that already says this changes
+ * nothing, so a repeat is a no-op. A ceiling that is null or unreadable
+ * (which allow nothing) becomes this one; that is the only widening it makes.
+ */
+export async function ensureInstalledRepositoryCeiling(
+  db: Database,
+  workspaceId: string,
+  repositoryIds: readonly string[] = [],
+): Promise<{ changed: boolean }> {
+  return db.transaction(async (tx) => {
+    await tx
+      .insert(githubWorkspaceSettings)
+      .values({ workspaceId, ceiling: GITHUB_CEILING_NONE })
+      .onConflictDoNothing();
+    const [held] = await tx
+      .select({ repositoryCeiling: githubWorkspaceSettings.repositoryCeiling })
+      .from(githubWorkspaceSettings)
+      .where(eq(githubWorkspaceSettings.workspaceId, workspaceId))
+      .limit(1)
+      .for("update");
+    const current = repositoryCeilingOf(held?.repositoryCeiling);
+    const heldIds = new Set(current?.repository_ids ?? []);
+    const ids = [...new Set([...heldIds, ...repositoryIds])];
+    // A stored list may repeat an id, so compare membership, not length.
+    if (
+      current !== null &&
+      current.github_app_repositories === "installed" &&
+      repositoryIds.every((id) => heldIds.has(id))
+    ) {
+      return { changed: false };
+    }
+    await tx
+      .update(githubWorkspaceSettings)
+      .set({
+        repositoryCeiling: {
+          repository_ids: ids,
+          github_app_repositories: "installed",
+        } satisfies RepositoryCeiling,
+        revision: sql`${githubWorkspaceSettings.revision} + 1`,
+        updatedAt: sql`now()`,
+      })
+      .where(eq(githubWorkspaceSettings.workspaceId, workspaceId));
+    return { changed: true };
+  });
+}
+
+/**
+ * First use of a workspace that has no repository ceiling yet (a null or
+ * unreadable one allows nothing): writes the default one and returns it.
+ * A ceiling that reads is returned as it is, never widened.
+ */
+export async function ensureRepositoryCeilingWhenUnset(
+  db: Database,
+  workspaceId: string,
+): Promise<RepositoryCeiling> {
+  return db.transaction(async (tx) => {
+    await tx
+      .insert(githubWorkspaceSettings)
+      .values({ workspaceId, ceiling: GITHUB_CEILING_NONE })
+      .onConflictDoNothing();
+    // Judged under the row lock, so a ceiling written meanwhile is kept.
+    const [held] = await tx
+      .select({ repositoryCeiling: githubWorkspaceSettings.repositoryCeiling })
+      .from(githubWorkspaceSettings)
+      .where(eq(githubWorkspaceSettings.workspaceId, workspaceId))
+      .limit(1)
+      .for("update");
+    const current = repositoryCeilingOf(held?.repositoryCeiling);
+    if (current !== null) return current;
+    const written: RepositoryCeiling = {
+      repository_ids: [],
+      github_app_repositories: "installed",
+    };
+    await tx
+      .update(githubWorkspaceSettings)
+      .set({
+        repositoryCeiling: written,
+        revision: sql`${githubWorkspaceSettings.revision} + 1`,
+        updatedAt: sql`now()`,
+      })
+      .where(eq(githubWorkspaceSettings.workspaceId, workspaceId));
+    return written;
+  });
+}
+
+/**
+ * The snapshot an `agent` session starts with, read inside the transaction
+ * that creates it. The settings row is locked FOR SHARE, so a save waits for
+ * the session to exist instead of landing between the read and the insert.
+ * A row that is gone or cannot be read yields a closed snapshot.
+ */
+export async function captureGitHubPolicyStart(
+  tx: Database,
+  releaseId: string,
+): Promise<GitHubPolicyStart> {
+  const closed: GitHubPolicyStart = {
+    enabled: false,
+    revision: 0,
+    settings: GITHUB_POLICY_CLOSED,
+  };
+  // The agent row first, then its settings: the order lockAgentUse already
+  // takes, so a switch change waits for the session to exist, as a save does.
+  const [agent] = await tx
+    .select({ id: agents.id })
+    .from(agentReleases)
+    .innerJoin(agents, eq(agents.id, agentReleases.agentId))
+    .where(eq(agentReleases.id, releaseId))
+    .limit(1)
+    .for("share", { of: agents });
+  if (agent === undefined) return closed;
+  const [row] = await tx
+    .select({ enabled: agents.githubEnabled, ...agentPolicyColumns })
+    .from(agentReleases)
+    .innerJoin(agents, eq(agents.id, agentReleases.agentId))
+    .innerJoin(agentGitHubSettings, eq(agentGitHubSettings.agentId, agents.id))
+    .where(eq(agentReleases.id, releaseId))
+    .limit(1)
+    .for("share", { of: agentGitHubSettings });
+  if (row === undefined) return closed;
+  const read = newSessionGitHubPolicy(agentGitHubSettingsRowOf(row), null);
+  if (
+    read.settings === null ||
+    read.settings === "invalid" ||
+    read.agentSettingsRevision === null
+  ) {
+    return closed;
+  }
+  return {
+    enabled: row.enabled,
+    revision: read.agentSettingsRevision,
+    settings: read.settings,
+    push_attached: read.pushAttached,
+  };
+}
+
 /** The settings a new session of the agent would start under. */
 export async function agentGitHubSettingsOf(
   db: Database,
@@ -141,7 +294,9 @@ export async function agentGitHubSettingsOf(
       features: agentGitHubSettings.features,
       actionsAllow: agentGitHubSettings.actionsAllow,
       startRepositoryId: agentGitHubSettings.startRepositoryId,
+      pushAttached: agentGitHubSettings.pushAttached,
       revision: agentGitHubSettings.revision,
+      updatedBy: agentGitHubSettings.updatedBy,
     })
     .from(agentGitHubSettings)
     .where(eq(agentGitHubSettings.agentId, agentId))
@@ -194,6 +349,7 @@ export function createPostgresGitHubGateStore(
       const workspaceId = row.workspaceId ?? row.sessionWorkspaceId;
       const settings =
         workspaceId === null ? null : await readSettings(db, workspaceId);
+      const policy = githubPolicyOfRow(row);
       return {
         ownerId: row.ownerId,
         sessionId,
@@ -213,10 +369,11 @@ export function createPostgresGitHubGateStore(
             : {
                 id: row.agentId,
                 workspaceId: row.workspaceId,
-                githubEnabled: row.githubEnabled,
+                // Off now, or off as the session started: both close it.
+                githubEnabled: row.githubEnabled && policy.enabledAtStart,
               },
         release: row.releaseId === null ? null : { id: row.releaseId },
-        policy: githubPolicyOfRow(row),
+        policy,
         ceiling:
           row.workspaceId === null || settings === null
             ? GITHUB_CEILING_NONE

@@ -1,7 +1,6 @@
 import type { GitHubApi, GitTreeEntry } from "../ports/github-gate.ts";
 import { GitHubCallError } from "../ports/github-gate.ts";
 
-/** A file by path; a bare string is a regular file. */
 export type FakeFile =
   | string
   | Uint8Array
@@ -151,7 +150,6 @@ export function fakeRepositoryReads(
   return {
     reads,
     calls,
-    /** The default branch moves: later head reads see these files. */
     move(files: Record<string, FakeFile>) {
       current = files;
     },

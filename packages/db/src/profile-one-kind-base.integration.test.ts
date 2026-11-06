@@ -73,8 +73,15 @@ integrationTest(
         `SELECT * FROM installation_profiles ORDER BY id`,
       );
 
+      // The base and every migration after it.
+      const full = JSON.parse(
+        readFileSync(join(MIGRATIONS_FOLDER, "meta/_journal.json"), "utf8"),
+      ) as { entries: { tag: string }[] };
+      const baseAt = full.entries.findIndex((entry) =>
+        entry.tag.endsWith("_profile_one_kind_base"),
+      );
       expect(await migrateDatabase(database.url, { logger })).toMatchObject({
-        applied: 1,
+        applied: full.entries.length - baseAt,
       });
 
       const profilesAfter = await pool.query(

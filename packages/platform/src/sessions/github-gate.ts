@@ -162,6 +162,15 @@ export function createGitHubGate(deps: {
       if (!own && !ANOTHER_REPOSITORY_PURPOSES.has(work.purpose)) {
         return await refuse("repository_not_allowed");
       }
+      // Whoever approved the request, a push the agent's settings now deny
+      // does not get a credential (`push.attached = deny` narrows at once).
+      if (
+        !own &&
+        work.purpose === "push" &&
+        context.policy.pushAttached === "deny"
+      ) {
+        return await refuse("repository_not_allowed");
+      }
       let entry: SessionCatalog["repositories"][string];
       if (own) {
         if (
@@ -228,6 +237,14 @@ export function createGitHubGate(deps: {
         ) {
           return await refuse("repository_not_allowed");
         }
+        // A release without a pin has no list of its own, but a person's
+        // saved list still takes repositories away from it.
+        if (
+          policy.currentRepositories !== null &&
+          !policy.currentRepositories.includes(repositoryId)
+        ) {
+          return await refuse("repository_not_allowed");
+        }
       }
       const features = githubEffectiveFeatures(
         settings?.features ?? GITHUB_CEILING_NONE,
@@ -270,6 +287,19 @@ export function createGitHubGate(deps: {
           entry.branch,
         );
         if (allowedBy === null) return await refuse("workflow_not_allowed");
+        // Globs and default-branch meanings cannot be intersected, so the
+        // list the session started with must allow the run as well.
+        if (
+          policy.startActionsAllow !== null &&
+          githubAllowedBy(
+            policy.startActionsAllow,
+            target.file,
+            target.ref,
+            entry.branch,
+          ) === null
+        ) {
+          return await refuse("workflow_not_allowed");
+        }
         fields.allowed_by = allowedBy;
       }
 

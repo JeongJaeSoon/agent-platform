@@ -92,6 +92,8 @@ export const RECEIPT_OPERATION_LABEL: Record<ReceiptOperation, string> = {
   delete_github_app: "GitHub App 삭제",
   mint_github_token: "GitHub 토큰 발급",
   set_github_ceiling: "에이전트 GitHub 권한 상한 변경",
+  set_github_pull_request_settings: "PR 서식 설정 변경",
+  set_agent_pull_request_settings: "에이전트 PR 서식 설정 변경",
   add_repository: "저장소 추가",
   resolve_repository: "저장소 고르기",
   set_repository_branch: "저장소 기본 브랜치 변경",

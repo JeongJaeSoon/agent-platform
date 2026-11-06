@@ -1,6 +1,10 @@
 import { z } from "zod";
 
-import { type AgentGitHub, MCP_TOOL_PREFIX } from "../kollegium/agents.ts";
+import {
+  type AgentGitHub,
+  MCP_TOOL_PREFIX,
+  type PushAttached,
+} from "../kollegium/agents.ts";
 import {
   ACTION_REFUSAL_CODES,
   type ActionRefusalCode,
@@ -63,6 +67,10 @@ const waitSecondsSchema = z
   .max(GITHUB_MCP_WAIT_SECONDS_MAX)
   .optional();
 
+/** `list_repositories` answers this many repositories a page unless asked for fewer. */
+export const LIST_REPOSITORIES_LIMIT_DEFAULT = 100;
+export const LIST_REPOSITORIES_LIMIT_MAX = 500;
+
 /**
  * Each tool's arguments: the session API's body plus what that API takes
  * from the path. Never a session id: the attempt token names the session.
@@ -92,7 +100,18 @@ export const GITHUB_MCP_TOOL_ARGUMENTS = {
   submit_review: submitPullRequestReviewRequestSchema.safeExtend({
     number: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
   }),
-  list_repositories: z.object({}).strict(),
+  list_repositories: z
+    .object({
+      limit: z
+        .number()
+        .int()
+        .min(1)
+        .max(LIST_REPOSITORIES_LIMIT_MAX)
+        .optional(),
+      cursor: z.string().min(1).max(256).optional(),
+      query: z.string().min(1).max(128).optional(),
+    })
+    .strict(),
   attach_repository: z
     .object({
       repository_id: z.string().min(1).max(128),
@@ -163,6 +182,12 @@ export type ListedRepository = z.infer<typeof listedRepositorySchema>;
 
 export const listRepositoriesResponseSchema = z.object({
   repositories: z.array(listedRepositorySchema),
+  /**
+   * Pass it as `cursor` for the next page; null on the last. A call that
+   * sends no `limit` or `cursor` gets the first page, so a caller from before
+   * pages reads at most the first `LIST_REPOSITORIES_LIMIT_DEFAULT`.
+   */
+  next_cursor: z.string().nullable(),
 });
 export type ListRepositoriesResponse = z.infer<
   typeof listRepositoriesResponseSchema
@@ -242,11 +267,98 @@ export const attachRepositoryReceiptResultSchema = z.object({
 });
 
 /**
+ * What kind of action a tool is, the unit a policy value is set on (design
+ * 8.1). `push` is judged per repository as `push.primary` or `push.attached`
+ * (`pushClassOf`). There is no `administration`: no tool does that.
+ */
+export const ACTION_CLASS_VALUES = [
+  "push",
+  "pull_request.write",
+  "review",
+  "workflow",
+  "repository.read",
+] as const;
+export type ActionClass = (typeof ACTION_CLASS_VALUES)[number];
+
+/**
+ * Every tool's class. A `Record` over the tool names, so a tool added to
+ * `GITHUB_MCP_TOOL_ARGUMENTS` without a class here does not typecheck, and
+ * `listedGitHubMcpTools` leaves out one that slips through at run time.
+ */
+export const GITHUB_MCP_TOOL_CLASSES: Record<GitHubMcpTool, ActionClass> = {
+  request_push: "push",
+  open_pull_request: "pull_request.write",
+  update_pull_request: "pull_request.write",
+  comment_pull_request: "pull_request.write",
+  close_pull_request: "pull_request.write",
+  reopen_pull_request: "pull_request.write",
+  dispatch_workflow: "workflow",
+  get_workflow_run: "workflow",
+  rerun_workflow: "workflow",
+  submit_review: "review",
+  list_repositories: "repository.read",
+  attach_repository: "repository.read",
+};
+
+/** The names that have a class: the only tools a session can list or call. */
+export function listedGitHubMcpTools(
+  names: readonly string[],
+  classes: Readonly<
+    Record<string, ActionClass | undefined>
+  > = GITHUB_MCP_TOOL_CLASSES,
+): GitHubMcpTool[] {
+  return names.filter(
+    (name): name is GitHubMcpTool =>
+      Object.hasOwn(classes, name) &&
+      classes[name] !== undefined &&
+      ACTION_CLASS_VALUES.includes(classes[name]),
+  );
+}
+
+/** The class a push to `repositoryId` is judged under. */
+export function pushClassOf(
+  sessionRepositoryId: string | null,
+  repositoryId: string,
+): "push.primary" | "push.attached" {
+  return repositoryId === sessionRepositoryId
+    ? "push.primary"
+    : "push.attached";
+}
+
+export type ActionPolicy = {
+  "push.primary": "allow" | "ask";
+  "push.attached": PushAttached;
+  "pull_request.write": "allow";
+  review: "allow" | "deny";
+  workflow: "allow" | "deny";
+  "repository.read": "allow";
+};
+
+/**
+ * The policy per class, computed from the effective settings; nothing is
+ * stored per class. `push.primary` is `push_approval`; `push.attached` is
+ * its own value.
+ */
+export function actionPolicyOf(
+  github: AgentGitHub,
+  pushAttached: PushAttached,
+): ActionPolicy {
+  return {
+    "push.primary": github.push_approval ? "ask" : "allow",
+    "push.attached": pushAttached,
+    "pull_request.write": "allow",
+    review: github.features.review ? "allow" : "deny",
+    workflow: github.features.actions ? "allow" : "deny",
+    "repository.read": "allow",
+  };
+}
+
+/**
  * The tools a release exposes, by the release's features alone. The server's
  * list, the egress check of a call and the worker's relay all read this.
  */
 export function githubMcpTools(github: AgentGitHub): GitHubMcpTool[] {
-  return (Object.keys(GITHUB_MCP_TOOL_FEATURES) as GitHubMcpTool[]).filter(
+  return listedGitHubMcpTools(Object.keys(GITHUB_MCP_TOOL_FEATURES)).filter(
     (tool) => {
       const feature = GITHUB_MCP_TOOL_FEATURES[tool];
       return feature === null || github.features[feature];
@@ -259,9 +371,9 @@ export function githubMcpTools(github: AgentGitHub): GitHubMcpTool[] {
  * its runtime config, and so its checkpoint fingerprint, must not follow a
  * change to them. Each call is judged instead.
  */
-export const GITHUB_MCP_FIXED_TOOLS = Object.keys(
-  GITHUB_MCP_TOOL_FEATURES,
-) as GitHubMcpTool[];
+export const GITHUB_MCP_FIXED_TOOLS = listedGitHubMcpTools(
+  Object.keys(GITHUB_MCP_TOOL_FEATURES),
+);
 
 /**
  * What each tool does, in terms of its fields. Never an instruction to the
@@ -288,8 +400,7 @@ export const GITHUB_MCP_TOOL_DESCRIPTIONS: Record<GitHubMcpTool, string> = {
     "Rerun a workflow run that the platform dispatched for the session's repository.",
   submit_review:
     "Submit a review of a pull request as the reviewer App, on the commit named by `commit_id`.",
-  list_repositories:
-    "List the repositories the session can work on. `status` is `primary` (the session's own), `attached`, `pending` or `failed` (fetch in progress or failed), `available` (attach_repository would add it) or `allowed_in_newer_release` (only the agent's current release allows it).",
+  list_repositories: `List the repositories the session can work on, ${LIST_REPOSITORIES_LIMIT_DEFAULT} a page. The session's own comes first on the first page and is not counted in \`limit\` (1 to ${LIST_REPOSITORIES_LIMIT_MAX}); the others are in id order. \`next_cursor\` is non-null when more follow: send it back as \`cursor\`. \`query\` keeps those whose id or name contains it. \`status\` is \`primary\` (the session's own), \`attached\`, \`pending\` or \`failed\` (fetch in progress or failed), \`available\` (attach_repository would add it) or \`allowed_in_newer_release\` (only the agent's current release allows it).`,
   attach_repository: `Attach a repository the release allows to the session as a git remote named \`repository_id\`, with its default branch fetched to \`<repository_id>/<branch>\`. \`status\` is \`pending\` while the fetch runs. \`wait_seconds\` (0 to ${GITHUB_MCP_WAIT_SECONDS_MAX}, default 0) holds the answer until the fetch ends or the seconds have passed; \`final\` is false when the fetch was still running at the end of the wait. Attaching an attached repository changes nothing.`,
 };
 

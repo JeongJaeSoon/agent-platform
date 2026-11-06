@@ -3,6 +3,7 @@ import {
   type EffectiveGitHubPolicy,
   GITHUB_MCP_TOOL_ARGUMENTS,
   type GitHubMcpTool,
+  type GitHubPolicySource,
   githubPolicyReceiptFields,
   githubPolicySourceOf,
   OPEN_PUSH_REQUEST_STATES,
@@ -11,6 +12,7 @@ import {
   type PushRequest,
   type PushRequestState,
   pushBranchFor,
+  pushClassOf,
   type ReceiptActor,
   repositoryCeilingOf,
 } from "@werft-ai/contracts";
@@ -183,26 +185,51 @@ function approvalOff(policy: EffectiveGitHubPolicy): boolean {
   );
 }
 
+// `allow` only: no settings or a shape this image does not know keeps a
+// person deciding, and so does a release session (its pin means `ask`).
+function attachedAllowed(policy: EffectiveGitHubPolicy): boolean {
+  return policy.settings !== "invalid" && policy.pushAttached === "allow";
+}
+
 const claimable = sql`${pushRequests.state} = 'approved' OR (${pushRequests.state} = 'pushing' AND (${pushRequests.leaseExpiresAt} IS NULL OR ${pushRequests.leaseExpiresAt} < now()))`;
 
-/** A policy's approval the session's settings no longer give. */
-async function approvalLapsed(tx: Database, row: Row): Promise<boolean> {
-  if (row.approvalBasis !== "policy") return false;
+/**
+ * The policy source of a session whose policy approval its settings no
+ * longer give, else null. A `release` session lapses too: a person's row
+ * can now require approval of a pin that waived it.
+ */
+async function approvalLapsed(
+  tx: Database,
+  row: Row,
+): Promise<GitHubPolicySource | null> {
+  if (row.approvalBasis !== "policy") return null;
   const [session] = await tx
-    .select(githubPolicyColumns)
+    .select({
+      ...githubPolicyColumns,
+      sessionRepositoryId: sessions.repositoryId,
+    })
     .from(sessions)
     .leftJoin(agentReleases, eq(agentReleases.id, sessions.agentReleaseId))
     .leftJoin(agents, eq(agents.id, agentReleases.agentId))
     .leftJoin(agentGitHubSettings, eq(agentGitHubSettings.agentId, agents.id))
     .where(eq(sessions.id, row.sessionId))
     .limit(1);
-  if (session === undefined) return false;
+  if (session === undefined) return null;
   const policy = githubPolicyOfRow(session);
-  return policy.source === "agent" && !approvalOff(policy);
+  const stillGiven =
+    pushClassOf(session.sessionRepositoryId, row.repositoryId) ===
+    "push.attached"
+      ? attachedAllowed(policy)
+      : approvalOff(policy);
+  return stillGiven ? null : policy.source;
 }
 
 /** Back to `requested`, for a person; nothing was pushed under this claim. */
-async function returnToPerson(tx: Database, row: Row): Promise<void> {
+async function returnToPerson(
+  tx: Database,
+  row: Row,
+  source: GitHubPolicySource,
+): Promise<void> {
   await insertRefusal(tx, {
     ownerId: row.ownerId,
     sessionId: row.sessionId,
@@ -216,7 +243,7 @@ async function returnToPerson(tx: Database, row: Row): Promise<void> {
         refusal: "approval_required",
       }),
       approved_by: (row.decidedBy as PushDecider | null) ?? null,
-      policy_source: "agent",
+      policy_source: source,
       agent_settings_revision: row.approvalSettingsRevision,
     },
   });
@@ -333,9 +360,19 @@ export function createPostgresPushRequests(
         policySource: policy.source,
         github: policy.settings,
         repositoryCeiling: repositoryCeilingOf(row.repositoryCeiling),
-        githubEnabled: row.githubEnabled ?? false,
+        // Off now, or off as the session started: both close it.
+        githubEnabled: (row.githubEnabled ?? false) && policy.enabledAtStart,
         policyApproval:
           approvalOff(policy) && row.releaseId !== null
+            ? {
+                releaseId: row.releaseId,
+                source: policy.source,
+                settingsRevision: policy.agentSettingsRevision,
+              }
+            : null,
+        pushAttached: policy.pushAttached,
+        attachedApproval:
+          attachedAllowed(policy) && row.releaseId !== null
             ? {
                 releaseId: row.releaseId,
                 source: policy.source,
@@ -739,8 +776,9 @@ export function createPostgresPushRequests(
             .limit(1)
             .for("update", { skipLocked: true });
           if (!candidate) return null;
-          if (await approvalLapsed(tx, candidate)) {
-            await returnToPerson(tx, candidate);
+          const lapsed = await approvalLapsed(tx, candidate);
+          if (lapsed !== null) {
+            await returnToPerson(tx, candidate, lapsed);
             continue;
           }
           const [row] = await tx

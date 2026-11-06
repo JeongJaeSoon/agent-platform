@@ -38,7 +38,9 @@ import {
   type RestorePlanResponse,
   registerPendingResponseSchema,
   releaseResponseSchema,
+  requestBodyInvalidDetailsSchema,
   restorePlanResponseSchema,
+  type WorkerCapabilities,
   type WorkerReadyRequest,
   type WorkerReadyResponse,
   workerReadyResponseSchema,
@@ -91,7 +93,35 @@ export class HttpWorkerGatewayClient implements WorkerGatewaySession {
   bootstrapClaim(
     request: BootstrapClaimRequest,
   ): Promise<BootstrapClaimResponse> {
-    return this.post("/bootstrap-claim", request, bootstrapClaimResponseSchema);
+    return this.withTrustFallback(request, (body) =>
+      this.post("/bootstrap-claim", body, bootstrapClaimResponseSchema),
+    );
+  }
+
+  // A control-host older than `platform_tool_trust` refuses the whole body for
+  // that one key. Rather than leave the worker to exit while the two sides are
+  // mid-deploy, send once more without it: the server then hands out no
+  // `trusted`, and the tools stay behind the engine's permission stage. Once
+  // refused, the key stays off for this client's lifetime.
+  private trustRefused = false;
+
+  private async withTrustFallback<
+    R extends { capabilities?: WorkerCapabilities | undefined },
+    T,
+  >(request: R, send: (body: R) => Promise<T>): Promise<T> {
+    const without = (): R => {
+      const { platform_tool_trust: _dropped, ...rest } =
+        request.capabilities ?? {};
+      return { ...request, capabilities: rest };
+    };
+    if (this.trustRefused) return send(without());
+    try {
+      return await send(request);
+    } catch (error) {
+      if (!refusesCapability(error, "platform_tool_trust")) throw error;
+      this.trustRefused = true;
+      return send(without());
+    }
   }
 
   nextInput(request: NextInputRequest): Promise<NextInputResponse> {
@@ -119,7 +149,9 @@ export class HttpWorkerGatewayClient implements WorkerGatewaySession {
   pendingControl(
     request: PendingControlRequest,
   ): Promise<PendingControlResponse> {
-    return this.post("/pending-control", request, pendingControlResponseSchema);
+    return this.withTrustFallback(request, (body) =>
+      this.post("/pending-control", body, pendingControlResponseSchema),
+    );
   }
 
   parkDeclined(request: ParkDeclinedRequest): Promise<ParkDeclinedResponse> {
@@ -243,11 +275,36 @@ function failure(
       status >= 500 || status === 429,
     );
   }
-  const { code, message: detail, retryable } = parsed.data.error;
+  const { code, message: detail, retryable, details } = parsed.data.error;
   return new WorkerGatewayRequestError(
     status,
     code,
     `POST ${path} failed with ${code}: ${detail}`,
     retryable,
+    details ?? undefined,
+  );
+}
+
+/**
+ * Whether a 400 is a control-host older than `platform_tool_trust` refusing
+ * that one key of the strict `capabilities` object. Read from the structured
+ * `details.issues` (an issue at path `capabilities` that names the key); a
+ * body without them, or any other refusal, is not this.
+ */
+function refusesCapability(error: unknown, key: string): boolean {
+  if (
+    !(error instanceof WorkerGatewayRequestError) ||
+    error.status !== 400 ||
+    error.code !== "BAD_REQUEST"
+  ) {
+    return false;
+  }
+  const parsed = requestBodyInvalidDetailsSchema.safeParse(error.details);
+  return (
+    parsed.success &&
+    parsed.data.issues.some(
+      (issue) =>
+        issue.path === "capabilities" && issue.message.includes(`"${key}"`),
+    )
   );
 }

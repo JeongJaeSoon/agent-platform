@@ -457,4 +457,24 @@ describe("a repository template goes through the same redaction as the fields", 
     expect(body).not.toMatch(/ghp_|PRIVATE KEY|fixture-only/);
     expect(body.endsWith(PULL_REQUEST_TAIL_END_MARKER)).toBe(true);
   });
+
+  test("a redacted fence line does not turn the closing fence into an opening one", () => {
+    const template = prepareTemplate(
+      "```github_pat_example\nexample\n```\n## Summary\n",
+    );
+    expect(template).not.toBeNull();
+    const { body } = renderPullRequestBody({
+      fields: { summary: "FIELD" },
+      locale: "en",
+      tail: TAIL,
+      maxLength: 65_536,
+      redact: (line) => (line.includes("github_pat_") ? "[REDACTED]" : line),
+      repository,
+      template,
+    });
+    // The template was dropped for the default layout, whose summary is not
+    // inside a code block.
+    expect(body).toMatch(/^## Summary\nFIELD/m);
+    expect(body).not.toContain("example");
+  });
 });

@@ -33,11 +33,13 @@ const UNKNOWN = { author: null, reviewer: null };
 const TAB: Tab = {
   enabled: true,
   active_release_id: null,
-  release_repository_id: "werft-sandbox",
   github: SETTINGS,
+  settings_revision: 3,
+  start_repository_id: null,
+  push_attached: "ask",
   legacy_defaults: null,
-  unsavable: null,
   options: {
+    repository_ceiling_unset: false,
     repositories: [
       {
         id: "werft-sandbox",
@@ -101,6 +103,11 @@ async function activeAgent({
   return { server, release, versionId };
 }
 
+const PULL_REQUEST = {
+  pull_request: { formatting: "inherit", template: null, template_name: null },
+  pull_request_revision: 0,
+};
+
 function routesFor(
   server: ReturnType<typeof agentServer>,
   tab: Tab,
@@ -118,6 +125,7 @@ function routesFor(
         active_release_id: server.detail().agent.active_release_id,
       }),
     [`GET ${PATH}/github/activity`]: () => json(200, { items: [] }),
+    [`GET ${PATH}/github/pull-request`]: () => json(200, PULL_REQUEST),
     [`GET ${PATH}/github/repositories`]: () =>
       json(200, {
         installations: [],
@@ -260,7 +268,7 @@ describe("에이전트 GitHub 탭", () => {
     );
     expect(await picker.findByText("목록에 있음")).toBeTruthy();
     await user.click(picker.getByRole("button", { name: "acme/api 고르기" }));
-    await screen.findByText("릴리스에 넣지 않은 변경 1건");
+    await screen.findByText("저장하지 않은 변경 1건");
     expect(
       api.calls
         .filter(
@@ -272,6 +280,21 @@ describe("에이전트 GitHub 탭", () => {
     await waitFor(() =>
       expect(switchNamed("api").getAttribute("aria-checked")).toBe("true"),
     );
+  });
+
+  test("워크스페이스에 저장소 상한이 아직 없으면, 저장소를 범위 밖으로 막지 않고 저장 시 기본 허용 목록이 적용된다고 안내한다", async () => {
+    const { server } = await activeAgent();
+    renderAt(
+      DETAIL,
+      routesFor(server, {
+        ...TAB,
+        options: { ...TAB.options, repository_ceiling_unset: true },
+      }),
+    );
+    await screen.findByRole("heading", { name: "저장소" });
+    expect(screen.getByText(/저장하면 기본 허용 목록/)).toBeTruthy();
+    expect(switchNamed("werft-sandbox").disabled).toBe(false);
+    expect(screen.queryByText(/저장소 범위 밖/)).toBeNull();
   });
 
   test("쓸 수 없는 저장소와 권한은 그 이유를 행에 적고 스위치를 잠근다", async () => {
@@ -286,6 +309,7 @@ describe("에이전트 GitHub 탭", () => {
           features: { ...SETTINGS.features, actions: false },
         },
         options: {
+          repository_ceiling_unset: false,
           repositories: [
             ...TAB.options.repositories,
             {
@@ -319,13 +343,14 @@ describe("에이전트 GitHub 탭", () => {
       expect(switchNamed(name).disabled).toBe(true);
       expect(within(rowOf(name)).getByText(text)).toBeTruthy();
     };
-    expectLocked("billing-api", /프로필이 이 저장소를 허용하지 않습니다/);
+    expectLocked("billing-api", /워크스페이스가 허용한 저장소 범위 밖/);
     expectLocked("legacy-pat", /PAT로 연결된 저장소라/);
     expectLocked("워크플로 파일 수정", /워크스페이스 상한 밖입니다/);
     expectLocked("Actions 실행", /GitHub Enterprise에 있어/);
     expectLocked("리뷰 승인", /리뷰용 App이 없습니다/);
-    // The release's repository stays; others with no reason may change.
-    expect(switchNamed("werft-sandbox").disabled).toBe(true);
+    // No repository is pinned by a release any more: those with no reason
+    // may change, the one in use included.
+    expect(switchNamed("werft-sandbox").disabled).toBe(false);
     expect(switchNamed("docs-site").disabled).toBe(false);
     // Checks and issues have no work behind them, so they are not offered.
     expect(screen.queryByRole("switch", { name: "검사 결과 쓰기" })).toBeNull();
@@ -390,16 +415,16 @@ describe("에이전트 GitHub 탭", () => {
 
     const nav = screen.getAllByRole("navigation", { name: "GitHub 구역" })[0];
     if (!nav) throw new Error("no section nav");
+    // The permission, allow-list and push sections live in the collapsed
+    // details, so the nav stops at the details itself.
     for (const [name, id] of [
       ["사용", "github-use"],
       ["저장소", "github-repositories"],
-      ["권한", "github-permissions"],
-      ["Actions 허용 목록", "github-allowlist"],
-      ["push 승인", "github-push"],
+      ["세부 설정", "github-details"],
       ["최근 기록", "github-activity"],
     ] as const) {
       await user.click(within(nav).getByRole("link", { name }));
-      const section = screen.getByRole("region", { name });
+      const section = document.getElementById(id) as HTMLElement;
       expect(section.id).toBe(id);
       // The DOM shim focuses any element and reports tabIndex -1 by default; only the attribute shows the section is focusable.
       expect(section.getAttribute("tabindex")).toBe("-1");
@@ -412,17 +437,15 @@ describe("에이전트 GitHub 탭", () => {
     renderAt(DETAIL, routesFor(server, TAB));
     const user = await setupUser();
     await screen.findByRole("heading", { name: "저장소" });
-    expect(screen.queryByText(/릴리스에 넣지 않은 변경/)).toBeNull();
-    expect(
-      screen.queryByRole("button", { name: "새 릴리스로 저장" }),
-    ).toBeNull();
+    expect(screen.queryByText(/저장하지 않은 변경/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "저장" })).toBeNull();
 
     await user.click(switchNamed("docs-site"));
-    await screen.findByText("릴리스에 넣지 않은 변경 1건");
+    await screen.findByText("저장하지 않은 변경 1건");
     await user.type(screen.getByLabelText("워크플로 파일"), "deploy.yml");
     await user.type(screen.getByLabelText("ref 패턴(선택)"), "main");
     await user.click(screen.getByRole("button", { name: "워크플로 추가" }));
-    await screen.findByText("릴리스에 넣지 않은 변경 2건");
+    await screen.findByText("저장하지 않은 변경 2건");
     const added = screen.getByText("deploy.yml").closest("li") as HTMLElement;
     expect(within(added).getByText("저장 전")).toBeTruthy();
     // A held entry carries no such badge.
@@ -431,7 +454,7 @@ describe("에이전트 GitHub 탭", () => {
 
     await user.click(screen.getByRole("button", { name: "되돌리기" }));
     await waitFor(() =>
-      expect(screen.queryByText(/릴리스에 넣지 않은 변경/)).toBeNull(),
+      expect(screen.queryByText(/저장하지 않은 변경/)).toBeNull(),
     );
     expect(screen.queryByText("deploy.yml")).toBeNull();
     expect(switchNamed("docs-site").getAttribute("aria-checked")).toBe("false");
@@ -458,40 +481,33 @@ describe("에이전트 GitHub 탭", () => {
     expect(within(status).queryByText("꺼짐")).toBeNull();
   });
 
-  test("설정이 없는 릴리스는 바꾼 것이 없어도 기본값을 새 릴리스로 저장할 수 있다", async () => {
-    const { server, release, versionId } = await activeAgent({ github: null });
+  test("설정이 없으면 바꾼 것이 없어도 기본값을 PUT으로 저장하고 새 릴리스는 만들지 않는다", async () => {
+    const { server } = await activeAgent({ github: null });
     const defaults = { ...SETTINGS, push_approval: false };
     const sent: unknown[] = [];
-    const tab = { ...TAB, github: null, legacy_defaults: defaults };
-    renderAt(
+    let row = false;
+    const tab = {
+      ...TAB,
+      github: null,
+      settings_revision: null,
+      push_attached: "allow" as const,
+      legacy_defaults: defaults,
+    };
+    const { api } = renderAt(
       DETAIL,
       routesFor(server, tab, {
-        // The tab follows whatever the active release pins.
-        [`GET ${PATH}/github`]: () => {
-          const active = server.releases.find(
-            (r) => r.id === server.detail().agent.active_release_id,
-          );
-          const pinned =
-            (active?.policy_pins as { github?: Settings } | undefined)
-              ?.github ?? null;
-          return json(200, {
-            ...tab,
-            github: pinned,
-            legacy_defaults: pinned ? null : defaults,
-            active_release_id: active?.id ?? null,
-          });
-        },
-        [`POST ${PATH}/releases`]: async (request) => {
-          const body = (await request.json()) as { github: Settings };
-          sent.push(body);
-          const made = {
-            ...release,
-            id: "rel-github-2",
-            label: "2026-10-30_10:00:00",
-            policy_pins: { github: body.github },
-          };
-          server.releases.push(made);
-          return json(200, { release: made, created: true });
+        // The tab follows the row once it is saved.
+        [`GET ${PATH}/github`]: () =>
+          json(
+            200,
+            row
+              ? { ...TAB, github: defaults, settings_revision: 0 }
+              : { ...tab, active_release_id: null },
+          ),
+        [`PUT ${PATH}/github/settings`]: async (request) => {
+          sent.push(await request.json());
+          row = true;
+          return json(200, { settings_revision: 0, receipt_id: RECEIPT_ID });
         },
       }),
     );
@@ -502,39 +518,34 @@ describe("에이전트 GitHub 탭", () => {
     expect(screen.queryByRole("button", { name: "되돌리기" })).toBeNull();
 
     const save = screen.getByRole("button", {
-      name: "새 릴리스로 저장",
+      name: "저장",
     }) as HTMLButtonElement;
     expect(save.disabled).toBe(false);
     await user.click(save);
     await screen.findByText(
-      "새 릴리스 2026-10-30_10:00:00를 만들고 활성화했습니다.",
+      "GitHub 설정을 저장했습니다. 새 릴리스는 만들지 않았습니다.",
     );
     expect(sent).toEqual([
       {
-        version_id: versionId,
-        runtime_profile_id: "claude-coding-local",
-        repository_id: "werft-sandbox",
-        github: defaults,
+        expected_revision: null,
+        settings: defaults,
+        start_repository_id: null,
+        // What a first save starts from (owner decision D6).
+        push_attached: "allow",
       },
     ]);
-    expect(server.detail().agent.active_release_id).toBe("rel-github-2");
+    expect(api.calls.filter((c) => c.path.endsWith("/releases"))).toEqual([]);
     await waitFor(() =>
       expect(
         screen.queryByText("GitHub 설정을 아직 저장하지 않았습니다"),
       ).toBeNull(),
     );
-    expect(
-      screen.queryByRole("button", { name: "새 릴리스로 저장" }),
-    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "저장" })).toBeNull();
   });
 
-  test("설정이 없는 릴리스는 되돌려도 첫 저장을 남기고, 되돌리기를 누르면 포커스를 저장 상자로 옮긴다", async () => {
+  test("설정이 없으면 되돌려도 첫 저장을 남기고, 되돌리기를 누르면 포커스를 저장 상자로 옮긴다", async () => {
     const { server } = await activeAgent({ github: null });
     let made = 0;
-    const routes = server.routes as unknown as Record<
-      string,
-      (request: Request) => Promise<Response>
-    >;
     renderAt(
       DETAIL,
       routesFor(
@@ -542,15 +553,14 @@ describe("에이전트 GitHub 탭", () => {
         {
           ...TAB,
           github: null,
+          settings_revision: null,
           legacy_defaults: { ...SETTINGS, push_approval: false },
         },
         {
-          [`POST ${PATH}/releases`]: (request) => {
+          [`PUT ${PATH}/github/settings`]: () => {
             made += 1;
-            return routes[`POST ${PATH}/releases`]?.(request) ?? json(404, {});
+            return apiError(409, "REVISION_CONFLICT", "saved by someone else");
           },
-          [`POST ${PATH}/activate`]: () =>
-            apiError(409, "REVISION_CONFLICT", "activated by someone else"),
         },
       ),
     );
@@ -580,14 +590,14 @@ describe("에이전트 GitHub 탭", () => {
     );
 
     // A conflict on a save without a draft keeps the first save on offer.
-    await user.click(screen.getByRole("button", { name: "새 릴리스로 저장" }));
-    await screen.findByText(/다른 사람이 그 사이 에이전트를 활성화했습니다/);
+    await user.click(screen.getByRole("button", { name: "저장" }));
+    await screen.findByText(/다른 곳에서 GitHub 설정이 먼저 바뀌어/);
     expect(made).toBe(1);
     expect(region().getAttribute("data-variant")).toBe("red");
-    await user.click(screen.getByRole("button", { name: "되돌리기" }));
+    await user.click(screen.getByRole("button", { name: "버리고 새로 읽기" }));
     expect(document.activeElement === region()).toBe(true);
     expect(
-      screen.queryByText(/다른 사람이 그 사이 에이전트를 활성화했습니다/),
+      screen.queryByText(/다른 곳에서 GitHub 설정이 먼저 바뀌어/),
     ).toBeNull();
   });
 
@@ -603,9 +613,7 @@ describe("에이전트 GitHub 탭", () => {
       }),
     );
     await screen.findByRole("heading", { name: "권한" });
-    expect(
-      screen.queryByRole("button", { name: "새 릴리스로 저장" }),
-    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "저장" })).toBeNull();
     expect(
       screen.queryByText("GitHub 설정을 아직 저장하지 않았습니다"),
     ).toBeNull();
@@ -631,178 +639,281 @@ describe("에이전트 GitHub 탭", () => {
     await user.type(ref, "release/*");
     await user.click(add);
     await screen.findByText("이미 목록에 있는 항목입니다.");
-    expect(screen.queryByText(/릴리스에 넣지 않은 변경/)).toBeNull();
+    expect(screen.queryByText(/저장하지 않은 변경/)).toBeNull();
   });
 
-  test("새 릴리스로 저장하면 같은 카드 버전·프로필로 릴리스를 만들고 활성화한다", async () => {
-    const { server, release, versionId } = await activeAgent();
+  test("저장하면 현재 revision과 함께 PUT하고 릴리스는 만들지 않는다", async () => {
+    const { server } = await activeAgent();
     const sent: unknown[] = [];
-    const activated: unknown[] = [];
-    renderAt(
+    const { api } = renderAt(
       DETAIL,
       routesFor(server, TAB, {
-        [`POST ${PATH}/releases`]: async (request) => {
-          const body = (await request.json()) as {
-            github: Settings;
-            version_id: string;
-            runtime_profile_id: string;
-            repository_id?: string;
-          };
-          sent.push(body);
-          const made = {
-            ...release,
-            id: "rel-github-2",
-            label: "2026-10-30_10:00:00",
-            policy_pins: { github: body.github },
-          };
-          server.releases.push(made);
-          return json(200, { release: made, created: true });
-        },
-        [`POST ${PATH}/activate`]: async (request) => {
-          activated.push(await request.json());
-          return json(200, {
-            active_release_id: "rel-github-2",
-            previous_release_id: release.id,
-            activation_revision: 1,
-            receipt_id: RECEIPT_ID,
-          });
+        [`PUT ${PATH}/github/settings`]: async (request) => {
+          sent.push(await request.json());
+          return json(200, { settings_revision: 4, receipt_id: RECEIPT_ID });
         },
       }),
     );
     const user = await setupUser();
     await screen.findByRole("heading", { name: "권한" });
     await user.click(switchNamed("push 전 사람 승인"));
-    await user.click(
-      await screen.findByRole("button", { name: "새 릴리스로 저장" }),
-    );
+    await user.click(await screen.findByRole("button", { name: "저장" }));
 
     await screen.findByText(
-      "새 릴리스 2026-10-30_10:00:00를 만들고 활성화했습니다.",
+      "GitHub 설정을 저장했습니다. 새 릴리스는 만들지 않았습니다.",
     );
     expect(sent).toEqual([
       {
-        version_id: versionId,
-        runtime_profile_id: "claude-coding-local",
-        repository_id: "werft-sandbox",
-        github: { ...SETTINGS, push_approval: false },
+        expected_revision: 3,
+        settings: { ...SETTINGS, push_approval: false },
+        start_repository_id: null,
+        // A row from before the column reads `ask`; saving keeps it.
+        push_attached: "ask",
       },
     ]);
-    expect(activated).toEqual([
-      { release_id: "rel-github-2", expected_revision: 0 },
-    ]);
+    expect(
+      api.calls.filter(
+        (c) => c.path.endsWith("/releases") || c.path.endsWith("/activate"),
+      ),
+    ).toEqual([]);
     await waitFor(() =>
-      expect(screen.queryByText(/릴리스에 넣지 않은 변경/)).toBeNull(),
+      expect(screen.queryByText(/저장하지 않은 변경/)).toBeNull(),
     );
   });
 
-  test("저장소 없는 릴리스는 저장소를 하나도 고르지 않은 채로 처음 설정을 시작하고, 하나 이상 골라야 저장한다", async () => {
-    const { server, release, versionId } = await activeAgent({
-      repository: null,
-      github: null,
-    });
+  test("첨부 저장소 push는 저장된 값을 보여 주고, 바꾸면 한 칸만 PUT하며, 되돌리면 초안이 사라진다", async () => {
+    const { server } = await activeAgent();
     const sent: unknown[] = [];
+    const { api } = renderAt(
+      DETAIL,
+      routesFor(server, TAB, {
+        [`PUT ${PATH}/github/settings`]: async (request) => {
+          sent.push(await request.json());
+          return json(200, { settings_revision: 4, receipt_id: RECEIPT_ID });
+        },
+      }),
+    );
+    const user = await setupUser();
+    await screen.findByRole("heading", { name: "권한" });
+    const select = screen.getByLabelText(
+      "첨부 저장소 push",
+    ) as HTMLSelectElement;
+    // The row holds `ask` (a row from before the column reads as it).
+    expect(select.value).toBe("ask");
+
+    await user.selectOptions(select, "deny");
+    await screen.findByText(/저장하지 않은 변경 1건/);
+    await user.selectOptions(select, "ask");
+    await waitFor(() =>
+      expect(screen.queryByText(/저장하지 않은 변경/)).toBeNull(),
+    );
+
+    await user.selectOptions(select, "allow");
+    await screen.findByText(/첨부 저장소는 사람 승인 없이 붙으므로/);
+    await user.click(await screen.findByRole("button", { name: "저장" }));
+    await screen.findByText(
+      "GitHub 설정을 저장했습니다. 새 릴리스는 만들지 않았습니다.",
+    );
+    expect(sent).toEqual([
+      {
+        expected_revision: 3,
+        settings: SETTINGS,
+        start_repository_id: null,
+        push_attached: "allow",
+      },
+    ]);
+    expect(
+      api.calls.filter(
+        (c) => c.path.endsWith("/releases") || c.path.endsWith("/activate"),
+      ),
+    ).toEqual([]);
+    await waitFor(() =>
+      expect(screen.queryByText(/저장하지 않은 변경/)).toBeNull(),
+    );
+  });
+
+  test("시작 저장소는 고른 저장소 안에서만 정하고, 저장소를 끄면 지정이 풀린다", async () => {
+    const { server } = await activeAgent();
+    const sent: { start_repository_id: string | null }[] = [];
     renderAt(
       DETAIL,
       routesFor(
         server,
         {
           ...TAB,
-          release_repository_id: null,
-          github: null,
-          legacy_defaults: null,
-          unsavable: null,
+          github: { ...SETTINGS, repositories: ["werft-sandbox", "docs-site"] },
+          start_repository_id: "docs-site",
         },
         {
-          [`POST ${PATH}/releases`]: async (request) => {
-            const body = (await request.json()) as { github: Settings };
-            sent.push(body);
-            const made = {
-              ...release,
-              id: "rel-github-2",
-              label: "2026-10-30_10:00:00",
-              policy_pins: { github: body.github },
-            };
-            server.releases.push(made);
-            return json(200, { release: made, created: true });
+          [`PUT ${PATH}/github/settings`]: async (request) => {
+            sent.push(
+              (await request.json()) as { start_repository_id: string | null },
+            );
+            return json(200, { settings_revision: 4, receipt_id: RECEIPT_ID });
           },
-          [`POST ${PATH}/activate`]: () =>
-            json(200, {
-              active_release_id: "rel-github-2",
-              previous_release_id: release.id,
-              activation_revision: 1,
-              receipt_id: RECEIPT_ID,
-            }),
+        },
+      ),
+    );
+    const user = await setupUser();
+    await screen.findByRole("heading", { name: "시작 저장소" });
+    const startSelect = () =>
+      screen.getByRole("combobox", {
+        name: "시작 저장소",
+      }) as HTMLSelectElement;
+    const select = startSelect();
+    expect(select.value).toBe("docs-site");
+    expect(Array.from(select.options).map((option) => option.value)).toEqual([
+      "",
+      "werft-sandbox",
+      "docs-site",
+    ]);
+
+    await user.click(switchNamed("docs-site"));
+    await screen.findByText("저장하지 않은 변경 2건");
+    expect(startSelect().value).toBe("");
+    await user.click(screen.getByRole("button", { name: "저장" }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]?.start_repository_id).toBeNull();
+  });
+
+  test("마지막 저장소까지 끄는 변경도 저장하고, 시작 저장소는 함께 풀린다", async () => {
+    const { server } = await activeAgent();
+    const sent: {
+      settings: Settings;
+      start_repository_id: string | null;
+    }[] = [];
+    renderAt(
+      DETAIL,
+      routesFor(
+        server,
+        { ...TAB, start_repository_id: "werft-sandbox" },
+        {
+          [`PUT ${PATH}/github/settings`]: async (request) => {
+            sent.push(await request.json());
+            return json(200, { settings_revision: 4, receipt_id: RECEIPT_ID });
+          },
+        },
+      ),
+    );
+    const user = await setupUser();
+    await screen.findByRole("heading", { name: "저장소" });
+    await user.click(switchNamed("werft-sandbox"));
+    const save = (await screen.findByRole("button", {
+      name: "저장",
+    })) as HTMLButtonElement;
+    expect(save.disabled).toBe(false);
+    await user.click(save);
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]?.settings.repositories).toEqual([]);
+    expect(sent[0]?.start_repository_id).toBeNull();
+  });
+
+  test("시작 저장소가 없던 초안은, 다른 곳에서 시작 저장소를 정해도 손으로 되돌리면 사라진다", async () => {
+    const { server } = await activeAgent();
+    let live: Tab = TAB;
+    const { services } = renderAt(
+      DETAIL,
+      routesFor(server, TAB, {
+        [`GET ${PATH}/github`]: () => json(200, live),
+      }),
+    );
+    const user = await setupUser();
+    await screen.findByRole("heading", { name: "권한" });
+    await user.click(switchNamed("push 전 사람 승인"));
+    await screen.findByText("저장하지 않은 변경 1건");
+    live = {
+      ...TAB,
+      settings_revision: 4,
+      start_repository_id: "werft-sandbox",
+    };
+    await services.queryClient.invalidateQueries();
+    await screen.findByText(/다른 곳에서 GitHub 설정이 바뀌어/);
+    await user.click(switchNamed("push 전 사람 승인"));
+    await waitFor(() =>
+      expect(screen.queryByText(/저장하지 않은 변경/)).toBeNull(),
+    );
+    expect(screen.queryByText(/다른 곳에서 GitHub 설정이 바뀌어/)).toBeNull();
+  });
+
+  test("저장소 없이 시작한 설정도 첫 저장은 바로 낼 수 있다", async () => {
+    const { server } = await activeAgent({ repository: null, github: null });
+    const sent: unknown[] = [];
+    const empty: Settings = {
+      repositories: [],
+      push_approval: false,
+      features: {
+        workflows: false,
+        actions: false,
+        checks: false,
+        issues: false,
+        review: false,
+      },
+      actions_allow: [],
+    };
+    renderAt(
+      DETAIL,
+      routesFor(
+        server,
+        {
+          ...TAB,
+          github: null,
+          settings_revision: null,
+          push_attached: "allow" as const,
+          legacy_defaults: empty,
+        },
+        {
+          [`PUT ${PATH}/github/settings`]: async (request) => {
+            sent.push(await request.json());
+            return json(200, { settings_revision: 0, receipt_id: RECEIPT_ID });
+          },
         },
       ),
     );
     const user = await setupUser();
     await screen.findByRole("heading", { name: "저장소" });
     expect(
-      screen.queryByText("GitHub 설정을 저장할 수 없습니다") === null,
-    ).toBe(true);
-    expect(
-      screen.getByText(/이 릴리스에는 아직 GitHub 설정이 없어/),
+      screen.getByText(/이 에이전트에는 저장한 GitHub 설정이 아직/),
     ).toBeTruthy();
     for (const id of ["werft-sandbox", "docs-site"]) {
       expect(switchNamed(id).getAttribute("aria-checked")).toBe("false");
       expect(switchNamed(id).disabled).toBe(false);
     }
 
-    // The first save starts with push approval off, like the server's
-    // legacy_defaults for a release that has a repository.
     expect(switchNamed("push 전 사람 승인").getAttribute("aria-checked")).toBe(
       "false",
     );
-    // The first save is on offer before any change, held until a repository.
+    // The first save is on offer before any change, even with no repository.
     await screen.findByText("GitHub 설정을 아직 저장하지 않았습니다");
-    await screen.findByText("저장소를 하나 이상 고르면 저장할 수 있습니다.");
     const save = screen.getByRole("button", {
-      name: "새 릴리스로 저장",
+      name: "저장",
     }) as HTMLButtonElement;
-    expect(save.disabled).toBe(true);
-    await user.click(switchNamed("push 전 사람 승인"));
-    expect(save.disabled).toBe(true);
-    await user.click(switchNamed("push 전 사람 승인"));
+    expect(save.disabled).toBe(false);
 
     await user.click(switchNamed("werft-sandbox"));
-    expect(
-      screen.queryByText("저장소를 하나 이상 고르면 저장할 수 있습니다.") ===
-        null,
-    ).toBe(true);
-    await user.click(screen.getByRole("button", { name: "새 릴리스로 저장" }));
+    await user.click(screen.getByRole("button", { name: "저장" }));
     await screen.findByText(
-      "새 릴리스 2026-10-30_10:00:00를 만들고 활성화했습니다.",
+      "GitHub 설정을 저장했습니다. 새 릴리스는 만들지 않았습니다.",
     );
     expect(sent).toEqual([
       {
-        version_id: versionId,
-        runtime_profile_id: "claude-coding-local",
-        github: {
-          repositories: ["werft-sandbox"],
-          push_approval: false,
-          features: {
-            workflows: false,
-            actions: false,
-            checks: false,
-            issues: false,
-            review: false,
-          },
-          actions_allow: [],
-        },
+        expected_revision: null,
+        settings: { ...empty, repositories: ["werft-sandbox"] },
+        start_repository_id: null,
+        push_attached: "allow",
       },
     ]);
   });
 
-  test("다른 사람이 먼저 활성화하면 저장한 릴리스를 덮어쓰지 않고 알린다", async () => {
+  test("다른 곳에서 먼저 저장했으면 덮어쓰지 않고 알리며, 초안은 남겨 둔다", async () => {
     const { server } = await activeAgent();
     renderAt(
       DETAIL,
       routesFor(server, TAB, {
-        [`POST ${PATH}/activate`]: () =>
+        [`PUT ${PATH}/github/settings`]: () =>
           json(409, {
             error: {
               code: "REVISION_CONFLICT",
-              message: "The agent was activated by someone else",
+              message: "The settings changed",
               retryable: false,
               request_id: "req-1",
             },
@@ -812,117 +923,100 @@ describe("에이전트 GitHub 탭", () => {
     const user = await setupUser();
     await screen.findByRole("heading", { name: "권한" });
     await user.click(switchNamed("push 전 사람 승인"));
-    await user.click(
-      await screen.findByRole("button", { name: "새 릴리스로 저장" }),
-    );
-    await screen.findByText(/다른 사람이 그 사이 에이전트를 활성화했습니다/);
-    // The draft stays for another try.
-    expect(screen.getByText("릴리스에 넣지 않은 변경 1건")).toBeTruthy();
+    await user.click(await screen.findByRole("button", { name: "저장" }));
+    await screen.findByText(/다른 곳에서 GitHub 설정이 먼저 바뀌어/);
+    // The draft stays until it is discarded.
+    expect(screen.getByText("저장하지 않은 변경 1건")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "버리고 새로 읽기" }),
+    ).toBeTruthy();
   });
 
-  test("다른 사람이 활성화한 뒤 다시 읽어도, 그 전에 만든 초안은 저장하지 않는다", async () => {
-    const { server, release } = await activeAgent();
-    const routes = server.routes as unknown as Record<
-      string,
-      (request: Request) => Promise<Response>
-    >;
-    let made = 0;
-    let detailReads = 0;
-    renderAt(
+  test("다른 곳에서 저장한 뒤 다시 읽어도, 그 전에 만든 초안은 저장하지 않는다", async () => {
+    const { server } = await activeAgent();
+    let live: Tab = TAB;
+    let puts = 0;
+    const { services } = renderAt(
       DETAIL,
       routesFor(server, TAB, {
-        [`GET ${PATH}`]: (request) => {
-          detailReads += 1;
-          return routes[`GET ${PATH}`]?.(request) ?? json(404, {});
-        },
-        [`POST ${PATH}/releases`]: (request) => {
-          made += 1;
-          return routes[`POST ${PATH}/releases`]?.(request) ?? json(404, {});
+        [`GET ${PATH}/github`]: () => json(200, live),
+        [`PUT ${PATH}/github/settings`]: () => {
+          puts += 1;
+          return json(200, { settings_revision: 5, receipt_id: RECEIPT_ID });
         },
       }),
     );
     const user = await setupUser();
     await screen.findByRole("heading", { name: "권한" });
     await user.click(switchNamed("push 전 사람 승인"));
-    // Someone else activates another release while the draft is open.
-    server.releases.push({
-      ...release,
-      id: "rel-other",
-      label: "2026-10-11_11:00:00",
-    });
-    await routes[`POST ${PATH}/activate`]?.(
-      new Request("http://test", {
-        method: "POST",
-        body: JSON.stringify({ release_id: "rel-other", expected_revision: 0 }),
-      }),
-    );
-    expect(server.detail().agent.activation_revision).toBe(1);
+    // Someone else saves while the draft is open.
+    live = {
+      ...TAB,
+      settings_revision: 4,
+      github: { ...SETTINGS, push_approval: false },
+    };
+    await services.queryClient.invalidateQueries();
+    await screen.findByText(/다른 곳에서 GitHub 설정이 바뀌어/);
+    const save = screen.getByRole("button", {
+      name: "저장",
+    }) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    await user.click(save);
+    expect(puts).toBe(0);
 
-    const before = detailReads;
-    await user.click(
-      await screen.findByRole("button", { name: "새 릴리스로 저장" }),
+    await user.click(screen.getByRole("button", { name: "버리고 새로 읽기" }));
+    await waitFor(() =>
+      expect(screen.queryByText(/다른 곳에서 GitHub 설정이 바뀌어/)).toBeNull(),
     );
-    await screen.findByText(/릴리스 탭에서 확인한 뒤 활성화하세요/);
-    await waitFor(() => expect(detailReads).toBeGreaterThan(before));
-
-    await user.click(screen.getByRole("button", { name: "새 릴리스로 저장" }));
-    await screen.findByText(/저장하지 않았습니다/);
-    expect(made).toBe(1);
-    expect(server.detail().agent.activation_revision).toBe(1);
+    expect(switchNamed("push 전 사람 승인").getAttribute("aria-checked")).toBe(
+      "false",
+    );
   });
 
-  test("손으로 되돌린 변경은 초안을 남기지 않아, 다른 사람이 활성화한 뒤의 새 변경이 저장된다", async () => {
-    const { server, release } = await activeAgent();
-    const routes = server.routes as unknown as Record<
-      string,
-      (request: Request) => Promise<Response>
-    >;
-    const { services } = renderAt(DETAIL, routesFor(server, TAB));
+  test("손으로 되돌린 변경은 초안을 남기지 않아, 다른 곳에서 저장한 뒤의 새 변경이 새 revision으로 저장된다", async () => {
+    const { server } = await activeAgent();
+    let live: Tab = TAB;
+    const sent: { expected_revision: number | null }[] = [];
+    const { services } = renderAt(
+      DETAIL,
+      routesFor(server, TAB, {
+        [`GET ${PATH}/github`]: () => json(200, live),
+        [`PUT ${PATH}/github/settings`]: async (request) => {
+          sent.push(
+            (await request.json()) as { expected_revision: number | null },
+          );
+          return json(200, { settings_revision: 5, receipt_id: RECEIPT_ID });
+        },
+      }),
+    );
     const user = await setupUser();
     await screen.findByRole("heading", { name: "권한" });
     await user.click(switchNamed("push 전 사람 승인"));
     await user.click(switchNamed("push 전 사람 승인"));
-    expect(screen.queryByText(/릴리스에 넣지 않은 변경/)).toBeNull();
+    expect(screen.queryByText(/저장하지 않은 변경/)).toBeNull();
 
-    server.releases.push({
-      ...release,
-      id: "rel-other",
-      label: "2026-10-11_11:00:00",
-    });
-    await routes[`POST ${PATH}/activate`]?.(
-      new Request("http://test", {
-        method: "POST",
-        body: JSON.stringify({ release_id: "rel-other", expected_revision: 0 }),
-      }),
-    );
+    live = { ...TAB, settings_revision: 4 };
     await services.queryClient.invalidateQueries();
-    await screen.findAllByText("2026-10-11_11:00:00");
+    await waitFor(() =>
+      expect(screen.queryByText(/저장하지 않은 변경/)).toBeNull(),
+    );
 
     await user.click(switchNamed("push 전 사람 승인"));
-    await user.click(
-      await screen.findByRole("button", { name: "새 릴리스로 저장" }),
-    );
-    await waitFor(() =>
-      expect(server.detail().agent.activation_revision).toBe(2),
-    );
-    expect(screen.queryByText(/저장하지 않았습니다/)).toBeNull();
+    await user.click(await screen.findByRole("button", { name: "저장" }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]?.expected_revision).toBe(4);
+    expect(screen.queryByText(/다른 곳에서 GitHub 설정이 바뀌어/)).toBeNull();
   });
 
   test("Actions를 끄면 허용 목록도 비워서 저장한다", async () => {
     const { server } = await activeAgent();
-    const sent: Settings[] = [];
-    const routes = server.routes as unknown as Record<
-      string,
-      (request: Request) => Promise<Response>
-    >;
+    const sent: { settings: Settings }[] = [];
     renderAt(
       DETAIL,
       routesFor(server, TAB, {
-        [`POST ${PATH}/releases`]: async (request) => {
-          sent.push(
-            ((await request.clone().json()) as { github: Settings }).github,
-          );
-          return routes[`POST ${PATH}/releases`]?.(request) ?? json(404, {});
+        [`PUT ${PATH}/github/settings`]: async (request) => {
+          sent.push((await request.json()) as { settings: Settings });
+          return json(200, { settings_revision: 4, receipt_id: RECEIPT_ID });
         },
       }),
     );
@@ -932,13 +1026,11 @@ describe("에이전트 GitHub 탭", () => {
     expect(
       screen.queryByRole("heading", { name: "Actions 허용 목록" }),
     ).toBeNull();
-    expect(screen.getByText("릴리스에 넣지 않은 변경 2건")).toBeTruthy();
-    await user.click(
-      await screen.findByRole("button", { name: "새 릴리스로 저장" }),
-    );
+    expect(screen.getByText("저장하지 않은 변경 2건")).toBeTruthy();
+    await user.click(await screen.findByRole("button", { name: "저장" }));
     await waitFor(() => expect(sent).toHaveLength(1));
-    expect(sent[0]?.features.actions).toBe(false);
-    expect(sent[0]?.actions_allow).toEqual([]);
+    expect(sent[0]?.settings.features.actions).toBe(false);
+    expect(sent[0]?.settings.actions_allow).toEqual([]);
   });
 
   test("GitHub 사용을 끄려면 확인을 거치고, 꺼지면 설정은 읽기만 한다", async () => {
@@ -974,7 +1066,7 @@ describe("에이전트 GitHub 탭", () => {
     expect(switchNamed("push 전 사람 승인").disabled).toBe(true);
   });
 
-  test("저장할 수 없는 릴리스는 이유를 보이고, 기록은 세션으로 잇는다", async () => {
+  test("기록은 세션으로 잇고, 설정 저장 기록은 따로 이름 붙인다", async () => {
     const { server } = await activeAgent();
     const receipt: components["schemas"]["Receipt"] = {
       id: RECEIPT_ID,
@@ -995,18 +1087,29 @@ describe("에이전트 GitHub 탭", () => {
     };
     renderAt(
       DETAIL,
-      routesFor(
-        server,
-        { ...TAB, github: null, unsavable: "app_required" },
-        {
-          [`GET ${PATH}/github/activity`]: () =>
-            json(200, { items: [receipt] }),
-        },
-      ),
+      routesFor(server, TAB, {
+        [`GET ${PATH}/github/activity`]: () =>
+          json(200, {
+            items: [
+              receipt,
+              {
+                ...receipt,
+                id: "00000000-0000-4000-8000-0000000000d2",
+                operation: "set_agent_github",
+                target_ref: {
+                  resource: { kind: "agent", id: AGENT_ID },
+                  workspace_id: null,
+                },
+                status: "succeeded",
+                result: { change: "settings", enabled: true },
+                error: null,
+              },
+            ],
+          }),
+      }),
     );
-    await screen.findByText("GitHub 설정을 저장할 수 없습니다");
-    expect(screen.queryByRole("heading", { name: "저장소" })).toBeNull();
     const rows = await screen.findByRole("list", { name: "최근 기록" });
+    expect(within(rows).getByText("GitHub 설정 저장")).toBeTruthy();
     expect(within(rows).getByText("워크플로 실행 거절")).toBeTruthy();
     expect(
       within(rows).getByText(
@@ -1016,6 +1119,87 @@ describe("에이전트 GitHub 탭", () => {
     expect(
       within(rows).getByRole("link", { name: /세션/ }).getAttribute("href"),
     ).toBe(`/sessions/${SESSION}`);
+  });
+});
+
+describe("에이전트 GitHub 탭 › Pull request 서식", () => {
+  const PUT = `PUT ${PATH}/github/pull-request`;
+  const saved = (over: object = {}) => ({
+    pull_request: {
+      formatting: "on",
+      template: null,
+      template_name: "feature.md",
+      ...over,
+    },
+    pull_request_revision: 1,
+    receipt_id: RECEIPT_ID,
+  });
+
+  test("화면의 템플릿 최대치는 계약의 최대치와 같다", async () => {
+    const { PULL_REQUEST_TEMPLATE_MAX_BYTES } = await import(
+      "@werft-ai/contracts"
+    );
+    const { AGENT_TEMPLATE_MAX_BYTES } = await import(
+      "./github-pull-request.tsx"
+    );
+    expect(AGENT_TEMPLATE_MAX_BYTES).toBe(PULL_REQUEST_TEMPLATE_MAX_BYTES);
+  });
+
+  test("자기 버튼으로 자기 경로에만 저장한다: GitHub 설정 PUT은 부르지 않는다", async () => {
+    const { server } = await activeAgent();
+    const { api } = renderAt(
+      DETAIL,
+      routesFor(server, TAB, { [PUT]: () => json(200, saved()) }),
+    );
+    const user = await setupUser();
+    await user.selectOptions(await screen.findByLabelText("서식"), "on");
+    await user.type(
+      screen.getByLabelText("저장소 템플릿 파일 이름"),
+      "feature.md",
+    );
+    const card = screen
+      .getByRole("heading", { name: "Pull request 서식" })
+      .closest("section") as HTMLElement;
+    await user.click(within(card).getByRole("button", { name: "서식 저장" }));
+    await waitFor(() =>
+      expect(api.calls.filter((c) => c.method === "PUT")).toHaveLength(1),
+    );
+    const put = api.calls.find((c) => c.method === "PUT");
+    expect(put?.path).toBe(`${PATH}/github/pull-request`);
+    expect(put?.body).toEqual({
+      pull_request: {
+        formatting: "on",
+        template: null,
+        template_name: "feature.md",
+      },
+      revision: 0,
+    });
+  });
+
+  test("다른 곳에서 먼저 바꿨으면 그 문장을 보이고 값을 다시 읽는다", async () => {
+    const { server } = await activeAgent();
+    const { api } = renderAt(
+      DETAIL,
+      routesFor(server, TAB, {
+        [PUT]: () => apiError(409, "REVISION_CONFLICT", "stale"),
+      }),
+    );
+    const user = await setupUser();
+    await user.selectOptions(await screen.findByLabelText("서식"), "off");
+    const card = screen
+      .getByRole("heading", { name: "Pull request 서식" })
+      .closest("section") as HTMLElement;
+    await user.click(within(card).getByRole("button", { name: "서식 저장" }));
+    expect(
+      await screen.findByText(/다른 곳에서 먼저 바꿨습니다/),
+    ).toBeDefined();
+    await waitFor(() =>
+      expect(
+        api.calls.filter(
+          (c) => c.method === "GET" && c.path === `${PATH}/github/pull-request`,
+        ).length,
+      ).toBeGreaterThan(1),
+    );
   });
 });
 
@@ -1039,5 +1223,8 @@ describe("GitHub 탭 계산", () => {
         actions_allow: [{ workflow: "ci.yml" }],
       }),
     ).toBe(5);
+    // A start repository that moved counts as one change.
+    expect(pendingCount(SETTINGS, SETTINGS, null, "docs-site")).toBe(1);
+    expect(pendingCount(SETTINGS, SETTINGS, "docs-site", "docs-site")).toBe(0);
   });
 });

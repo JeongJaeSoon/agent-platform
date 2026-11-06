@@ -4,6 +4,7 @@ import type {
   AgentAdminService,
   AgentGitHubService,
   AgentIdentityService,
+  AgentPullRequestService,
   AgentService,
   ApiKeyService,
   CredentialBindingService,
@@ -51,6 +52,7 @@ import {
 } from "./routes/achievements.ts";
 import { registerAgentGitHubRoutes } from "./routes/agent-github.ts";
 import { registerAgentIdentityRoutes } from "./routes/agent-identities.ts";
+import { registerAgentPullRequestRoutes } from "./routes/agent-pull-request.ts";
 import { registerAgentRoutes } from "./routes/agents.ts";
 import { registerApiKeyRoutes } from "./routes/api-keys.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
@@ -190,6 +192,7 @@ function apiApp() {
         {} as Parameters<typeof registerGitHubPackagesRoutes>[1],
       );
       registerAgentGitHubRoutes(router, {} as AgentGitHubService);
+      registerAgentPullRequestRoutes(router, {} as AgentPullRequestService);
       registerGitHubWorkRoutes(router, {} as GitHubWorkService);
       registerSessionAttributionRoutes(router, {} as SessionAttributionService);
       registerSessionOutcomeRoutes(router, {} as SessionOutcomeService);

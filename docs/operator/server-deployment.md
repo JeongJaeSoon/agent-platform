@@ -61,6 +61,8 @@ server {
 }
 ```
 
+같은 서버에서 시험 요청을 보내려면 `deny all;` 앞에 `allow 127.0.0.1;`을 더한다. 사설 CA를 쓰면 클라이언트가 그 CA를 믿어야 한다. `curl`은 `--cacert`로 CA 인증서를 넘기고 `-k`는 쓰지 않으며, 믿지 않는 브라우저는 `NET::ERR_CERT_AUTHORITY_INVALID`로 막힌다. 단일 서버에서 이 구성을 확인한 범위는 공개 문서 "단일 서버"의 "접근 경로"에 있다.
+
 SSE는 연결을 오래 유지하므로 buffering을 끄고 read timeout을 짧게 두지 않는다. 어떤 경로를 택해도 PostgreSQL과 Docker socket은 proxy 또는 방화벽에 노출하지 않는다.
 
 ## 3. 전용 S3를 준비한다
@@ -80,7 +82,7 @@ legal hold된 version을 lifecycle이나 수동 정리 대상으로 삼지 않�
 
 1. 배포할 `source_commit`을 정하고, 그 commit의 [게시된 이미지 digest](test-ops.md#게시된-이미지를-쓸-때)를 읽는다. 게시본을 쓸 수 없으면 그 checkout에서 [세 이미지를 직접 빌드](test-ops.md#이미지를-직접-빌드한다)해 registry에 올린 뒤 digest를 확인한다. 태그를 달 필요는 없다. `v*` 태그로 이미지를 게시하는 일은 [저장소 관리자의 절차](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/images-and-supply-chain/#저장소-관리자-v-태그로-게시)이고, 아직 게시된 릴리스는 없다.
 2. [release manifest](test-ops.md#release-manifest)에 `source_commit`, control-host·worker·egress-proxy digest, `settings_digest`를 기록한다. tag만 적지 않는다.
-3. `/etc/agent-platform` 아래에 [env 파일](test-ops.md#env-파일)과 [설정 문서](test-ops.md#카탈로그)를 만들고 요구된 mode를 적용한다. env 파일에 `BOOTSTRAP_TOKEN`(32~256자 무작위 값)을 넣는다. 넣지 않으면 API가 토큰을 만들어 컨테이너 로그에 출력하고, 첫 owner가 생길 때까지 로그를 읽는 누구나 bootstrap할 수 있다. env 파일은 `0600`, 상태 디렉터리는 `0700`, 비밀이 없는 설정 문서는 migrate 컨테이너가 읽을 수 있는 `0644`를 사용한다.
+3. `/etc/werft` 아래에 [env 파일](test-ops.md#env-파일)과 [설정 문서](test-ops.md#카탈로그)를 만들고 요구된 mode를 적용한다. env 파일에 `BOOTSTRAP_TOKEN`(32~256자 무작위 값)을 넣는다. 넣지 않으면 API가 토큰을 만들어 컨테이너 로그에 출력하고, 첫 owner가 생길 때까지 로그를 읽는 누구나 bootstrap할 수 있다. env 파일은 `0600`, 상태 디렉터리는 `0700`, 비밀이 없는 설정 문서는 migrate 컨테이너가 읽을 수 있는 `0644`를 사용한다.
 4. provider key, S3 key, PostgreSQL password, egress token, bootstrap token, registry token을 shell history, PR, evidence 파일, 터미널 캡처와 로그에 넣지 않는다. secret 값은 저장소 밖 env 또는 각 도구의 credential store로만 전달한다.
 5. release manifest를 배포 증거 디렉터리에 복사한다. env 파일과 credential은 복사하지 않는다.
 
@@ -92,7 +94,7 @@ legal hold된 version을 lifecycle이나 수동 정리 대상으로 삼지 않�
 2. S3 object store로 `preflight`를 먼저 실행한다. 실패하면 `deploy`하지 않는다.
 3. 같은 manifest로 `deploy`하고 `/readyz`, scheduler와 reconciler health를 [감시 지점](test-ops.md#감시-지점)에서 확인한다. 사용자가 접속할 endpoint의 인증 없는 `/docs`와 같은 origin의 `/docs/scalar.js`가 각각 HTML·JavaScript로 200을 응답하는지도 확인한다. 이 화면의 요청 시험 기능은 꺼져 있으므로 실제 API 호출은 다음 단계에서 발급한 key로 별도 수행한다.
 4. [카탈로그](test-ops.md#카탈로그)에 적을 GitHub 저장소를 준비한다.
-5. [첫 owner 절차](test-ops.md#첫-owner)대로 웹 콘솔 `/bootstrap`에서 env 파일의 `BOOTSTRAP_TOKEN`으로 첫 owner와 workspace를 만들고 `/login`으로 로그인한다. 같은 토큰을 다시 보내면 `409 BOOTSTRAP_DONE`인지 확인한다. 토큰과 비밀번호는 evidence에 남기지 않고 응답 코드만 적는다. env 파일에 토큰을 넣은 배포에서는 `docker logs agent-platform-test-ops-api-1 2>&1 | grep -c '^BOOTSTRAP_TOKEN='`가 `0`이어야 한다.
+5. [첫 owner 절차](test-ops.md#첫-owner)대로 웹 콘솔 `/bootstrap`에서 env 파일의 `BOOTSTRAP_TOKEN`으로 첫 owner와 workspace를 만들고 `/login`으로 로그인한다. 같은 토큰을 다시 보내면 `409 BOOTSTRAP_DONE`인지 확인한다. 토큰과 비밀번호는 evidence에 남기지 않고 응답 코드만 적는다. env 파일에 토큰을 넣은 배포에서는 `docker logs werft-test-ops-api-1 2>&1 | grep -c '^BOOTSTRAP_TOKEN='`가 `0`이어야 한다.
 6. [API key 발급 절차](test-ops.md#api-key-발급과-폐기)로 첫 사용자의 owner와 key를 만든다. 평문 key는 한 번만 직접 전달하고 evidence에는 key id만 남긴다.
 7. [quickstart의 curl 준비](../quickstart.md#2-curl-준비)를 API key와 서버 endpoint에 맞춘다. 로컬 스택 기동·초기화 명령과 `GATE-SPEC` 대본은 실행하지 않고, `body`의 `profile_id`는 배포 catalog의 `claude-coding`을 쓴다.
 8. [실제 Claude 직접 대화](../real-claude.md#b-실제-claude와-직접-대화하기)의 첫 요청처럼 파일 작성·README 수정·commit을 명시한 자연어 작업으로 세션 하나를 만든다. 들어오는 permission 요청을 허용하고 세션이 `idle`이 될 때까지 기다린 뒤 turn 1이 `completed`인지와 SSE에 남은 `git commit` 실행 결과를 확인한다. worker는 push하지 않으므로 commit은 4단계의 sample repository에 올라가지 않고 worker의 작업 트리와 checkpoint에만 있다([실제 Claude 직접 대화](../real-claude.md#b-실제-claude와-직접-대화하기)의 커밋 작성자 설명). 아래 명령은 turn 1에서 `git commit`을 실행한 `tool_use`의 짝인 `tool_result`만 뽑는다. `is_error`가 `false`이고 `content`가 `[<branch> <hash>] <message>`로 시작하면 commit이 만들어진 것이다. 결과가 비어 있으면 Claude가 commit하지 않은 것이므로 실패로 판정한다. `curl: (28)`은 [quickstart ②](../quickstart.md#-이벤트-관찰)와 같이 정상이다.
@@ -149,7 +151,7 @@ owner 모델은 **API-key owner**다. 같은 provider key를 쓰더라도 사용
 ### 재부팅 뒤
 
 - [ ] NTP, XFS `prjquota`, Docker 자동 기동, 디스크·inode 여유를 다시 확인한다.
-- [ ] S3 설치의 [재시작 절차](test-ops.md#s3)로 현재 manifest를 다시 적용한다.
+- [ ] S3 설치의 [재시작 절차](test-ops.md#s3)로 `scripts/test-ops.sh start`를 불러 현재 release를 다시 띄운다.
 - [ ] `status`, `/readyz`, scheduler, reconciler가 정상이다.
 - [ ] 재부팅 전 세션을 resume하고 새 worker가 이전 workspace를 이어 가는지 확인한다.
 - [ ] API는 선택한 내부 경로에서만 접근되고 PostgreSQL·Docker socket은 외부에서 닫혀 있다.
@@ -168,7 +170,7 @@ owner 모델은 **API-key owner**다. 같은 provider key를 쓰더라도 사용
 서버 배포 증거는 저장소나 PR이 아니라 서버의 다음 디렉터리에 둔다.
 
 ```text
-/var/lib/agent-platform/test-ops/evidence/<UTC timestamp>/
+/var/lib/werft/test-ops/evidence/<UTC timestamp>/
 ```
 
 운영자만 읽을 수 있게 하고 off-host 보관소에 암호화해 복제한다. 최소한 다음을 남긴다.

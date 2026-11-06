@@ -442,6 +442,29 @@ describe("resolveReleaseContent", () => {
     }
   });
 
+  test("refuses a per_tool policy for a built-in github server tool; other MCP servers keep theirs", () => {
+    const withPerTool = (per_tool: Record<string, "allow" | "ask" | "deny">) =>
+      resolveReleaseContent(
+        agentCardSchema.parse({
+          ...card,
+          capabilities: { ...card.capabilities, tool_policy: { per_tool } },
+        }),
+        "coding",
+        profile,
+      );
+    const refused = withPerTool({ mcp__github__request_push: "allow" });
+    expect(!refused.ok && refused.error.field).toBe(
+      "card.capabilities.tool_policy.per_tool",
+    );
+    expect(!refused.ok && refused.error.message).toContain(
+      "mcp__github__request_push",
+    );
+    // Any tool under the server's prefix, listed or not.
+    expect(withPerTool({ mcp__github__made_up: "deny" }).ok).toBe(false);
+    // A server that only starts with the same letters is another server.
+    expect(withPerTool({ mcp__github_enterprise__x: "allow" }).ok).toBe(true);
+  });
+
   test("refuses a card on a model the profile does not run", () => {
     const resolved = resolveReleaseContent(
       { ...card, model: "claude-opus-5" },

@@ -154,6 +154,10 @@ integration("GitHub gate and ceiling stores on PostgreSQL", () => {
         settings: GITHUB,
         startRepositoryId: null,
         agentSettingsRevision: null,
+        currentRepositories: null,
+        startActionsAllow: null,
+        enabledAtStart: true,
+        pushAttached: "ask",
       },
       ceiling: GITHUB_CEILING_NONE,
       repositoryCeiling: null,
@@ -416,6 +420,8 @@ integration("GitHub gate and ceiling stores on PostgreSQL", () => {
       repositoryCeiling: null,
       githubEnabled: true,
       policyApproval: { releaseId, source: "release", settingsRevision: null },
+      pushAttached: "ask",
+      attachedApproval: null,
       policyFields: RELEASE_RECEIPT_FIELDS,
     });
     const created = await pushes.create({
@@ -450,6 +456,8 @@ integration("GitHub gate and ceiling stores on PostgreSQL", () => {
       repositoryCeiling: null,
       githubEnabled: true,
       policyApproval: null,
+      pushAttached: "ask",
+      attachedApproval: null,
       policyFields: RELEASE_RECEIPT_FIELDS,
     });
   });

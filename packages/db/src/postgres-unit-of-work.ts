@@ -89,6 +89,7 @@ import {
 import { drainAttention } from "./drain.ts";
 import { enqueueWithin } from "./enqueue.ts";
 import { eventWithNeutralFields } from "./event-payload.ts";
+import { captureGitHubPolicyStart } from "./github-settings.ts";
 import { admitInput } from "./input-limits.ts";
 import {
   AWAITABLE_STATUSES,
@@ -304,12 +305,18 @@ export function createPostgresSessionUnitOfWork(
                 repoUrl: input.repository.url,
                 branch: input.repository.branch,
               };
+        const githubPolicyStart =
+          input.captureGitHubPolicyStart === true &&
+          input.agentReleaseId !== undefined
+            ? await captureGitHubPolicyStart(tx, input.agentReleaseId)
+            : null;
         await tx.insert(sessions).values({
           id: sessionId,
           ownerId: scope.principal,
           ...repository,
           attachedRepositoryIds: input.attachedRepositoryIds ?? null,
           githubPolicySource: input.githubPolicySource ?? "release",
+          githubPolicyStart,
           title: input.title ?? null,
           titleSource: input.titleSource ?? "derived",
           channel: input.channel ?? null,
