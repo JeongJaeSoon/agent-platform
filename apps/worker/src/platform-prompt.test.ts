@@ -144,11 +144,20 @@ describe("platformPromptText (revision 2, action flows on)", () => {
     expect(text).not.toContain("in the follow-up turn the platform starts");
   });
 
+  test("tells the model to schedule the pull request in the same turn, approval or not", () => {
+    const text = platformPromptText(flows);
+    expect(text).toContain(
+      "call it with that push_intent_id in this same turn",
+    );
+    expect(text).toContain("even when a person has to approve the push");
+    expect(text).not.toContain("Once the push is done, open the pull request");
+  });
+
   test("differs from revision 1 only in the push sentences", () => {
     // From the first push sentence up to the approval sentence that follows.
     const withoutPush = (text: string) => {
       const start = text.indexOf("Push with mcp__github__request_push");
-      const end = text.indexOf("If push approval is on");
+      const end = text.indexOf("git push does not reach GitHub");
       return text.slice(0, start) + text.slice(end);
     };
     expect(withoutPush(platformPromptText(flows))).toBe(
