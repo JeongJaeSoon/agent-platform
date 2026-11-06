@@ -971,6 +971,81 @@ integration("profile rollouts on PostgreSQL (U3b reader)", () => {
       expect((await agentRow(made.agent.id))?.profileTracking).toBe("follow");
       expect(await releasesOf(made.agent.id)).toHaveLength(1);
     });
+
+    test("a waiting draft, with its profile and failure, is left as it was", async () => {
+      const caller = await owner();
+      await lineage(caller);
+      const made = await follower(caller);
+      const kept = await service().updateAgent(caller, made.agent.id, {
+        card: card("v2"),
+        runtime_profile_id: "op_missing_v1",
+      });
+      expect(kept.release.status).toBe("failed");
+      const before = await agentRow(made.agent.id);
+      expect(before?.draftVersionId).not.toBeNull();
+
+      const saved = await service().updateAgent(caller, made.agent.id, {
+        follow_latest_profile: true,
+      });
+      expect(saved.release.status).toBe("applied");
+      const after = await agentRow(made.agent.id);
+      expect(after).toMatchObject({
+        draftVersionId: before?.draftVersionId,
+        draftProfileId: "op_missing_v1",
+        draftFailure: before?.draftFailure,
+        behaviorRevision: before?.behaviorRevision,
+        profileTracking: "follow",
+      });
+    });
+
+    test("a refused rollout item is closed once a person brought the agent to the newest version", async () => {
+      const caller = await owner();
+      await lineage(caller);
+      const behind = await follower(caller);
+      const same = await follower(caller, { profile: "op_ops_v2" });
+      const rolloutId = await rolloutOf(caller, [
+        behind.agent.id,
+        same.agent.id,
+      ]);
+      await db
+        .update(profileRolloutItems)
+        .set({ status: "failed", reasonCode: "credential_unbound" });
+      for (const made of [behind, same]) {
+        await service().updateAgent(caller, made.agent.id, {
+          follow_latest_profile: true,
+        });
+      }
+      expect(
+        (await items(rolloutId)).map((i) => [i.status, i.reasonCode]),
+      ).toEqual([
+        ["applied", null],
+        ["applied", null],
+      ]);
+      expect(
+        (await rollouts().summaries(caller.ownerId)).get("op_ops_v2"),
+      ).toMatchObject({ total: 2, applied: 2, failed: 0, failed_agents: [] });
+    });
+
+    test("a follow judged on an older revision does not undo a revert made since", async () => {
+      const caller = await owner();
+      await lineage(caller);
+      const made = await follower(caller, { profile: "op_ops_v2" });
+      await db
+        .update(agents)
+        .set({ profileTracking: "pinned" })
+        .where(eq(agents.id, made.agent.id));
+      const row = await agentRow(made.agent.id);
+      const followed = await store().followProfile({
+        principal: caller,
+        workspaceId: caller.ownerId,
+        agentId: made.agent.id,
+        // The judgment was made one activation ago.
+        expectedActivationRevision: (row?.activationRevision as number) - 1,
+        managerRoles: ["owner", "admin"],
+      });
+      expect(followed.outcome).toBe("superseded");
+      expect((await agentRow(made.agent.id))?.profileTracking).toBe("pinned");
+    });
   });
 
   describe("claims, leases and the activation's three checks", () => {

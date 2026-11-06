@@ -611,7 +611,6 @@ export function createAgentService(deps: {
       card?: AgentCard;
       runtime_profile_id?: string;
       model_source?: ModelSource;
-      followsProfile?: boolean;
     },
   ): Promise<SaveAgentResponse> {
     const done = (record: AgentRecord, release: SaveRelease) => ({
@@ -770,7 +769,6 @@ export function createAgentService(deps: {
             behaviorRevision: saved.behaviorRevision,
             draftVersionId: saved.versionId,
             modelSource,
-            ...(fields.followsProfile === true ? { followsProfile: true } : {}),
           },
           reason:
             active && profileId !== active.runtime_profile_id
@@ -854,32 +852,63 @@ export function createAgentService(deps: {
         { reason_code: "no_profile_lineage" },
       );
     }
+    const answer = (
+      fresh: AgentRecord,
+      release: SaveRelease,
+    ): SaveAgentResponse => ({ ...withBehavior(fresh), release });
+    const version_id = null;
+    let release: SaveRelease;
     if (seen.latest.id !== active.runtime_profile_id) {
-      return saveAgent(caller, userId, agentId, {
-        runtime_profile_id: seen.latest.id,
-        followsProfile: true,
+      // Not a save: the agent's draft is neither read nor replaced.
+      const outcome = await rolloutRelease({
+        workspaceId: caller.ownerId,
+        agentId,
+        actorUserId: userId,
+        targetProfileId: seen.latest.id,
+        raise: { principal: caller },
       });
-    }
-    const followed = await store.followProfile({
-      principal: caller,
-      workspaceId: caller.ownerId,
-      agentId,
-      managerRoles: AGENT_MANAGERS,
-    });
-    if (followed.outcome === "not_found") throw NOT_FOUND();
-    if (followed.outcome === "actor_inactive") throw ACTOR_INACTIVE();
-    if (followed.outcome === "outranked") throw OUTRANKED();
-    const fresh = await store.get(caller.ownerId, agentId);
-    if (!fresh) throw NOT_FOUND();
-    return {
-      ...withBehavior(fresh),
-      release: {
-        status: "unchanged",
+      release =
+        outcome.status === "applied"
+          ? {
+              status: "applied",
+              reason: null,
+              release_id: outcome.releaseId,
+              version_id,
+            }
+          : outcome.status === "failed"
+            ? {
+                status: "failed",
+                reason: outcome.reason,
+                release_id: null,
+                version_id,
+              }
+            : {
+                status: outcome.status === "retry" ? "failed" : "superseded",
+                reason: outcome.status === "retry" ? "revision_conflict" : null,
+                release_id: null,
+                version_id,
+              };
+    } else {
+      const followed = await store.followProfile({
+        principal: caller,
+        workspaceId: caller.ownerId,
+        agentId,
+        expectedActivationRevision: record.agent.activation_revision,
+        managerRoles: AGENT_MANAGERS,
+      });
+      if (followed.outcome === "not_found") throw NOT_FOUND();
+      if (followed.outcome === "actor_inactive") throw ACTOR_INACTIVE();
+      if (followed.outcome === "outranked") throw OUTRANKED();
+      release = {
+        status: followed.outcome === "superseded" ? "superseded" : "unchanged",
         reason: null,
         release_id: null,
-        version_id: null,
-      },
-    };
+        version_id,
+      };
+    }
+    const fresh = await store.get(caller.ownerId, agentId);
+    if (!fresh) throw NOT_FOUND();
+    return answer(fresh, release);
   }
 
   const resolveRelease = (workspaceId: string, releaseId: string) =>
@@ -920,11 +949,13 @@ export function createAgentService(deps: {
     agentId: string;
     actorUserId: string | null;
     targetProfileId: string;
+    /** A person's own request: their principal and agent-manager rights, not a rollout's. */
+    raise?: { principal: Principal };
   }): Promise<ReleaseOutcome> {
-    const { workspaceId, agentId, actorUserId, targetProfileId } = input;
+    const { workspaceId, agentId, actorUserId, targetProfileId, raise } = input;
     if (actorUserId === null)
       return { status: "failed", reason: "actor_inactive" };
-    const principal: Principal = {
+    const principal: Principal = raise?.principal ?? {
       ownerId: workspaceId,
       actor: {
         principal: { kind: "user", id: actorUserId },
@@ -933,6 +964,7 @@ export function createAgentService(deps: {
         apiKeyId: null,
       },
     };
+    const roles = raise ? {} : { requireRoles: ROLLOUT_ROLES };
     try {
       const record = await store.get(workspaceId, agentId);
       const active = record?.active_release ?? null;
@@ -963,7 +995,7 @@ export function createAgentService(deps: {
           card: { card, contentSha256 },
           updatedBy: actorUserId,
           managerRoles: AGENT_MANAGERS,
-          requireRoles: ROLLOUT_ROLES,
+          ...roles,
         });
         if (saved.outcome === "stale") return { status: "retry" };
         if (saved.outcome === "not_found") return { status: "superseded" };
@@ -983,12 +1015,12 @@ export function createAgentService(deps: {
         active,
         expectedActivationRevision: record.agent.activation_revision,
         intent: {
-          kind: "rollout",
+          kind: raise ? "raise" : "rollout",
           behaviorRevision: record.behavior_revision,
           targetProfileId,
         },
         reason: "profile_rollout",
-        requireRoles: ROLLOUT_ROLES,
+        ...roles,
       });
     } catch (error) {
       if (error instanceof SessionServiceError) {

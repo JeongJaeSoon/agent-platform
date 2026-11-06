@@ -56,6 +56,28 @@ export async function isNewestProfile(
   return later.length === 0;
 }
 
+/**
+ * A person brought the agent to the newest profile by hand, so its refused
+ * items are over: `applied` where the agent now runs the item's target,
+ * `superseded` for an older one.
+ */
+export async function resolveFailedItems(
+  tx: Database,
+  agentId: string,
+): Promise<void> {
+  await tx.execute(
+    sql`UPDATE profile_rollout_items i
+      SET status = CASE WHEN r.target_profile_id = ar.runtime_profile_id
+            THEN 'applied' ELSE 'superseded' END,
+          reason_code = NULL, locked_by = NULL, locked_until = NULL,
+          updated_at = now()
+      FROM profile_rollouts r, agents a, agent_releases ar
+      WHERE i.rollout_id = r.id AND i.agent_id = ${agentId}::uuid
+        AND i.status = 'failed'
+        AND a.id = i.agent_id AND ar.id = a.active_release_id`,
+  );
+}
+
 export async function openRolloutStep(
   db: Database,
   agentId: string,

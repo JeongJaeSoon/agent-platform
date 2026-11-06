@@ -55,6 +55,7 @@ import { DB_NOW } from "./db-clock.ts";
 import {
   isNewestProfile,
   openRolloutStep,
+  resolveFailedItems,
   runsLineageOf,
 } from "./profile-rollouts.ts";
 import type { Database } from "./queries.ts";
@@ -771,10 +772,17 @@ export function createPostgresAgentStore(db: Database): AgentStore {
       return db.transaction(async (tx) => {
         const locked = await lockAgentToChange(tx, input, input.agentId);
         if ("outcome" in locked) return locked;
+        // The judgment that the agent already runs the newest version was
+        // made on this revision; a revert since then must not be undone.
+        if (
+          locked.agent.activationRevision !== input.expectedActivationRevision
+        )
+          return { outcome: "superseded" as const };
         await tx
           .update(agents)
           .set({ profileTracking: "follow", updatedAt: DB_NOW })
           .where(eq(agents.id, locked.agent.id));
+        await resolveFailedItems(tx, locked.agent.id);
         return { outcome: "updated" as const };
       });
     },
@@ -895,8 +903,8 @@ export function createPostgresAgentStore(db: Database): AgentStore {
         // A rollout is judged again on what the lock now shows, whatever the
         // process that asked had read.
         if (
-          intent?.kind === "rollout" &&
-          (agent.profileTracking !== "follow" ||
+          (intent?.kind === "rollout" || intent?.kind === "raise") &&
+          ((intent.kind === "rollout" && agent.profileTracking !== "follow") ||
             agent.behaviorRevision !== intent.behaviorRevision ||
             !(await isNewestProfile(tx, intent.targetProfileId)) ||
             !(await runsLineageOf(tx, input.agentId, intent.targetProfileId)))
@@ -911,21 +919,20 @@ export function createPostgresAgentStore(db: Database): AgentStore {
                 draftProfileId: null,
                 draftModelSource: null,
                 draftFailure: null,
-                ...(intent.followsProfile === true
-                  ? { profileTracking: "follow" }
-                  : {}),
               }
-            : intent?.kind === "direct"
-              ? {
-                  behaviorRevision: sql`${agents.behaviorRevision} + 1`,
-                  modelSource: intent.releaseRunsProfileDefault
-                    ? sql`${agents.modelSource}`
-                    : "fixed",
-                  ...(intent.pinsProfile === true
-                    ? { profileTracking: "pinned" }
-                    : {}),
-                }
-              : {};
+            : intent?.kind === "raise"
+              ? { profileTracking: "follow" }
+              : intent?.kind === "direct"
+                ? {
+                    behaviorRevision: sql`${agents.behaviorRevision} + 1`,
+                    modelSource: intent.releaseRunsProfileDefault
+                      ? sql`${agents.modelSource}`
+                      : "fixed",
+                    ...(intent.pinsProfile === true
+                      ? { profileTracking: "pinned" }
+                      : {}),
+                  }
+                : {};
         // expected + 1: a retry of a request whose first attempt already swapped.
         if (
           agent.activeReleaseId === input.releaseId &&
@@ -938,6 +945,7 @@ export function createPostgresAgentStore(db: Database): AgentStore {
               .set({ ...intentColumns, updatedAt: DB_NOW })
               .where(eq(agents.id, agent.id));
           }
+          if (intent?.kind === "raise") await resolveFailedItems(tx, agent.id);
           return {
             outcome: "unchanged",
             revision: current,
@@ -975,6 +983,7 @@ export function createPostgresAgentStore(db: Database): AgentStore {
               sql`${agentReleases.approvedBy} IS NULL`,
             ),
           );
+        if (intent?.kind === "raise") await resolveFailedItems(tx, agent.id);
         const receiptId = await writeReceipt(tx, input.principal, {
           operation: "activate_agent",
           workspaceId: input.workspaceId,
