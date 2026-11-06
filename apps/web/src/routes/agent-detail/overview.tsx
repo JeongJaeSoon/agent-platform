@@ -41,19 +41,10 @@ import { OutcomeLine } from "../../components/outcome.tsx";
 import { LOCALE_NAMES, type Locale, useI18n } from "../../i18n/i18n.tsx";
 import { usagePeriod } from "../operations.tsx";
 import { credentialBindingsQuery } from "./credentials.tsx";
-import { latestVersion } from "./versions.tsx";
+import { nextVersion, shownVersion } from "./versions.tsx";
 
 // KeyValueList's dd does not break a long unspaced value; this does.
 const VALUE = "min-w-0 [overflow-wrap:anywhere]";
-
-/** The version new sessions run, or the newest one before any release. */
-export function shownVersion(detail: AgentDetail) {
-  return (
-    detail.versions.find(
-      (version) => version.id === detail.active_release?.version_id,
-    ) ?? latestVersion(detail)
-  );
-}
 
 const releasedVersion = (detail: AgentDetail, version: { id: string }) =>
   detail.releases.some((release) => release.version_id === version.id);
@@ -196,13 +187,13 @@ export function AgentReadiness({
   const { client } = useWerft();
   const bindings = useQuery(credentialBindingsQuery(client, detail.agent.id));
   const { agent } = detail;
-  const latest = latestVersion(detail);
+  const draft = nextVersion(detail);
   const active = detail.versions.find(
     (version) => version.id === detail.active_release?.version_id,
   );
   const refs = [
     ...new Set([
-      ...(latest?.card.capabilities.credential_refs ?? []),
+      ...(draft?.card.capabilities.credential_refs ?? []),
       ...(active?.card.capabilities.credential_refs ?? []),
     ]),
   ];
@@ -237,11 +228,11 @@ export function AgentReadiness({
                 }),
               };
   const released = detail.releases.length > 0;
+  const newer = nextVersion(detail);
   const upToDate =
     agent.active_release_id !== null &&
-    latest !== undefined &&
     active !== undefined &&
-    latest.id === active.id;
+    newer === undefined;
   // A paused or archived agent starts no session whatever its release, and
   // no screen changes the status, so its step offers nothing to press.
   const runnable = agent.status === "active";
@@ -275,9 +266,9 @@ export function AgentReadiness({
           })
         : agent.active_release_id === null
           ? t("agent.overview.notActive")
-          : latest && active && latest.id !== active.id
+          : newer && active
             ? t("agent.overview.newerVersion", {
-                latest: latest.version_no,
+                latest: newer.version_no,
                 active: active.version_no,
               })
             : t("agent.overview.upToDate"),

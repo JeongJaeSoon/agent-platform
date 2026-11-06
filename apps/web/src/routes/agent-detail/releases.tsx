@@ -64,7 +64,7 @@ import { errorKey, useI18n } from "../../i18n/i18n.tsx";
 import { agentRefusal } from "../agents.tsx";
 import { previousRelease, releaseChanges } from "./release-changes.ts";
 import { ReleaseChangesSummary } from "./release-changes-view.tsx";
-import { latestVersion, VersionSelect } from "./versions.tsx";
+import { shownVersion, VersionSelect } from "./versions.tsx";
 
 // Version, status, activated, card, profile, repository, by, note, actions;
 // a narrow table keeps the version and the action, and the version cell
@@ -99,7 +99,7 @@ export function Releases({
   /** The profile picked here or in the card editor; unset, the released one. */
   readonly profileId: string | undefined;
   readonly onProfileChange: (profileId: string) => void;
-  /** The version to release; null offers the latest. */
+  /** The version to release; null offers the one new sessions run. */
   readonly picked: string | null;
   readonly onPick: (versionId: string) => void;
   readonly versionNo: (versionId: string) => number | undefined;
@@ -116,8 +116,7 @@ export function Releases({
   const queryClient = useQueryClient();
   const role = useRole();
   const manages = useManagesAgent();
-  const latest = latestVersion(detail);
-  const versionId = picked ?? latest?.id ?? "";
+  const versionId = picked ?? shownVersion(detail)?.id ?? "";
   const profiles = useQuery({ ...profilesQuery(client), enabled: manages });
   const cardModel = detail.versions.find((v) => v.id === versionId)?.card.model;
   const items = profiles.data?.items ?? [];

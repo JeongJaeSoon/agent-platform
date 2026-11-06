@@ -406,6 +406,8 @@ export function workerEnvironmentFor(
     [ENV.egressCredentialUrl, egressCredentialUrlOf(config)],
     [ENV.home, config.homeDir],
     [ENV.workspaceDir, checkoutDirOf(config)],
+    [ENV.workspaceMountDir, config.workspaceDir],
+    [ENV.workspaceQuotaBytes, String(config.workspaceSizeBytes)],
     [ENV.httpProxy, config.egressProxyUrl],
     [ENV.httpProxyLower, config.egressProxyUrl],
     [ENV.httpsProxy, config.egressProxyUrl],

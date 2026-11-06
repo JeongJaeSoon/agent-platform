@@ -1,16 +1,23 @@
 import { randomUUID } from "node:crypto";
 import {
   type Agent,
-  type AgentDetail,
   type AgentRelease,
   type AgentVersion,
   agentReleaseSchema,
+  behaviorKey,
   type ListAgentsResponse,
+  type ModelSource,
   type ReceiptOperation,
   storedAgentCardSchema,
   type WorkspaceRole,
 } from "@werft-ai/contracts";
-import type { ActivateResult, AgentStore, Principal } from "@werft-ai/platform";
+import type {
+  ActivateResult,
+  AgentRecord,
+  AgentStore,
+  Principal,
+  SavedBehavior,
+} from "@werft-ai/platform";
 import {
   and,
   asc,
@@ -45,6 +52,7 @@ import {
   rethrowCursorCastError,
 } from "./cursors.ts";
 import { DB_NOW } from "./db-clock.ts";
+import { isNewestProfile, runsLineageOf } from "./profile-rollouts.ts";
 import type { Database } from "./queries.ts";
 import { earlierInSecond, releaseLabel } from "./release-labels.ts";
 import {
@@ -220,7 +228,7 @@ async function detailOf(
   db: Database,
   workspaceId: string,
   agentId: string,
-): Promise<AgentDetail | null> {
+): Promise<AgentRecord | null> {
   const [row] = await db
     .select({ agent: agents, teamName: managingTeamName })
     .from(agents)
@@ -240,7 +248,49 @@ async function detailOf(
     releases,
     active_release:
       releases.find((release) => release.id === agent.activeReleaseId) ?? null,
+    behavior_revision: agent.behaviorRevision,
+    model_source: agent.modelSource as ModelSource,
+    draft:
+      agent.draftVersionId === null ||
+      agent.draftProfileId === null ||
+      agent.draftModelSource === null
+        ? null
+        : {
+            version_id: agent.draftVersionId,
+            runtime_profile_id: agent.draftProfileId,
+            model_source: agent.draftModelSource as ModelSource,
+            failure: agent.draftFailure,
+          },
   };
+}
+
+/**
+ * What the active release runs, as `behaviorKey` reads it: the card of its
+ * version with the model its snapshot pins, on its profile.
+ */
+async function activeBehaviorKey(
+  tx: Database,
+  releaseId: string | null,
+): Promise<string | null> {
+  if (releaseId === null) return null;
+  const [row] = await tx
+    .select({
+      profileId: agentReleases.runtimeProfileId,
+      snapshot: agentReleases.runtimeConfigSnapshot,
+      card: agentVersions.card,
+    })
+    .from(agentReleases)
+    .innerJoin(agentVersions, eq(agentVersions.id, agentReleases.versionId))
+    .where(eq(agentReleases.id, releaseId))
+    .limit(1);
+  if (!row) return null;
+  const model = (row.snapshot as { model?: unknown }).model;
+  if (typeof model !== "string") return null;
+  return behaviorKey(
+    storedAgentCardSchema.parse(row.card),
+    model,
+    row.profileId,
+  );
 }
 
 async function writeReceipt(
@@ -296,6 +346,10 @@ async function lockAgent(tx: Database, workspaceId: string, agentId: string) {
       id: agents.id,
       activeReleaseId: agents.activeReleaseId,
       activationRevision: agents.activationRevision,
+      behaviorRevision: agents.behaviorRevision,
+      modelSource: agents.modelSource,
+      profileTracking: agents.profileTracking,
+      draftVersionId: agents.draftVersionId,
     })
     .from(agents)
     .where(and(eq(agents.id, agentId), eq(agents.workspaceId, workspaceId)))
@@ -317,6 +371,7 @@ export async function lockAgentToChange(
     principal: Principal;
     workspaceId: string;
     managerRoles: readonly WorkspaceRole[];
+    requireRoles?: readonly WorkspaceRole[];
   },
   agentId: string,
 ): Promise<
@@ -327,6 +382,12 @@ export async function lockAgentToChange(
   // No person behind the principal: nothing to re-read, as actorStillMember.
   const role = userId ? await lockedRole(tx, input.workspaceId, userId) : null;
   if (userId && role === null) return { outcome: "actor_inactive" };
+  if (
+    input.requireRoles !== undefined &&
+    (role === null || !input.requireRoles.includes(role))
+  ) {
+    return { outcome: userId ? "outranked" : "actor_inactive" };
+  }
   const agent = await lockAgent(tx, input.workspaceId, agentId);
   if (!agent) return { outcome: "not_found" };
   if (
@@ -553,7 +614,18 @@ export function createPostgresAgentStore(db: Database): AgentStore {
         const locked = await lockAgentToChange(tx, input, input.agentId);
         if ("outcome" in locked) return locked;
         const { agent } = locked;
+        // Before any write: a request that left values out was built from an
+        // agent that has since moved.
+        const basedOn = input.behavior?.basedOn;
+        if (
+          basedOn !== undefined &&
+          (agent.behaviorRevision !== basedOn.behaviorRevision ||
+            agent.activationRevision !== basedOn.activationRevision)
+        ) {
+          return { outcome: "stale" };
+        }
         let changed = false;
+        let saved: SavedBehavior | null = null;
         if (input.name !== undefined) {
           const renamed = await tx
             .update(agents)
@@ -606,6 +678,59 @@ export function createPostgresAgentStore(db: Database): AgentStore {
               .set({ updatedAt: DB_NOW })
               .where(eq(agents.id, agent.id));
           }
+          const { behavior } = input;
+          if (behavior !== undefined) {
+            const [stored] = await tx
+              .select({ id: agentVersions.id })
+              .from(agentVersions)
+              .where(
+                and(
+                  eq(agentVersions.agentId, agent.id),
+                  eq(agentVersions.contentSha256, input.card.contentSha256),
+                ),
+              )
+              .limit(1);
+            if (!stored)
+              throw new Error(`version of agent ${agent.id} vanished`);
+            const same =
+              (await activeBehaviorKey(tx, agent.activeReleaseId)) ===
+              behaviorKey(
+                input.card.card,
+                input.card.card.model,
+                behavior.runtimeProfileId,
+              );
+            // Every intent to change behavior takes a revision, a repeat of
+            // what runs included: it is what retires a save still in flight.
+            const [taken] = await tx
+              .update(agents)
+              .set({
+                behaviorRevision: sql`${agents.behaviorRevision} + 1`,
+                updatedAt: DB_NOW,
+                ...(same
+                  ? {
+                      modelSource: behavior.modelSource,
+                      draftVersionId: null,
+                      draftProfileId: null,
+                      draftModelSource: null,
+                      draftFailure: null,
+                    }
+                  : {
+                      draftVersionId: stored.id,
+                      draftProfileId: behavior.runtimeProfileId,
+                      draftModelSource: behavior.modelSource,
+                      draftFailure: null,
+                    }),
+              })
+              .where(eq(agents.id, agent.id))
+              .returning({ revision: agents.behaviorRevision });
+            if (!taken) throw new Error(`agent ${agent.id} vanished in its tx`);
+            changed ||= !same;
+            saved = {
+              status: same ? "unchanged" : "pending",
+              versionId: stored.id,
+              behaviorRevision: taken.revision,
+            };
+          }
         }
         if (changed) {
           await writeReceipt(tx, input.principal, {
@@ -616,8 +741,24 @@ export function createPostgresAgentStore(db: Database): AgentStore {
         }
         const detail = await detailOf(tx, input.workspaceId, agent.id);
         if (!detail) throw new Error(`agent ${agent.id} vanished in its tx`);
-        return { outcome: "updated", detail };
+        return { outcome: "updated", detail, saved };
       });
+    },
+
+    async recordDraftFailure(input) {
+      const failed = await db
+        .update(agents)
+        .set({ draftFailure: input.failure, updatedAt: DB_NOW })
+        .where(
+          and(
+            eq(agents.id, input.agentId),
+            eq(agents.workspaceId, input.workspaceId),
+            eq(agents.behaviorRevision, input.behaviorRevision),
+            eq(agents.draftVersionId, input.draftVersionId),
+          ),
+        )
+        .returning({ id: agents.id });
+      return failed.length > 0;
     },
 
     async hasGitHubSettings(agentId) {
@@ -693,6 +834,7 @@ export function createPostgresAgentStore(db: Database): AgentStore {
           agentId: release.agent_id,
           result: {
             release_id: release.id,
+            reason: input.reason ?? null,
             ...(await githubChange(
               tx,
               release.id,
@@ -722,12 +864,59 @@ export function createPostgresAgentStore(db: Database): AgentStore {
         if ("outcome" in locked) return locked;
         const { agent } = locked;
         const current = agent.activationRevision;
+        const { intent } = input;
+        // First, ahead of the early return below: a save a newer intent has
+        // replaced must not finish, even when its release is already active.
+        if (
+          intent?.kind === "save" &&
+          (agent.behaviorRevision !== intent.behaviorRevision ||
+            agent.draftVersionId !== intent.draftVersionId)
+        ) {
+          return { outcome: "superseded" };
+        }
+        // A rollout is judged again on what the lock now shows, whatever the
+        // process that asked had read.
+        if (
+          intent?.kind === "rollout" &&
+          (agent.profileTracking !== "follow" ||
+            agent.behaviorRevision !== intent.behaviorRevision ||
+            !(await isNewestProfile(tx, intent.targetProfileId)) ||
+            !(await runsLineageOf(tx, input.agentId, intent.targetProfileId)))
+        ) {
+          return { outcome: "superseded" };
+        }
+        const intentColumns =
+          intent?.kind === "save"
+            ? {
+                modelSource: intent.modelSource,
+                draftVersionId: null,
+                draftProfileId: null,
+                draftModelSource: null,
+                draftFailure: null,
+              }
+            : intent?.kind === "direct"
+              ? {
+                  behaviorRevision: sql`${agents.behaviorRevision} + 1`,
+                  modelSource: intent.releaseRunsProfileDefault
+                    ? sql`${agents.modelSource}`
+                    : "fixed",
+                  ...(intent.pinsProfile === true
+                    ? { profileTracking: "pinned" }
+                    : {}),
+                }
+              : {};
         // expected + 1: a retry of a request whose first attempt already swapped.
         if (
           agent.activeReleaseId === input.releaseId &&
           (current === input.expectedRevision ||
             current === input.expectedRevision + 1)
         ) {
+          if (intent !== undefined) {
+            await tx
+              .update(agents)
+              .set({ ...intentColumns, updatedAt: DB_NOW })
+              .where(eq(agents.id, agent.id));
+          }
           return {
             outcome: "unchanged",
             revision: current,
@@ -740,6 +929,7 @@ export function createPostgresAgentStore(db: Database): AgentStore {
             activeReleaseId: input.releaseId,
             activationRevision: sql`${agents.activationRevision} + 1`,
             updatedAt: DB_NOW,
+            ...intentColumns,
           })
           .where(
             and(
@@ -772,6 +962,7 @@ export function createPostgresAgentStore(db: Database): AgentStore {
             release_id: input.releaseId,
             previous_release_id: agent.activeReleaseId,
             activation_revision: swapped.revision,
+            reason: input.reason ?? null,
             ...(await githubChange(tx, input.releaseId, agent.activeReleaseId)),
           },
         });

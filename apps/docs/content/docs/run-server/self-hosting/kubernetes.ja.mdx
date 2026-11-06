@@ -74,7 +74,7 @@ Secret は、キーごとに1ファイルのディレクトリ(`0700`、ファ�
 | `EGRESS_AUTHORIZER_TOKEN` | ランダムな値。API と egress proxy が同じ値を使う |
 | `PLATFORM_SECRET_KEY` | `openssl rand -hex 32` の64文字の hex。保存した認証情報を封印する。ないと Pod が起動しない |
 | `AWS_ACCESS_KEY_ID`、`AWS_SECRET_ACCESS_KEY` | オブジェクトストアの key。IRSA で署名するなら2つとも省き、values に `secrets.objectStoreKeys: false` と `serviceAccounts.api.annotations` を置く |
-| `ANTHROPIC_API_KEY` | セッションが使う Anthropic key。API にだけ渡る |
+| `ANTHROPIC_API_KEY` | 任意。セッションが使う Anthropic key の基本の経路は、インストール後にコンソールの**設定 > ワークスペース設定 > モデル接続 > 接続を追加**で入れる方法です。このキーは環境変数で渡す代替手段で、置いた場合は API にだけ渡ります。置かない場合は helm に `--set-json 'secrets.catalogEnv=[]'` を渡します。chart の既定値はこのキーを API に渡すので、Secret にないと Pod が起動しません |
 
 ```bash
 kubectl create namespace werft
@@ -134,7 +134,7 @@ kill "$PF"
 
 Web コンソールの `/bootstrap` で最初の owner と workspace を作ります。API Pod は起動時にトークンを生成し、ログに `BOOTSTRAP_TOKEN=…` の1行で出力します。最初の owner ができるまでは、そのログを読める人なら誰でも bootstrap できるので、ログを読める人は運用者に限ります。
 
-chart の api は replica が2つなので、Pod ごとに別のトークンを生成し、それぞれのログに出力します(Pod ごとに値が違うことは kind で確認しました)。`/bootstrap` へのリクエストがトークンを読んだ Pod とは別の Pod に届くと 401 になることがあります(誤ったトークンが 401 になることは kind で確認しました。ただしどの Pod が受けるかは区別していないため、別の Pod に届いたときの 401 は再現していません)。避ける方法は2つです。`BOOTSTRAP_TOKEN` を Secret に入れてすべての Pod が同じ値を使うようにするか、replica 1 で始めます。前者は Secret にキー `BOOTSTRAP_TOKEN` を作り、`--set-json 'secrets.catalogEnv=["ANTHROPIC_API_KEY","BOOTSTRAP_TOKEN"]'` で api に渡します。この値は既定値 `["ANTHROPIC_API_KEY"]` を置き換えるので、`ANTHROPIC_API_KEY` も一緒に書きます。自分で決めるトークンは 32〜256 文字で、外れると API は起動しません。この方法でインストールした api(replica 2)が `/readyz` 200 まで起動すること、そのトークンで owner を作る呼び出しが 201 を返し、同じトークンをもう一度使うと 409 `BOOTSTRAP_DONE` になることは kind で確認しました。replica 1 で始める方法は実行していません。
+chart の api は replica が2つなので、Pod ごとに別のトークンを生成し、それぞれのログに出力します(Pod ごとに値が違うことは kind で確認しました)。`/bootstrap` へのリクエストがトークンを読んだ Pod とは別の Pod に届くと 401 になることがあります(誤ったトークンが 401 になることは kind で確認しました。ただしどの Pod が受けるかは区別していないため、別の Pod に届いたときの 401 は再現していません)。避ける方法は2つです。`BOOTSTRAP_TOKEN` を Secret に入れてすべての Pod が同じ値を使うようにするか、replica 1 で始めます。前者は Secret にキー `BOOTSTRAP_TOKEN` を作り、`--set-json 'secrets.catalogEnv=["ANTHROPIC_API_KEY","BOOTSTRAP_TOKEN"]'` で api に渡します。この値は既定値 `["ANTHROPIC_API_KEY"]` を置き換えます。Secret に `ANTHROPIC_API_KEY` を置いたなら一緒に書き、モデルの key をコンソールの画面で入れて Secret に置かないなら `--set-json 'secrets.catalogEnv=["BOOTSTRAP_TOKEN"]'` だけを渡します。リストにある名前が Secret になければ Pod は起動しません。自分で決めるトークンは 32〜256 文字で、外れると API は起動しません。この方法でインストールした api(replica 2)が `/readyz` 200 まで起動すること、そのトークンで owner を作る呼び出しが 201 を返し、同じトークンをもう一度使うと 409 `BOOTSTRAP_DONE` になることは kind で確認しました。replica 1 で始める方法は実行していません。
 
 API key は API Pod の中で発行します。次の `kubectl exec` 形式は checkout が要りません。この形式で key を発行し、その key で `GET /v1/sessions` が 200、key なしでは 401 になることを kind で確認しました(上の Secret のトークンで owner を作ったあと)。`bun run keys:k8s` を使う近道は [Kubernetes の設置(Helm chart)](/run-server/self-hosting/operate/kubernetes-deployment#api-key実行権限設定ドキュメント) にあります。
 
@@ -170,13 +170,14 @@ openssl rand -hex 32 | tr -d '\n' > "$SECRETS/EGRESS_AUTHORIZER_TOKEN"
 openssl rand -hex 32 | tr -d '\n' > "$SECRETS/PLATFORM_SECRET_KEY"
 printf test > "$SECRETS/AWS_ACCESS_KEY_ID"
 printf test > "$SECRETS/AWS_SECRET_ACCESS_KEY"
-printf unused > "$SECRETS/ANTHROPIC_API_KEY"
 kubectl -n werft create secret generic werft --from-file="$SECRETS"
 unset KIND_DB_PASSWORD
 rm -r "${SECRETS:?}"
 helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
-  --namespace werft -f deploy/kind/values.yaml --timeout 10m
+  --namespace werft -f deploy/kind/values.yaml --set-json 'secrets.catalogEnv=[]' --timeout 10m
 ```
+
+Secret に `ANTHROPIC_API_KEY` を作らないので、helm に `secrets.catalogEnv=[]` を渡します。モデルの key は、インストール後にコンソールのモデル接続の画面で入れます。
 
 続けて、手順4の rollout の確認と手順5の確認をそのまま行います。終わったら `kind delete cluster --name werft-try` でクラスターを削除します。
 

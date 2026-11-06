@@ -14,6 +14,31 @@ export const latestVersion = (detail: AgentDetail) =>
     undefined,
   );
 
+/**
+ * The version new sessions run, or the newest one before any release. The
+ * highest version number is not the current card: a save whose release was
+ * refused is a newer version that nothing runs.
+ */
+export function shownVersion(detail: AgentDetail) {
+  return (
+    detail.versions.find(
+      (version) => version.id === detail.active_release?.version_id,
+    ) ?? latestVersion(detail)
+  );
+}
+
+/** The version a save is waiting to release, or whose release was refused. */
+export const draftVersion = (detail: AgentDetail) =>
+  detail.versions.find((version) => version.id === detail.draft?.version_id);
+
+/**
+ * The version a next release would take: the saved one waiting for it, or
+ * before any release the newest one.
+ */
+export const nextVersion = (detail: AgentDetail) =>
+  draftVersion(detail) ??
+  (detail.active_release ? undefined : latestVersion(detail));
+
 export function VersionSelect({
   label,
   versions,
