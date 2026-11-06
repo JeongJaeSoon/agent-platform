@@ -92,6 +92,10 @@ export function EffectiveBehavior({
       (p) => p.id === detail.active_release?.runtime_profile_id,
     )?.model === runningModel;
 
+  // Whether the profile still gives the running model is unknown until its
+  // list has loaded; discarding before then could drop the follow.
+  const knowsDefault = detail.model_source !== "profile" || profiles.isSuccess;
+
   const resave = useMutation<SaveAgentResponse, ApiError, "retry" | "discard">({
     mutationFn: (mode) => {
       const source =
@@ -220,7 +224,7 @@ export function EffectiveBehavior({
                 <Button
                   type="button"
                   variant="ghost"
-                  disabled={resave.isPending}
+                  disabled={resave.isPending || !knowsDefault}
                   onClick={() => resave.mutate("discard")}
                 >
                   {t("agent.draft.discard")}

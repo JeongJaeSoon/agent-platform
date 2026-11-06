@@ -2965,6 +2965,39 @@ describe("편집 중 다른 곳의 저장", () => {
       expect(await discardSource(CARD.model)).toBe("profile");
     });
 
+    test("프로필 목록을 읽기 전에는 버리기를 누를 수 없다", async () => {
+      const server = agentServer();
+      await seedRelease(server);
+      await server.routes[`POST /v1/agents/${AGENT_ID}/activate`]?.(
+        new Request("https://console.test/", {
+          method: "POST",
+          body: JSON.stringify({
+            release_id: server.detail().releases[0]?.id,
+            expected_revision: -1,
+          }),
+        }),
+      );
+      const body = server.detail();
+      renderAt(CARD_TAB, {
+        ...meOk,
+        ...server.routes,
+        "GET /v1/profiles": () => new Promise<Response>(() => {}),
+        [`GET /v1/agents/${AGENT_ID}`]: () =>
+          json(200, {
+            ...body,
+            model_source: "profile",
+            draft: {
+              version_id: body.versions[0]?.id as string,
+              runtime_profile_id: PROFILE,
+              model_source: "profile",
+              failure: "release_refused",
+            },
+          }),
+      });
+      const discard = await screen.findByRole("button", { name: "버리기" });
+      expect(discard.hasAttribute("disabled")).toBe(true);
+    });
+
     test("프로필 기본 모델이 옮겨 갔으면 돌던 모델을 고른 것으로 남긴다", async () => {
       expect(await discardSource("claude-haiku-5")).toBe("fixed");
     });
