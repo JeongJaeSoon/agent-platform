@@ -352,18 +352,42 @@ integration("session reader on PostgreSQL", () => {
       activityThrough: stored.id,
     });
     await db.delete(events).where(eq(events.id, stored.id));
+    expect(
+      (await reader.getSession(OWNER, sessionId))?.workspace_limit_mode,
+    ).toBeUndefined();
+    const unavailableReader = createPostgresSessionReader(db, {
+      archivedEvents: {
+        get: async () => {
+          throw new Error("Object store unavailable");
+        },
+      },
+    });
+    expect(
+      (await unavailableReader.getSession(OWNER, sessionId))
+        ?.workspace_limit_mode,
+    ).toBeUndefined();
+    let downloads = 0;
     const archivedReader = createPostgresSessionReader(db, {
-      archivedEvents: { get: async () => body },
+      archivedEvents: {
+        get: async () => {
+          downloads++;
+          return body;
+        },
+      },
     });
     expect(
       (await archivedReader.getSession(OWNER, sessionId))?.workspace_limit_mode,
     ).toMatchObject({ bytes: "hard", inodes: "unknown" });
     await db
       .insert(attempts)
-      .values(attempt("new-without-classification", later, 5));
+      .values({
+        ...attempt("new-without-classification", later, 5),
+        startedAt: new Date(stored.createdAt.getTime() + 1000),
+      });
     expect(
       (await archivedReader.getSession(OWNER, sessionId))?.workspace_limit_mode,
     ).toBeUndefined();
+    expect(downloads).toBe(1);
   });
 
   test("a turn does not report a checkpoint revision a restore can no longer reach", async () => {

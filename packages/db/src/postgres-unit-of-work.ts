@@ -59,6 +59,7 @@ import {
   eq,
   exists,
   gt,
+  gte,
   inArray,
   isNull,
   max,
@@ -139,6 +140,7 @@ import {
 } from "./session-event-archives.ts";
 import { recordStatus } from "./session-events.ts";
 import { sessionRelationIs, sessionVisibleTo } from "./session-shares.ts";
+import { readArchivedWorkspaceLimit } from "./workspace-limit.ts";
 
 export const CREATE_SESSION = "create_session";
 const APPEND_MESSAGE = "append_message";
@@ -1147,7 +1149,11 @@ export function createPostgresSessionReader(
           // last. The session names its current one; once
           // released, its last attempt does.
           const [lastAttempt] = await tx
-            .select({ id: attempts.id, executionId: attempts.executionId })
+            .select({
+              id: attempts.id,
+              executionId: attempts.executionId,
+              startedAt: attempts.startedAt,
+            })
             .from(attempts)
             .where(eq(attempts.sessionId, sessionId))
             .orderBy(desc(attempts.leaseEpoch))
@@ -1167,31 +1173,33 @@ export function createPostgresSessionReader(
               )
               .orderBy(desc(events.id))
               .limit(1);
-            let payload = classification?.payload;
-            if (payload === undefined) {
-              const chunks = await archiveChunksAfter(tx, sessionId, 0);
-              for (const chunk of chunks.reverse()) {
-                const lines = await archive().lines(chunk);
-                for (const { line } of [...lines].reverse()) {
-                  const event = JSON.parse(line) as {
-                    type: string;
-                    attempt_id: string | null;
-                    payload: { subtype?: string } | null;
-                  };
-                  if (
-                    event.attempt_id === lastAttempt.id &&
-                    event.type === "system" &&
-                    event.payload?.subtype === "workspace_limit_mode"
-                  ) {
-                    payload = event.payload;
-                    break;
-                  }
-                }
-                if (payload !== undefined) break;
-              }
-            }
-            const parsed = workspaceLimitModeSchema.safeParse(payload);
+            const parsed = workspaceLimitModeSchema.safeParse(
+              classification?.payload,
+            );
             if (parsed.success) workspaceLimitMode = parsed.data;
+            else if (
+              classification === undefined &&
+              archiveCache !== undefined
+            ) {
+              const chunks = await tx
+                .select()
+                .from(sessionEventArchives)
+                .where(
+                  and(
+                    eq(sessionEventArchives.sessionId, sessionId),
+                    gte(
+                      sessionEventArchives.lastCreatedAt,
+                      lastAttempt.startedAt,
+                    ),
+                  ),
+                )
+                .orderBy(desc(sessionEventArchives.fromId));
+              workspaceLimitMode = await readArchivedWorkspaceLimit(
+                archiveCache,
+                chunks,
+                lastAttempt,
+              );
+            }
           }
           const currentExecutionId =
             row.executionId ?? lastAttempt?.executionId ?? null;
