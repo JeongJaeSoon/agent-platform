@@ -859,6 +859,9 @@ describe("a release with push_approval off", () => {
             origin: "direct" as const,
             flow: "legacy" as const,
             pr_state: null,
+            pr_error: null,
+            pr_number: null,
+            pr_url: null,
           };
           return { outcome: "written", request };
         },

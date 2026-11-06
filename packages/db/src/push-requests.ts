@@ -30,7 +30,7 @@ import {
   type PushWriteResult,
   type ToolSummaryContext,
 } from "@werft-ai/platform";
-import { and, desc, eq, inArray, type SQL, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, or, type SQL, sql } from "drizzle-orm";
 import { enqueueActionNotice } from "./action-notices.ts";
 import {
   findIdempotent,
@@ -147,7 +147,75 @@ export async function toolSummaryContext(
   };
 }
 
-function publicPushRequest(row: Row): PushRequest {
+type RecordedPullRequest = { number: number | null; url: string };
+
+/**
+ * The pull request of each push request. A pull request row belongs to the
+ * push request that created it; a later push to the same branch finds that
+ * pull request open and only records its verified number. A number is unique
+ * within a repository only, so that row is found by session, repository and
+ * number.
+ */
+async function recordedPullRequests(
+  db: Database,
+  rows: readonly {
+    id: string;
+    sessionId: string;
+    repositoryId: string;
+    prVerifiedNumber: number | null;
+  }[],
+): Promise<Map<string, RecordedPullRequest>> {
+  if (rows.length === 0) return new Map();
+  const reusing = rows.filter((row) => row.prVerifiedNumber !== null);
+  const found = await db
+    .select({
+      sessionId: pullRequests.sessionId,
+      repositoryId: pullRequests.repositoryId,
+      pushRequestId: pullRequests.pushRequestId,
+      number: pullRequests.number,
+      url: pullRequests.url,
+    })
+    .from(pullRequests)
+    .where(
+      or(
+        inArray(
+          pullRequests.pushRequestId,
+          rows.map((row) => row.id),
+        ),
+        reusing.length === 0
+          ? undefined
+          : and(
+              inArray(pullRequests.sessionId, [
+                ...new Set(reusing.map((row) => row.sessionId)),
+              ]),
+              inArray(pullRequests.number, [
+                ...new Set(reusing.map((row) => row.prVerifiedNumber ?? 0)),
+              ]),
+            ),
+      ),
+    );
+  const byRequest = new Map<string, RecordedPullRequest>();
+  for (const row of rows) {
+    const own = found.find((entry) => entry.pushRequestId === row.id);
+    const reused =
+      row.prVerifiedNumber === null
+        ? undefined
+        : found.find(
+            (entry) =>
+              entry.sessionId === row.sessionId &&
+              entry.repositoryId === row.repositoryId &&
+              entry.number === row.prVerifiedNumber,
+          );
+    const entry = own ?? reused;
+    if (entry) byRequest.set(row.id, { number: entry.number, url: entry.url });
+  }
+  return byRequest;
+}
+
+function publicPushRequest(
+  row: Row,
+  recorded: RecordedPullRequest | null = null,
+): PushRequest {
   return {
     id: row.id,
     session_id: row.sessionId,
@@ -168,6 +236,9 @@ function publicPushRequest(row: Row): PushRequest {
     origin: row.origin as PushRequestOrigin,
     flow: row.flow as PushRequestFlow,
     pr_state: (row.prState as PullRequestStage | null) ?? null,
+    pr_error: row.prError ?? null,
+    pr_number: recorded?.number ?? null,
+    pr_url: recorded?.url ?? null,
   };
 }
 
@@ -614,7 +685,10 @@ export function createPostgresPushRequests(
           ),
         )
         .orderBy(desc(pushRequests.createdAt), desc(pushRequests.id));
-      return rows.map(publicPushRequest);
+      const recorded = await recordedPullRequests(db, rows);
+      return rows.map((row) =>
+        publicPushRequest(row, recorded.get(row.id) ?? null),
+      );
     },
 
     async get(ownerId, sessionId, pushRequestId) {
@@ -629,7 +703,9 @@ export function createPostgresPushRequests(
           ),
         )
         .limit(1);
-      return row ? publicPushRequest(row) : null;
+      if (!row) return null;
+      const recorded = await recordedPullRequests(db, [row]);
+      return publicPushRequest(row, recorded.get(row.id) ?? null);
     },
 
     snapshot(ownerId, rawSessionId, ref) {
