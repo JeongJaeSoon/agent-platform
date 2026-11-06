@@ -194,8 +194,8 @@ type ActionResult<T> = { ok: true; result: T } | { ok: false; refusal: ActionRef
 |---|---|
 | 입력 | 지금 입력(`repository_id?`, `branch?`)에 `source_ref?`(L4b 전에는 `source_ref_unsupported`). strict |
 | 플랫폼이 정하는 것 | 대상 브랜치 `agent/<session-id>[-<branch>]`, 고정 commit(이 턴 끝 checkpoint의 HEAD), 승인 방식, 실행 시점(턴 끝) |
-| 출력 | `AGENT_ACTION_FLOWS` on: `{ status: "deferred", push_intent_id, waits_for: "turn_end", repository_id, target_branch }`. off: 지금 결과를 봉투에 넣고 `message`만 뺀다 |
-| 멱등 | 같은 턴에서 같은 대상을 다시 부르면 같은 의도. 같은 대상의 열린 push 요청은 하나(`request_open`). 사람이 거절한 commit의 재요청은 `rejected_before` |
+| 출력 | `AGENT_ACTION_FLOWS` on: `{ status: "deferred", push_intent_id, waits_for: "turn_end", repository_id, target_branch, pull_request, next }` (`next`는 승인 대기여도 같은 턴에 `open_pull_request({ push_intent_id })`를 부르라고 알린다; 푸시 뒤 PR을 여는 후속 턴은 없다). off: 지금 결과를 봉투에 넣고 `message`만 뺀다 |
+| 멱등 | 같은 턴에서 같은 대상을 다시 부르면 같은 의도. 같은 턴·같은 저장소의 다른 대상(`branch` 접미사만 다름)은 `source_ref_unsupported`(`details.reason = one_target_per_turn`, `details.target_branch` = 이미 잡힌 대상)로 거절한다. 모든 의도가 같은 턴 끝 checkpoint를 가리켜 같은 commit이 두 번 push되기 때문이다(D10). 모델은 남은 묶음을 사람에게 말하고 다음 입력을 기다린다. 같은 대상의 열린 push 요청은 하나(`request_open`). 사람이 거절한 commit의 재요청은 `rejected_before` |
 | 정책 | `push.primary`·`push.attached`. `ask`면 T3 push 폼 |
 
 턴 끝 뒤의 결과는 모델이 `get_push_request`(L5, 부류 `repository.read`)로 읽고, 사람에게는 T1 `action_notice`로 나간다.
@@ -204,7 +204,7 @@ type ActionResult<T> = { ok: true; result: T } | { ok: false; refusal: ActionRef
 |---|---|---|
 | `validation_error` | platform | false(`isError`) |
 | `no_repository`, `repository_not_allowed`, `github_disabled`, `default_branch`, `target_refused`, `over_workspace_ceiling`, `self_approval` | policy | false |
-| `source_ref_unsupported`, `no_running_turn`, `missing_scope`, `unverified_principal`, `not_found`, `session_closed`, `turn_ended_without_checkpoint`, `turn_finalized_without_pin`, `source_missing`, `attribution_mismatch`, `uncommitted_changes`, `no_checkpoint`, `checkpoint_moved`, `commit_mismatch`, `catalog_changed`, `already_resolved`, `already_decided`, `unrelated_history`, `github_settings_unsupported`, `no_push_credential` | platform | false |
+| `source_ref_unsupported`, `no_running_turn`, `missing_scope`, `unverified_principal`, `not_found`, `session_closed`, `turn_ended_without_checkpoint`, `turn_finalized_without_pin`, `superseded_by_turn`, `source_missing`, `attribution_mismatch`, `uncommitted_changes`, `no_checkpoint`, `checkpoint_moved`, `commit_mismatch`, `catalog_changed`, `already_resolved`, `already_decided`, `unrelated_history`, `github_settings_unsupported`, `no_push_credential` | platform | false |
 | `checkpoint_unavailable`, `lease_expired`, `push_failed`, `request_open` | platform | true |
 | `rejected_before` | person | false |
 | `non_fast_forward`, `github_refused` | github | false |
@@ -424,6 +424,71 @@ T4·T8은 엔진의 셸 도구로 돌기 때문에 어댑터 계약이 따로 �
 | F | L2·L5 / 각 조건 / L5·L16·PR 4 / L5·PR 3·PR 5 머지 | L12 / L4b·L8·L9·L11(2단계) / L14 / L15 |
 
 L0 머지 전에는 L1~L16 가운데 L13a만 시작한다. L13a는 프록시의 receive-pack 분기와 그 테스트만 고치고 이 문서의 계약에 기대지 않는다. T2-a도 L0을 기다리지 않는다.
+
+## 14. 책임 경계 추적표
+
+설계 기록 `ap-action-layer-20261103/design.md` 5절 "경계: 29개 행동의 분류"(126–166행)를 이 문서의 계약에 대응시킨 표다. 29개는 도구 수가 아니라 **행동의 책임 경계 목록**이다. 원래 분류는 레이어 10개, 흐름 7개, 엔진 12개다. [6절](#6-행동-부류-정책)의 행동 부류 표는 "어떤 판정을 서버가 하는가"를 답하고, 이 표는 "그 행동의 책임이 모델·플랫폼·엔진 가운데 어디에 있고 지금 어떤 상태인가"를 답한다. 두 표는 서로를 대신하지 않는다.
+
+- 기준 커밋: `origin/main` `355140707`. 아래 `파일:줄`은 이 커밋에서 직접 읽은 것이다. 위의 다른 절이 쓰는 기준 커밋(`777c78db2`)과 다른 것은 그 뒤에 L1·L3·L2·L4·L5·L6·L7이 머지됐기 때문이다.
+- 설계 기록의 분류(레이어·흐름·엔진)는 복원하지 않고 "설계 분류" 칸에 그대로 적는다. 책임이 어디로 가는지는 이 문서의 계약이 정한다. 둘이 다르면 이 문서가 맞다.
+- **상태** 칸은 넷 중 하나다.
+  - **현재 계약**: 이 문서의 어느 절이, 어느 도구와 코드 경로가 맡는지 적는다.
+  - **제외**: 이 문서나 설계가 도구·계약으로 만들지 않기로 한 것과 그 근거.
+  - **후속**: 아직 main에 없고, 카탈로그의 단위(L 번호, 2단계)나 이 문서의 절이 맡는다.
+  - **근거 없음**: main 코드와 문서에서 대응을 찾지 못했다. 추측하지 않고 표 아래에 따로 모은다.
+
+### 14.1 표
+
+설계 분류의 약어는 레이어 = L, 흐름 = F, 엔진 = E다.
+
+| # | 행동 | 설계 분류 | 상태 | 지금의 대응 |
+|---|---|---|---|---|
+| G1 | PR 본문 형식·템플릿 | L | 현재 계약 | T6([5.6](#56-t6-pr-작성-open_pull_request)). 구조화 필드를 템플릿에 채운다: `renderPullRequestBody`(`packages/platform/src/sessions/pull-request-body.ts:249`), `fillTemplate`(`pull-request-template.ts:600`). 꼬리·`Co-authored-by`는 [7절](#7-호출자-매핑) |
+| G2 | PR 제목 형식·언어 | L(언어는 E) | 현재 계약 | 한 줄·256자·redact는 `cleanTitle`(`pull-request-text.ts:107`, 상한 `:7`). 비었을 때 기본값 `Agent session <id>`는 `pull-request-service.ts:557`, `:866`. 제목 언어는 모델 글이라 바꾸지 않는다 |
+| G3 | 엔진 서명 | E(어댑터가 끔) | 현재 계약 | [9절](#9-어댑터-적합성-항목) 1번. `ENGINE_ATTRIBUTION_OFF`(`packages/adapters/runtimes/claude/src/runtime.ts:38`, 적용 `:280`)와 적합성 시험(`packages/runtime-core/src/testing/adapter-conformance.ts:63`). 렌더러 쪽 안전망은 `stripEngineSignatures`(`pull-request-text.ts:46`) |
+| G4 | commit 메시지 | E | 현재 계약 + 후속 | 메시지는 엔진에 둔다. hook이 메시지의 엔진 co-author 줄을 지우고 trailer를 더한다(`apps/worker/git-hooks/werft-hook:38-40`, `werft-trailers.sh:79-80`). author는 셸 환경으로 정하고(`gitEnvironmentFor`, `apps/worker/src/git-trailers.ts:85-100`) 이미 만든 commit의 author는 별도 복구 경로가 고친다(`apps/worker/git-hooks/werft-repair-attribution:14-16`). 고를 수 있는 wrapper T4 `werft-commit`([5.4](#54-t4-git-commit-werft-commit))은 main에 없다 → 후속 L10 |
+| G5 | commit 시점과 push 브랜치 준비 | F | 현재 계약 | T5([5.5](#55-t5-push-request_push)). 턴 안 `request_push`가 의도를 만들고 `deferred`/`waits_for: "turn_end"`를 돌려준다(`packages/platform/src/sessions/github-mcp-server.ts:378-447`). 턴 끝 checkpoint를 고정한다. 모델 안내 문구는 [11절](#11-도구-위에-얹는-것) F2 |
+| G6 | push 미뤄짐 처리(이어 턴) | F | 현재 계약 + 후속 | `AGENT_ACTION_FLOWS` on이면 이어 턴이 없다([12절](#12-앞선-결정과의-차이) 둘째 줄). `flow = 'legacy'` 요청에만 이어 턴이 남는다(`github-mcp-server.ts:464-470`, `packages/db/src/push-continuations.ts:6`). 지우는 일은 [11절](#11-도구-위에-얹는-것) F2의 후속 PR |
+| G7 | push 뒤 PR 열기 | F | 현재 계약(D7로 바뀜) | 플랫폼이 스스로 열지 않는다. 모델이 `open_pull_request({ push_intent_id })`를 부르면(`gh pr create`는 후속 L14다. 이미지의 `gh`는 지금 자격 없는 원본이다, `apps/worker/Dockerfile:149-152`) 예약하고, push가 끝나면 PR drain이 연다(`packages/platform/src/sessions/pull-request-drain.ts`, [5.6](#56-t6-pr-작성-open_pull_request)). 설계 원문의 "push가 끝나면 PR을 연다"는 [10절](#10-오너-결정-d1d11) D7(폐기)로 대체됐다. `slackPushFollowUp`(`packages/platform/src/musterrolle/slack-interactions.ts:71`)은 `legacy` 요청에만 남는다 |
+| G8 | PR 개수(브랜치 분할) | L | 현재 계약 + 후속 | 1단계는 턴마다 대상 하나다. 같은 턴·같은 저장소의 다른 대상은 `source_ref_unsupported`(`details.reason = one_target_per_turn`, `github-mcp-server.ts:426-430`)이고 `source_ref`는 거절한다(`:383-387`). [10절](#10-오너-결정-d1d11) D10. 한 턴 여러 소스는 후속 L4b(2단계) |
+| G9 | PR 리뷰 | L | 현재 계약 | `submit_review`(`review` 부류). 본문은 `cleanBody`로 정리하고 `commit_id`가 PR head가 아니면 `stale_commit`이다(`packages/platform/src/sessions/github-work-service.ts:357-387`). [5.9](#59-그-밖의-기존-도구)의 L6 |
+| G10 | workflow 입력·재실행·결과 확인 | L | 현재 계약 | `dispatch_workflow`·`rerun_workflow`·`get_workflow_run`(`workflow` 부류). `wait_seconds`와 `final`은 `packages/contracts/src/api/github-mcp.ts:151`, `:457`. [5.9](#59-그-밖의-기존-도구)의 L7 |
+| G11 | GitHub 행동 허용 판단 | L(정책) | 현재 계약 | [6절](#6-행동-부류-정책). 부류 값과 도구별 부류는 `ACTION_CLASS_VALUES`·`GITHUB_MCP_TOOL_CLASSES`(`github-mcp.ts:329`, `:343`). 부류가 없는 도구는 노출되지 않는다 |
+| G12 | PR 댓글 | L | 현재 계약 + 후속 | 같은 marker의 댓글을 갱신한다(`comment_pull_request`, `pull-request-service.ts:1117-1170`). 결과의 `replaced` 칸은 main의 응답 스키마(`packages/contracts/src/api/pull-request.ts:274`)에 없다 → [5.9](#59-그-밖의-기존-도구) 표의 "PR 4, L1" 항목 |
+| G13 | push 거절 뒤 재요청·거절 답 | F | 현재 계약 + 후속 | 같은 commit의 재요청은 `rejected_before`(`packages/db/src/push-intents.ts:345`, `packages/contracts/src/api/push-request.ts:100`). 거절 알림은 Slack 카드의 처리 뒤 한 줄이다([8절](#8-slack-경계와-pushapprovability)). 거절 문장을 모델 세션에 넣는 `slackPushFollowUp`(`slack-interactions.ts:71-78`, 호출 `:493`)은 `legacy` 요청에만 남는다 → F2의 후속 PR |
+| S2 | 질문과 선택지 | E(어댑터가 옮김) | 현재 계약 + 후속 | 엔진 질문은 runtime-core `ApprovalRequested{kind:"question"}`으로 나온다(`packages/runtime-core/src/approval.ts:39`). [5.3](#53-t3-의사결정-폼), [9절](#9-어댑터-적합성-항목) 4번. 질문 도구가 없는 엔진의 `ask_person`은 후속 L9(2단계) |
+| S3 | 도구 허용 요청이 오는지·카드 | E(push·PR 도구는 뺌) | 현재 계약 | [6절](#6-행동-부류-정책)의 "엔진 권한 단계" 열과 [9절](#9-어댑터-적합성-항목) 3번. push·PR·저장소 읽기 도구는 `trusted`로 엔진이 묻지 않는다(L2, `apps/worker/src/gateway-client.ts`, `packages/runtime-core/src/agent-runtime.ts:111`). 리뷰·workflow 도구는 엔진이 묻는다 |
+| S4 | 승인 요청 문구·상태 설명 | F | 현재 계약 | [8절](#8-slack-경계와-pushapprovability). 카드는 Slack 어댑터가 그린다(`slack-prompts.ts`), 스레드 상태는 `slackSessionStatus`(`packages/platform/src/musterrolle/slack-session-status.ts:58`), push·PR 결과 알림은 `action_notice`(`packages/platform/src/musterrolle/action-notice.ts:5-12`), 승인 판정은 `pushApprovability`(`packages/platform/src/sessions/push-approvability.ts`) |
+| S5 | 답의 언어·내부 정보 | E | 현재 계약(부분) | 모델에게 "이렇게 말하라"를 쓰지 않는다는 [2절](#2-원칙) 5번과 [4절](#4-결과-봉투와-공통-규칙)의 봉투가 대응한다. 답 본문은 도구로 감쌀 수 없어 엔진에 둔다. 다만 `request_push`의 `next` 영어 한 줄(`github-mcp-server.ts:451`)과 `legacy` 안내문(`push-continuations.ts:6`, `slack-interactions.ts:76-77`)은 아직 모델에게 영어 문장을 준다 → F2의 후속 PR |
+| A1 | 성과 의미 판정(Luna) | F(이미 엔진 밖) | 현재 계약 | 판정 모델이 엔진 밖에서 돈다: `createAchievementJudge`(`packages/platform/src/sessions/achievements/achievement-judge.ts:186`), 규칙 `achievement-rules.ts`, 정의는 `docs/contributing/decisions/achievement-rules.md`. 이 레이어는 판정을 바꾸지 않는다. 설계 원문이 판정기 연결과 재판정 범위를 별도 티켓 둘에 두었다(원문 인용, 이 표는 그 티켓의 상태를 확인하지 않았다) |
+| A2 | 성과 근거의 자기 보고 | L(2단계) | 후속 | `declare_deliverable`은 main에 없다(코드·문서 전체에서 찾지 못했다). 카탈로그 7.2절이 **L8**(2단계, 선행은 판정기 연결 티켓)로 둔다. 설계 10.6절은 "판정기 연결 뒤에 만든다. 그 전에는 판정이 늘 `skipped`라 이득이 없다"며 만들기를 미룬다. 근거 등급은 `achievement-rules.md` 0절 그대로다. 이 도구가 생기기 전까지 모델이 넘기는 결과물 목록은 계약에 없다 |
+| A3 | 결과물 위치(`out/`) | L(2단계) | 현재 계약 + 후속 | 지금은 `out/` 규칙이 맞다: 저장소 없는 세션의 안내 `OUT_DIRECTORY_PROMPT`(`apps/worker/src/composition.ts:265`), 색인 `apps/worker/src/workspace-outputs.ts`, 판정 쪽 목록 `achievement-judge.ts:311`. `declare_deliverable`(L8)이 대신할 수 있으나 호환을 위해 `out/` 안내는 남긴다(설계 5절 A3) |
+| E1 | 엔진 기본 동작 그대로 씀 | E(어댑터가 끔) | 현재 계약 | G3과 같다. 끌 것의 목록은 서명 하나다([9절](#9-어댑터-적합성-항목) 1번) |
+| E2 | 관리자 지시·저장소 `CLAUDE.md` | E | 현재 계약 | 형식·정책을 이 경로에 두지 않는다. worker가 저장소 루트의 `AGENTS.md`(없으면 `CLAUDE.md`)를 git 객체에서 읽어 세션 지시의 정본으로 쓴다(`apps/worker/src/workspace.ts:851`, `apps/worker/src/instruction-files.ts`) |
+| E3 | 메모리 읽기 안내 | E | 현재 계약 | Claude 어댑터 안의 안내다: `MEMORY_READ_GUIDANCE`(`packages/adapters/runtimes/claude/src/memory-read.ts:11`), 적용 `runtime.ts:128`. 플랫폼 계약이 아니다 |
+| E4 | 첨부 저장소 지시 파일 무시 | E | 현재 계약(문서 근거) | 사용자 문서가 "붙인 저장소의 CLAUDE.md는 지시문으로 읽지 않는다"고 적는다(`apps/docs/content/docs/integrations/github.mdx:124`, 영어·일본어판 같음). 설계가 근거로 든 문장(`github-mcp-server.ts:120`)은 main의 서버·계약 설명에 없고, worker는 주 저장소 루트의 지시 파일만 읽는다(E2). 첨부 저장소는 remote ref로만 fetch한다(`github-mcp.ts:463`) |
+| E5 | 멈춘 턴 뒤 허용된 호출 다시 하기 | E | 현재 계약 + 후속 | [6절](#6-행동-부류-정책) 끝줄과 [9절](#9-어댑터-적합성-항목) 3번: L2가 뺀 세 부류는 park되지 않고, 리뷰·workflow는 park될 수 있다. park된 push 의도는 `carryPushIntents`(`packages/db/src/parked-group.ts:354`)가 잇고, 허용된 엔진 호출을 다시 하라는 재개 안내는 `continuationMessage`(같은 파일 `:396`, 허용된 호출을 다시 하라는 문장 `:408`)가 만든다. 이 재개 문구를 구조화하는 일은 main에 없고 카탈로그 단위도 정해지지 않았다. F2의 후속 PR은 push 이어 턴 제거라 이 문구를 다루지 않는다 |
+| E6 | 도구 시작 기록 실패 뒤 재시도 | E | 현재 계약 | 어댑터 내부 문구다: `ADMISSION_GUARD_REFUSED`(`runtime.ts:42`, 사용 `:219`). 플랫폼 도구 봉투의 `retryable`과는 별개다 |
+| E7 | 세션 제목 | F(이미 엔진 밖) | 현재 계약 | `createSessionTitler`(`packages/platform/src/sessions/session-titler.ts:32`)와 `deriveSessionTitle`(`session-title.ts:13`). 이 레이어의 도구가 아니다 |
+| E8 | 첨부 fetch 완료 재조회 | L | 현재 계약 | `attach_repository`의 `wait_seconds`·`final`(`github-mcp.ts:172`, 설명 `:463`). [5.9](#59-그-밖의-기존-도구)의 L7 |
+| E9 | 거부·만료·취소 뒤 대응 | E | 현재 계약 + 후속 | 엔진 도구의 거부 사유는 `ApprovalAnswer.message`에서 오지만 그대로 전하지는 않는다. 사람의 거부는 `personDenial`이 사유를 trim하고 `The user denied this request. Their reason: …`으로 감싼다(`packages/adapters/runtimes/claude/src/contract.ts:607`, `:639-643`). 취소는 명시 메시지를 그대로 쓴다(`:616`). [9절](#9-어댑터-적합성-항목) 5번의 "그대로 쓴다"와 구현이 다르므로 그 항목이나 코드 중 하나를 고치는 일이 후속이다. 플랫폼 도구의 거절은 봉투의 `by`([4절](#4-결과-봉투와-공통-규칙)) |
+
+### 14.2 합계
+
+- 설계 분류의 합계는 레이어 10(G1, G2, G8, G9, G10, G11, G12, A2, A3, E8), 흐름 7(G5, G6, G7, G13, S4, A1, E7), 엔진 12(G3, G4, S2, S3, S5, E1~E6, E9)다.
+- 상태: 현재 계약만 있는 행 17, 현재 계약에 후속이 딸린 행 9(G4, G6, G8, G12, G13, S2, A3, E5, E9), 후속만 있는 행 1(A2), 현재 계약(부분)·설계와 다르게 대체된 행 2(S5, G7), 근거 없음 0이다. 설계가 E4의 근거로 든 코드 문장은 main에 없고 사용자 문서(`github.mdx:124`)가 같은 규칙을 적는다.
+- 이 문서가 추적하던 도구 가운데 표에서 빠져 있던 것은 `declare_deliverable`(A2·A3, L8)뿐이다. `ask_person`(L9)과 `send_message`(L11)는 2단계로 이미 적혀 있다([5절](#5-도구), [LATER](#later)).
+
+### 14.3 도구 밖 행동의 경계
+
+다음 행동은 플랫폼 도구가 아니므로 [6절](#6-행동-부류-정책)에 부류가 없다. 이 절이 책임의 자리만 고정한다.
+
+| 행동 | 책임 | 자리 |
+|---|---|---|
+| 성과 의미 판정(A1) | 플랫폼이 엔진 밖의 판정 모델을 부른다. 모델은 아무것도 넘기지 않는다 | `achievement-judge.ts`, `achievement-rules.md` |
+| 관리자 지시·저장소 지시(E2) | 사람의 글이다. 레이어는 형식·정책을 더하지 않는다 | `instruction-files.ts` |
+| 메모리 안내(E3) | Claude 어댑터의 안내다 | `memory-read.ts` |
+| 세션 제목(E7) | 플랫폼이 엔진 밖에서 부른다 | `session-titler.ts` |
 
 ## 대안
 

@@ -205,6 +205,7 @@ export function podFor(
   secretName: string,
   bootstrapFingerprint: string,
   proxyAddress: string,
+  pvcCapacityBytes?: number,
 ): Record<string, unknown> {
   const { cpus, memoryBytes, pidsLimit } = intent.resources;
   if (!Number.isSafeInteger(memoryBytes) || memoryBytes < 1) {
@@ -246,7 +247,12 @@ export function podFor(
       containers: [
         {
           ...(config.command ? { args: config.command } : {}),
-          env: workerEnvironmentFor(config, intent, secretName),
+          env: workerEnvironmentFor(
+            config,
+            intent,
+            secretName,
+            pvcCapacityBytes,
+          ),
           image: intent.image,
           imagePullPolicy: "IfNotPresent",
           name: CONTAINER_NAME,
@@ -398,6 +404,7 @@ export function workerEnvironmentFor(
   config: KubernetesBackendConfig,
   intent: Pick<LaunchIntent, "executionId" | "generation" | "sessionId">,
   secretName: string,
+  pvcCapacityBytes?: number,
 ): EnvVar[] {
   const plain: Array<[string, string]> = [
     [ENV.executionGeneration, String(intent.generation)],
@@ -406,6 +413,13 @@ export function workerEnvironmentFor(
     [ENV.egressCredentialUrl, egressCredentialUrlOf(config)],
     [ENV.home, config.homeDir],
     [ENV.workspaceDir, checkoutDirOf(config)],
+    [ENV.workspaceMountDir, config.workspaceDir],
+    [ENV.workspaceQuotaBytes, String(config.workspaceSizeBytes)],
+    ...(pvcCapacityBytes === undefined
+      ? []
+      : ([[ENV.workspacePvcCapacityBytes, String(pvcCapacityBytes)]] as Array<
+          [string, string]
+        >)),
     [ENV.httpProxy, config.egressProxyUrl],
     [ENV.httpProxyLower, config.egressProxyUrl],
     [ENV.httpsProxy, config.egressProxyUrl],

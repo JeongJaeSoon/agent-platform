@@ -235,7 +235,23 @@ describe("worker Pod", () => {
     const ours = workerEnvironmentFor(config, intent, "secret-name").map((e) =>
       "value" in e ? `${e.name}=${e.value}` : `${e.name}=${NONCE}`,
     );
-    expect(ours).toEqual(docker);
+    const observations = [
+      ENV.workspaceMountDir,
+      ENV.workspaceQuotaBytes,
+      ENV.workspaceQuotaMode,
+    ];
+    const common = (values: string[]) =>
+      values.filter(
+        (value) => !observations.some((name) => value.startsWith(`${name}=`)),
+      );
+    expect(common(ours)).toEqual(common(docker));
+    expect(ours).toContain(`${ENV.workspaceMountDir}=${config.workspaceDir}`);
+    expect(ours).toContain(
+      `${ENV.workspaceQuotaBytes}=${config.workspaceSizeBytes}`,
+    );
+    expect(
+      ours.some((value) => value.startsWith(`${ENV.workspaceQuotaMode}=`)),
+    ).toBe(false);
   });
 
   test("refuses a CPU limit that rounds to none and limits that are not positive", () => {

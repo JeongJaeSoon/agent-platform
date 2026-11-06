@@ -46,7 +46,7 @@ gh workflow run CI --ref <branch> -f allow_parallel=true        # 진행 중 수
 
 외부 action은 태그가 아니라 **커밋 SHA로 고정하고 버전은 뒤 주석에 적는다.** 태그는 움직인다 — 메인테이너(혹은 탈취된 계정)가 `v7`을 임의 커밋으로 다시 가리키면 다음 run이 그 코드를 받는다. 릴리스 태그를 악성 커밋으로 옮기는 것이 tj-actions/changed-files 공급망 공격이 수천 개 저장소에 닿은 경로였다. 고정만 하고 방치하면 그 자체가 문제이므로 `.github/dependabot.yml`이 주 1회 올린다(composite action은 `directory`를 따로 잡아야 스캔된다). 올라온 PR에서는 새 버전이 요구하는 러너 버전도 같이 본다.
 
-bun 버전 고정과 `~/.bun/install/cache` 캐시는 `.github/actions/bun-setup`에 모여 있다. 캐시 키는 **그 job이 실제로 설치하는 lockfile만** 해시한다 — `check (static)`이 쓰는 `bun-root-*`는 root lockfile만(unit 부분·문서 검사·integration 도메인 job은 읽기만 한다), `agent-sdk-compat`가 쓰는 `bun-agent-sdk-compat-*`는 root와 harness lockfile을 함께 해시한다. 키가 두 lockfile을 약속하면서 root만 설치한 job이 저장하면, harness 전용 의존성은 exact hit인데도 매번 다시 받게 된다. scope마다 쓰기 job은 하나뿐이라 같은 키에 동시 저장하는 레이스도 없다.
+bun 버전 고정과 `~/.bun/install/cache` 캐시는 `.github/actions/bun-setup`에 모여 있다. 캐시 키는 **그 job이 실제로 설치하는 lockfile만** 해시한다 — `check (static)`이 쓰는 `bun-root-*`는 root lockfile만(unit 부분·문서 검사·integration 도메인 job은 읽기만 한다), `agent-sdk-compat`가 쓰는 `bun-agent-sdk-compat-*`는 root와 harness lockfile을 함께 해시한다. 키가 두 lockfile을 약속하면서 root만 설치한 job이 저장하면, harness 전용 의존성은 exact hit인데도 매번 다시 받게 된다. scope마다 쓰기 job은 하나뿐이라 같은 키에 동시 저장하는 레이스도 없다. 의존성을 설치하지 않는 job(`forbidden-terms`, `helm-chart`, `supply-chain`)은 `restore-cache: "false"`로 복원을 건너뛴다. 이 입력은 복원과 저장을 한 번에 하는 단계를 건너뛰므로 `save-cache: "true"`와 함께 쓰면 job이 실패한다. 스크립트가 `node:` 내장과 이 repo의 파일만 import한다는 것이 소스로 확인된 job에만 쓴다. 그 밖의 import는 Bun이 이 캐시로 내려받는다.
 
 서비스 이미지 이름은 upstream tag로 적었다. 실제로는 ghcr.io 미러에서 digest로 받는다([§ 서드파티 이미지 미러](#서드파티-이미지-미러)).
 
@@ -130,6 +130,8 @@ D2 gate는 정상 경로와 장애 뒤 복원(A–E), reconciler sweep(R1–R2),
 compose 스택도 같은 원칙이다. `infra/compose.core.yml`·`infra/compose.local.yml`의 `image:`와 앱 Dockerfile의 `ARG BUN_IMAGE` 기본값은 로컬 사용자용으로 Docker Hub 이름 그대로 두고, CI만 `tests/e2e/compose.ci-mirror.yml` overlay를 얹는다. overlay는 서드파티 서비스의 `image:`를 같은 digest의 미러 참조로 바꾸고, 빌드하는 서비스에 `BUN_IMAGE`·`BUILDKIT_SYNTAX` build-arg를 넘긴다(`images.yml`과 같은 방식). `e2e`는 `E2E_COMPOSE_OVERRIDE`로 `tests/e2e/run.sh`에 넘기고, `quickstart`는 `COMPOSE_FILE=compose.yaml:tests/e2e/compose.ci-mirror.yml`로 넘긴다. 그래서 `docs/quickstart.md`의 명령은 CI 전용 줄 없이 쓰인 그대로 돈다. D2 gate workflow는 여기에 gate 전용 서비스(`gate-chaos`·`gate-messages`)의 `oven/bun`을 미러로 바꾸는 `scripts/d2-gate/compose.ci-mirror.yml`을 하나 더 얹는다([§ D2 gate](#d2-gate-nightly)).
 
 `images.yml`의 앱 이미지 빌드도 같은 미러에서 받는다. `build`·`publish`·`publish-main`은 `BUN_IMAGE` build-arg로 Dockerfile 기본값과 **같은 digest**의 미러 참조를 넘긴다. base 바이트가 같으므로 빌드 결과도 같다. 다섯 `setup-buildx-action`은 `driver-opts: image=`로 미러의 BuildKit(`moby/buildkit:v0.32.2`, 고정 당시 `buildx-stable-1`)을 띄운다. Dockerfile 첫 줄 `# syntax=docker/dockerfile:1.7`의 frontend도 BuildKit이 Docker Hub에서 받으므로 `BUILDKIT_SYNTAX` build-arg로 같은 tag의 미러 digest를 넘긴다. Dockerfile의 `ARG BUN_IMAGE` 기본값은 로컬 빌드용으로 Docker Hub 이름 그대로 둔다. `tests/ci-images.test.ts`가 세 참조를 미러 목록과, `BUN_IMAGE`의 digest와 frontend tag를 모든 앱 Dockerfile과 대조한다.
+
+`build` job의 buildkit layer cache(`type=gha`)는 읽기는 모든 이벤트에서, 쓰기는 `pull_request`를 뺀 이벤트(main·태그 push, schedule, dispatch)에서만 한다. PR의 코드가 쓰는 캐시는 그 PR만 읽어서 저장소 캐시 한도만 채우고, 쓰는 쪽을 main 쪽으로 좁히면 PR이 main이 읽는 캐시를 오염시킬 길이 없다. 대가로 PR의 이어 push는 앞선 push의 layer가 아니라 main의 캐시에서 읽는다.
 
 **실측에서 미러는 준비 시간을 줄이지 못했다.** ghcr의 LocalStack pull은 약 24초로 Docker Hub(약 25초)와 같았다. pull 시간은 받는 곳이 아니라 약 1 GB layer를 푸는 데 든다. `Initialize containers`의 나머지는 서비스 health 대기(LocalStack 약 14초)다. 이 미러가 주는 것은 rate limit 제거와 digest 재현성이다.
 
