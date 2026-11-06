@@ -1,5 +1,6 @@
 import { lstat, mkdir } from "node:fs/promises";
 import { WORKER_EXIT_LEASE_LOST } from "@werft-ai/contracts";
+import { DEFAULT_WORKSPACE_QUOTA_MB } from "@werft-ai/contracts/execution";
 
 import { createWorkerHost } from "./composition.ts";
 import { type WorkerEnvironment, workerConfigFromEnv } from "./config.ts";
@@ -43,7 +44,7 @@ export async function main(
         bytes:
           Number.isSafeInteger(requestedBytes) && requestedBytes > 0
             ? requestedBytes
-            : 4096 * 1024 * 1024,
+            : DEFAULT_WORKSPACE_QUOTA_MB * 1024 * 1024,
         inodes: 1_000_000,
       },
     },
