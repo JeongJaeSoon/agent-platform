@@ -1,6 +1,7 @@
 # The real model's settings and limits, for `scripts/local.sh up` over
 # compose.yaml and `tests/e2e/run.sh --real-model` over infra/compose.yml. The
-# document runs the real Messages API with the caller's ANTHROPIC_API_KEY, and
+# document runs the real Messages API with the caller's ANTHROPIC_API_KEY when
+# there is one (otherwise the key is entered on the console), and
 # lives here, not in the local layer: `local.sh` commands that name no mode
 # start migrate too, and must not add it to a --fake-model stack. The limits
 # bound what one session can spend: the worker hands the session's remaining
