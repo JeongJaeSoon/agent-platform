@@ -18,9 +18,10 @@ const sortedSet = (values: unknown): string[] =>
 /**
  * What a profile makes a session do (design 2.1a): its definition with the
  * spellings that run the same collapsed. The stored `fingerprint` is not
- * used; it leaves out the models. `repository` is dropped because nothing
- * reads it any more, and `deny` and `tool_catalog_id` are columns, not part of
- * the definition.
+ * used; it leaves out the models. `repository` is dropped on purpose: new
+ * rows carry no repository value, so a save that differs from an older row
+ * only in it must not start a rollout. `deny` and `tool_catalog_id`
+ * are columns, not part of the definition.
  */
 export function profileExecutionForm(definition: Definition): string {
   const { repository: _repository, ...rest } = definition;
