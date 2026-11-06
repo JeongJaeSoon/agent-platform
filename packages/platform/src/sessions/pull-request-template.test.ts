@@ -12,6 +12,7 @@ import { renderPullRequestBody } from "./pull-request-body.ts";
 import {
   fillTemplate,
   prepareTemplate,
+  prepareTemplateText,
   readRepositoryTemplate,
   type SectionBlocks,
   sectionOfHeading,
@@ -165,6 +166,65 @@ describe("finding the repository's template", () => {
     expect(templateRecord(two)).toMatchObject({ skipped: "multiple" });
   });
 
+  test("a configured name picks one of several in the directory, without regard to case, and only a name the tree lists", async () => {
+    const files = {
+      "docs/PULL_REQUEST_TEMPLATE/Bug.md": "x",
+      "docs/PULL_REQUEST_TEMPLATE/feature.md": "y",
+    };
+    const named = (templateName: string | null) =>
+      readRepositoryTemplate(fakeRepositoryReads(files).reads, {
+        templateName,
+      });
+    expect(await named("feature.md")).toMatchObject({
+      kind: "found",
+      path: "docs/PULL_REQUEST_TEMPLATE/feature.md",
+    });
+    expect(await named("BUG.MD")).toMatchObject({
+      kind: "found",
+      path: "docs/PULL_REQUEST_TEMPLATE/Bug.md",
+    });
+    // None named, a name that is not there, and one that reaches for a path
+    // all leave the choice to nobody.
+    for (const name of [null, "other.md", "../feature.md", "docs/feature.md"]) {
+      expect(await named(name)).toMatchObject({
+        kind: "skipped",
+        reason: "multiple",
+      });
+    }
+  });
+
+  test("a name that matches two files by case alone chooses neither", async () => {
+    expect(
+      await readRepositoryTemplate(
+        fakeRepositoryReads({
+          "docs/PULL_REQUEST_TEMPLATE/Bug.md": "x",
+          "docs/PULL_REQUEST_TEMPLATE/bug.md": "y",
+        }).reads,
+        { templateName: "BUG.MD" },
+      ),
+    ).toMatchObject({ kind: "skipped", reason: "multiple" });
+  });
+
+  test("a configured name changes nothing for one file, and a single template file still wins", async () => {
+    expect(
+      await readRepositoryTemplate(
+        fakeRepositoryReads({ ".github/PULL_REQUEST_TEMPLATE/bug.md": "x" })
+          .reads,
+        { templateName: "other.md" },
+      ),
+    ).toMatchObject({ kind: "found" });
+    expect(
+      await readRepositoryTemplate(
+        fakeRepositoryReads({
+          "pull_request_template.md": "single",
+          "PULL_REQUEST_TEMPLATE/a.md": "a",
+          "PULL_REQUEST_TEMPLATE/b.md": "b",
+        }).reads,
+        { templateName: "b.md" },
+      ),
+    ).toMatchObject({ kind: "found", path: "pull_request_template.md" });
+  });
+
   test("a single template file wins over a directory; a directory with no .md is nothing", async () => {
     expect(
       await read({
@@ -299,6 +359,54 @@ describe("finding the repository's template", () => {
 function inertRows(template: { rows: readonly { text: string }[] }): string {
   return template.rows.map((row) => row.text).join("\n");
 }
+
+describe("a template typed into the settings", () => {
+  test("is held to the repository's limits and then made inert the same way", () => {
+    const text = "## Summary\n<!-- ours -->\n";
+    const accepted = prepareTemplateText(text);
+    const direct = prepareTemplate(text);
+    expect(direct).not.toBeNull();
+    expect(accepted.ok).toBe(true);
+    expect(accepted.ok ? accepted.template : null).toEqual(direct);
+  });
+
+  test("over 16 KiB in UTF-8 bytes, not in characters", () => {
+    expect(prepareTemplateText("a".repeat(TEMPLATE_MAX_BYTES)).ok).toBe(true);
+    expect(prepareTemplateText("a".repeat(TEMPLATE_MAX_BYTES + 1))).toEqual({
+      ok: false,
+      reason: "too_large",
+    });
+    // 6,000 characters, 18,000 bytes.
+    expect(prepareTemplateText("한".repeat(6_000))).toEqual({
+      ok: false,
+      reason: "too_large",
+    });
+  });
+
+  test("a NUL cannot be stored, so the text is refused", () => {
+    expect(prepareTemplateText("## Summary\u0000")).toEqual({
+      ok: false,
+      reason: "not_utf8",
+    });
+  });
+
+  test("a lone surrogate is not UTF-8; a pair is", () => {
+    expect(prepareTemplateText("a\ud800b")).toEqual({
+      ok: false,
+      reason: "not_utf8",
+    });
+    expect(prepareTemplateText("😀 done").ok).toBe(true);
+  });
+
+  test("a comment left open, or markup the platform cannot write around, is unsupported", () => {
+    for (const text of ["# S\n<!-- open", "# S\n<details>\n"]) {
+      expect(prepareTemplateText(text)).toEqual({
+        ok: false,
+        reason: "unsupported",
+      });
+    }
+  });
+});
 
 describe("a template from the repository is made inert", () => {
   test("a mention, a closing keyword and a reference outside comments are broken", () => {
@@ -576,7 +684,42 @@ describe("markup the scan and a renderer could read differently", () => {
     );
     expect(out).not.toMatch(/(?<!&)#\d|GH-\d|\/(?:issues|pull)\/\d/);
     expect(out).toContain("https://example.com/docs");
-    expect(out).toContain("&#35;");
+    expect(out).toContain("35;");
+  });
+
+  test("a backslash-escaped slash makes the template unsupported, as it can hide a path", () => {
+    expect(
+      prepareTemplateText("[a](https://github.com/acme/app/issues\\/13)\n"),
+    ).toEqual({ ok: false, reason: "unsupported" });
+  });
+
+  test("a backslash-escaped slash inside a fence is kept, not an error", () => {
+    for (const text of ["```\nexample\\/path\n```\n", "~~~\na\\/b\n~~~\n"]) {
+      expect(prepareTemplateText(text).ok).toBe(true);
+    }
+  });
+
+  test("a fence inside a list item or a quote makes the template unsupported", () => {
+    for (const text of [
+      "- ~~~\n  example\n  ~~~\n## Summary\n",
+      "1. ```\n   example\n   ```\n",
+      "> ```\n> example\n> ```\n",
+      "- item\n  ```\n[x](https://github.com/acme/app/issues\\/13)\n```\n## Summary\n",
+      "   ~~~\nx\n   ~~~\n",
+    ]) {
+      expect(prepareTemplateText(text)).toEqual({
+        ok: false,
+        reason: "unsupported",
+      });
+    }
+  });
+
+  test("a character reference cannot spell the path of a live reference", () => {
+    const out = inert(
+      "[a](https://github.com/acme/app/iss&#117;es/13) [b](https://github.com/acme/app/issues&sol;13) &#x23;12",
+    );
+    expect(out).not.toMatch(/&#117;|&sol;|&#x23;/);
+    expect(out).not.toMatch(/&(?!​)#?\w+;/);
   });
 
   test("an address is broken in its path whatever its scheme or host is written as, and so is a commit", () => {
