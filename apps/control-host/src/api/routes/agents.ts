@@ -23,7 +23,10 @@ import { mapped, requireParams, requireQuery } from "./errors.ts";
 
 export function registerAgentRoutes(
   router: ApiRouter,
-  service: Omit<AgentService, "resolveRelease" | "promptIdentity">,
+  service: Omit<
+    AgentService,
+    "resolveRelease" | "promptIdentity" | "rolloutRelease"
+  >,
 ) {
   apiRoute(router, "listAgents", async (context) => {
     const query = requireQuery(context, listAgentsQuerySchema);
