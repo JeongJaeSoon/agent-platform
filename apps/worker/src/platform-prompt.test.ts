@@ -185,6 +185,56 @@ describe("platformPromptText (revision 2, action flows on)", () => {
   });
 });
 
+describe("platformPromptText (revision 3, action flows on)", () => {
+  const three: PlatformPrompt = { ...withRepository, prompt_revision: 3 };
+  const two: PlatformPrompt = { ...withRepository, prompt_revision: 2 };
+
+  test("is accepted by the claim schema, and revisions 1 and 2 still are", () => {
+    for (const prompt_revision of [1, 2, 3] as const) {
+      expect(
+        runtimeConfigSchema.safeParse({
+          ...base,
+          platform_prompt: { ...withRepository, prompt_revision },
+        }).success,
+      ).toBe(true);
+    }
+  });
+
+  test("schedules the pull request in the same turn, approval or not, and the platform opens it after the push", () => {
+    const text = platformPromptText(three);
+    expect(text).toContain("call mcp__github__open_pull_request");
+    expect(text).toContain("push_intent_id");
+    expect(text).toContain("in this same turn");
+    expect(text).toContain("even when a person has to approve the push");
+    expect(text).toContain(
+      "the platform opens the pull request once the push is done",
+    );
+    expect(text).not.toContain("Once the push is done, open the pull request");
+  });
+
+  test("pushes one HEAD per turn, one repository at a time, from the workspace and never a worktree or clone", () => {
+    const text = platformPromptText(three);
+    expect(text).toContain(
+      "carries the HEAD the workspace has when the turn ends and the history before it",
+    );
+    expect(text).toContain("push one repository per turn");
+    expect(text).toContain("never from a git worktree or a clone");
+  });
+
+  test("keeps the rules that do not depend on the revision, and keeps the revision 2 push wording", () => {
+    const text = platformPromptText(three);
+    for (const rule of [
+      "waits_for turn_end",
+      "a person approves each push, whatever the permission mode",
+      "git push does not reach GitHub, and gh has no login",
+      "Push only to branches named agent/<session-id>",
+    ]) {
+      expect(text).toContain(rule);
+    }
+    expect(text).not.toBe(platformPromptText(two));
+  });
+});
+
 describe("runtimeProfile with a platform prompt", () => {
   const repository = {
     id: "werft-sandbox",
@@ -247,6 +297,25 @@ describe("runtimeProfile with a platform prompt", () => {
     );
   });
 
+  // A change in wording moves these, and a session of that revision then
+  // cannot resume its checkpoint (INCOMPATIBLE_CHECKPOINT): add a revision.
+  test("a revision 1, 2 and 3 claim each keep their digest, so a session resumes the checkpoint it made", () => {
+    const digest = (prompt: PlatformPrompt) =>
+      claimFingerprint(config)({
+        principal,
+        runtime_config: { ...base, platform_prompt: prompt },
+      }).profileSha256;
+    expect(digest(withRepository)).toBe(
+      "e2bdae38e8ad6d8e5202f3a83942be92650dd4617463d0510b2174b9c2c60e35",
+    );
+    expect(digest({ ...withRepository, prompt_revision: 2 })).toBe(
+      "3b5a2f6b048c9240abb2dddfe1354935fd27a7fd499e7fc8ea7c3ec8063567ce",
+    );
+    expect(digest({ ...withRepository, prompt_revision: 3 })).toBe(
+      "cee5226abc6fe9f9a5c34bd9a98ab4a06ba3e30c8f5c1b416f73aa8c7c6830e7",
+    );
+  });
+
   test("a revision 0 claim keeps the digest it had before the field, so its checkpoints resume", () => {
     const before = claimFingerprint(config)({
       principal,
@@ -280,7 +349,7 @@ describe("runtimeProfile with a platform prompt", () => {
 
   test("the claim schema refuses a prompt of an unknown revision or a name that is not owner/repo", () => {
     for (const prompt of [
-      { ...withRepository, prompt_revision: 3 },
+      { ...withRepository, prompt_revision: 4 },
       { ...withRepository, repository: "/workspace" },
       { ...withRepository, repository: "group/sub/repo" },
       { ...withRepository, github: { repositories: ["acme/web"] } },

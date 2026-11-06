@@ -95,6 +95,7 @@ export type PushIntentStatus = z.infer<typeof pushIntentStatusSchema>;
 export const PUSH_INTENT_REFUSAL_VALUES = [
   "turn_ended_without_checkpoint",
   "turn_finalized_without_pin",
+  "superseded_by_turn",
   "session_closed",
   "rejected_before",
   "request_open",

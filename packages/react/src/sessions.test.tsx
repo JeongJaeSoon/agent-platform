@@ -520,6 +520,19 @@ describe("useSessionEvents", () => {
       [question, [h.keys.detail, h.keys.pending]],
       [result, [h.keys.detail, h.keys.usage, h.keys.github]],
       [error, [h.keys.detail]],
+      [
+        [
+          "system",
+          {
+            type: "system",
+            subtype: "workspace_limit_mode",
+            bytes: "hard",
+            inodes: "unknown",
+            reason: "storage_declaration_and_capacity",
+          },
+        ],
+        [h.keys.detail],
+      ],
     ] as const;
     let seen = 0;
     for (const [event, keys] of expected) {

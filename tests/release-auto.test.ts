@@ -196,10 +196,9 @@ describe("the release jobs of a main run", () => {
         if (!(step as { uses?: string }).uses?.includes("upload-artifact")) {
           continue;
         }
-        const resolved = uploaded.replace(
-          "${{ env.ARTIFACT_SUFFIX }}",
-          suffix(name),
-        );
+        const resolved = uploaded
+          .replace("${{ env.ARTIFACT_SUFFIX }}", suffix(name))
+          .replace("${{ github.job }}", name);
         expect(names.get(resolved)).toBeUndefined();
         names.set(resolved, name);
       }

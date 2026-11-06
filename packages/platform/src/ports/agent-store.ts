@@ -7,6 +7,7 @@ import type {
   CountAgentsResponse,
   ListAgentsQuery,
   ListAgentsResponse,
+  ModelSource,
   WorkspaceRole,
 } from "@werft-ai/contracts";
 import type { OutsideAgentAccess, Principal } from "../musterrolle/policy.ts";
@@ -39,15 +40,43 @@ type Inactive = { outcome: "actor_inactive" };
 type Outranked = { outcome: "outranked" };
 
 /** Roles holding the right outright; anyone else must administer the agent. */
-type ManagerRoles = { managerRoles: readonly WorkspaceRole[] };
+type ManagerRoles = {
+  managerRoles: readonly WorkspaceRole[];
+  /**
+   * Also required of the person, whatever team right they hold: a rollout
+   * acts for a profile's author and needs them to still be an owner or admin.
+   */
+  requireRoles?: readonly WorkspaceRole[];
+};
+
+/**
+ * An agent as the store reads it. `effective_behavior` needs the catalog, so
+ * the service adds it.
+ */
+export type AgentRecord = Omit<AgentDetail, "effective_behavior">;
 
 export type CreateAgentResult =
-  | { outcome: "created"; detail: AgentDetail }
+  | { outcome: "created"; detail: AgentRecord }
   | { outcome: "slug_taken" | "team_not_found" | "team_not_allowed" }
   | Inactive;
 
+/**
+ * What a behavioral save was judged to be, under the agent's lock.
+ * `pending`: the request differs from what the agent runs; it is stored as
+ * the draft and waits for its release. `unchanged`: it equals what the agent
+ * runs; any draft is cleared.
+ */
+export type SavedBehavior = {
+  status: "pending" | "unchanged";
+  versionId: string;
+  /** The `behavior_revision` this save took; its release must carry it. */
+  behaviorRevision: number;
+};
+
 export type UpdateAgentResult =
-  | { outcome: "updated"; detail: AgentDetail }
+  | { outcome: "updated"; detail: AgentRecord; saved: SavedBehavior | null }
+  // The agent changed since the values the request left out were read.
+  | { outcome: "stale" }
   | { outcome: "not_found" }
   | Inactive
   | Outranked;
@@ -58,6 +87,45 @@ export type InsertReleaseResult =
   | Inactive
   | Outranked;
 
+/** Why a release is made, kept on its receipts. */
+export type ReleaseReason =
+  | "card_saved"
+  | "profile_changed"
+  | "profile_rollout"
+  | "direct";
+
+/**
+ * Who asks for an activation. A `save` carries the revision of the save it
+ * finishes and clears that save's draft. A `direct` activation is a person's
+ * new intent: it takes a new `behavior_revision` and leaves the draft. The
+ * model source follows 2.4: it stays `profile` only if the release runs the
+ * default model of its profile. A rollout changes neither the revision nor
+ * the draft; under the agent's lock it is `superseded` unless the agent still
+ * follows, still has the `behaviorRevision` it was judged on, and
+ * `targetProfileId` is still the newest of its profile (design 2.3).
+ */
+export type ActivationIntent =
+  | {
+      kind: "save";
+      behaviorRevision: number;
+      draftVersionId: string;
+      modelSource: ModelSource;
+    }
+  | {
+      kind: "rollout";
+      behaviorRevision: number;
+      targetProfileId: string;
+    }
+  | {
+      kind: "direct";
+      releaseRunsProfileDefault: boolean;
+      /**
+       * The release's profile runs differently from its lineage's newest
+       * (design 2.4): the agent stops following, in the same write.
+       */
+      pinsProfile?: boolean;
+    };
+
 export type ActivateResult =
   | {
       outcome: "activated";
@@ -67,6 +135,8 @@ export type ActivateResult =
     }
   | { outcome: "unchanged"; revision: number; previousReleaseId: null }
   | { outcome: "conflict"; activeReleaseId: string | null; revision: number }
+  // The save was replaced by a newer intent before it could activate.
+  | { outcome: "superseded" }
   | { outcome: "not_found" }
   | Inactive
   | Outranked;
@@ -97,7 +167,7 @@ export interface AgentStore {
     workspaceId: string,
     reader: AgentReader,
   ): Promise<CountAgentsResponse["counts"]>;
-  get(workspaceId: string, agentId: string): Promise<AgentDetail | null>;
+  get(workspaceId: string, agentId: string): Promise<AgentRecord | null>;
   findVersion(
     workspaceId: string,
     agentId: string,
@@ -145,9 +215,34 @@ export interface AgentStore {
       /** `null` clears it. */
       description?: string | null;
       card?: { card: AgentCard; contentSha256: string };
+      /**
+       * Makes the save a change of behavior (needs `card`): it takes a
+       * `behavior_revision` and is judged against the active release.
+       */
+      behavior?: {
+        runtimeProfileId: string;
+        modelSource: ModelSource;
+        /**
+         * The agent as the request's omitted values were read from it:
+         * `stale` when it has moved since. Absent when nothing was left out.
+         */
+        basedOn?: { behaviorRevision: number; activationRevision: number };
+      };
       updatedBy: string;
     },
   ): Promise<UpdateAgentResult>;
+  /**
+   * Writes `failure` on the agent's draft, only while the agent's
+   * `behavior_revision` and draft are the save's own. False: a newer save
+   * took over and nothing was written.
+   */
+  recordDraftFailure(input: {
+    workspaceId: string;
+    agentId: string;
+    behaviorRevision: number;
+    draftVersionId: string;
+    failure: string;
+  }): Promise<boolean>;
   /**
    * Inserts the release, a `release_created` event and a receipt in one
    * transaction, or returns the row already stored under that id.
@@ -163,6 +258,7 @@ export interface AgentStore {
        * release when the agent has a settings row, judged under the lock.
        */
       refuseGitHubWhenSettings?: boolean;
+      reason?: ReleaseReason;
     },
   ): Promise<InsertReleaseResult>;
   /** Whether the agent has an `agent_github_settings` row. */
@@ -179,6 +275,8 @@ export interface AgentStore {
       releaseId: string;
       expectedRevision: number;
       approvedBy: string;
+      intent?: ActivationIntent;
+      reason?: ReleaseReason;
     },
   ): Promise<ActivateResult>;
 }

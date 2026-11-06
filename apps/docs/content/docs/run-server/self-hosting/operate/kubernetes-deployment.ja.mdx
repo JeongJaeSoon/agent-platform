@@ -46,7 +46,7 @@ chartはGitサーバーも作りません。設定ドキュメントのリポジ
 | `DATABASE_URL` | api、scheduler、reconciler、slack、migrate、checkpoint GC |
 | `EGRESS_AUTHORIZER_TOKEN` | api、egress-proxy(同じ値) |
 | `AWS_ACCESS_KEY_ID`、`AWS_SECRET_ACCESS_KEY` | api、checkpoint GC。`secrets.objectStoreKeys: true`のときだけ。`false`ならAWSの既定credential chain(IRSA)で署名します |
-| `secrets.catalogEnv`の名前(既定`ANTHROPIC_API_KEY`) | apiだけ。設定ドキュメントが`value_env`で指すproviderとリポジトリの認証情報。slackは受け取りません |
+| `secrets.catalogEnv`の名前(既定`ANTHROPIC_API_KEY`) | apiだけ。設定ドキュメントが`value_env`で指すproviderとリポジトリの認証情報を環境変数で渡す代替手段です。モデルのkeyの基本の経路は、インストール後にコンソールの**設定 > ワークスペース設定 > モデル接続 > 接続を追加**で入れる方法で、その場合は`secrets.catalogEnv: []`で空にして、Secretにこのキーを置きません。既定のままだと、Secretにそのキーがないときpodが起動しません。slackは受け取りません |
 | `PLATFORM_SECRET_KEY` | api、slack。必須。64文字のhex master key。コンソールで保存した認証情報を封印します。Secretになければ、Podは起動しません |
 
 ## インストール順序

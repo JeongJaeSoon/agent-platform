@@ -9,6 +9,7 @@ import {
   type TerminalTurnStatus,
   TURN_BUDGET_EXCEEDED_REASON,
   TURN_INPUT_WAIT_PARKED_REASON,
+  TURN_WORKSPACE_QUOTA_EXCEEDED_REASON,
   terminalTurnStatusSchema,
   type WorkerEvent,
 } from "@werft-ai/contracts";
@@ -2868,7 +2869,10 @@ export function createPostgresWorkerUnitOfWork(
                     : input.terminal.status === "failed" &&
                         ended.reason === TURN_BUDGET_EXCEEDED_REASON
                       ? "BUDGET_EXCEEDED"
-                      : "INTERNAL_ERROR",
+                      : input.terminal.status === "failed" &&
+                          ended.reason === TURN_WORKSPACE_QUOTA_EXCEEDED_REASON
+                        ? "WORKSPACE_QUOTA_EXCEEDED"
+                        : "INTERNAL_ERROR",
                   message: ended.reason ?? ended.status,
                 },
             updatedAt: now,
@@ -2934,8 +2938,9 @@ export function createPostgresWorkerUnitOfWork(
         // Intents the turn left deferred are pinned to the checkpoint this
         // finalize just advanced to, or cancelled when the turn left none.
         // They are made only while AGENT_ACTION_FLOWS is on, but settled
-        // whatever it is now.
-        if (terminal !== undefined) {
+        // whatever it is now. A parked turn keeps them: the answer starts a
+        // turn that takes them over (continueParkedTurn).
+        if (terminal !== undefined && parked.length === 0) {
           await settleTurnPushIntents(tx, {
             turnRowId: terminal.id,
             completedRevision:
