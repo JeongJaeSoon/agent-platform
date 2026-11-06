@@ -2256,7 +2256,7 @@ export interface paths {
         put?: never;
         /**
          * Create an agent and its first card version
-         * @description Nothing is released or activated. The creator administers the agent. `managing_team_id` is required (400 BAD_REQUEST with a `details.issues` entry at `managing_team_id` when absent): an owner or admin names any live team (404 when there is none by that id), anyone else only a team they are in (403 FORBIDDEN, `details.reason_code` `team_not_allowed`). A slug already used in the workspace answers 409 ALREADY_EXISTS. API keys are refused.
+         * @description Without `runtime_profile_id` nothing is released or activated. With it the save makes the first release on that profile and activates it, as `PATCH /v1/agents/{id}` does; `model_source` defaults to `profile`, which runs the profile's default model. The agent and its card are kept when the release is refused: `release.status` is then `failed` with the reason, and the agent's `draft` holds the request until a new save. The creator administers the agent. `managing_team_id` is required (400 BAD_REQUEST with a `details.issues` entry at `managing_team_id` when absent): an owner or admin names any live team (404 when there is none by that id), anyone else only a team they are in (403 FORBIDDEN, `details.reason_code` `team_not_allowed`). A slug already used in the workspace answers 409 ALREADY_EXISTS. API keys are refused.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -2309,8 +2309,8 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Rename or describe an agent, or add a card version
-         * @description `name` and `description` change the agent itself: no version is made, and `description: null` clears it. Neither reaches a run. A `card` becomes a new version; existing versions never change. A card equal to one the agent already has adds nothing.
+         * Rename or describe an agent, or save its card and profile
+         * @description `name` and `description` change the agent itself: no version is made, and `description: null` clears it. Neither reaches a run. A `card` becomes a new version; existing versions never change, and a card equal to one the agent already has reuses it. A card, `runtime_profile_id` or `model_source` changes what the agent does: unless it equals what the agent runs (`release.status: unchanged`, nothing released), the save makes a release of it and activates it (`applied`). `runtime_profile_id` alone saves the card the agent runs now on that profile; without a card or profile the agent's current ones are used. `model_source: profile` runs the profile's default model and writes it into the card; `fixed` keeps the card's model; absent, the current source is kept while the card's model is the one running. A refused release (`failed`, with its `reason`) keeps the card version and leaves the request as the agent's `draft`; a save a newer one replaced answers `superseded` and changes nothing.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -4751,6 +4751,9 @@ export interface components {
                     source: "user" | "correction";
                 }[];
             };
+            runtime_profile_id?: string;
+            /** @enum {string} */
+            model_source?: "fixed" | "profile";
         };
         UpdateAgentRequest: {
             name?: string;
@@ -4793,6 +4796,9 @@ export interface components {
                     source: "user" | "correction";
                 }[];
             };
+            runtime_profile_id?: string;
+            /** @enum {string} */
+            model_source?: "fixed" | "profile";
         };
         CreateAgentReleaseRequest: {
             /** Format: uuid */
@@ -6126,7 +6132,7 @@ export interface components {
                 target_branch: string;
                 /** @enum {string} */
                 status: "deferred" | "pinned" | "requested" | "failed" | "cancelled";
-                refusal_code: ("turn_ended_without_checkpoint" | "turn_finalized_without_pin" | "session_closed" | "rejected_before" | "request_open" | "github_disabled" | "over_workspace_ceiling" | "repository_not_allowed" | "checkpoint_unavailable" | "source_missing" | "attribution_mismatch" | "uncommitted_changes" | "pinned_source_invalid") | null;
+                refusal_code: ("turn_ended_without_checkpoint" | "turn_finalized_without_pin" | "superseded_by_turn" | "session_closed" | "rejected_before" | "request_open" | "github_disabled" | "over_workspace_ceiling" | "repository_not_allowed" | "checkpoint_unavailable" | "source_missing" | "attribution_mismatch" | "uncommitted_changes" | "pinned_source_invalid") | null;
                 push_request_id: string | null;
                 /** Format: date-time */
                 created_at: string;
@@ -8696,6 +8702,252 @@ export interface components {
                 activated_at: string | null;
                 deactivated_at: string | null;
             } | null;
+            behavior_revision: number;
+            /** @enum {string} */
+            model_source: "fixed" | "profile";
+            draft: {
+                /** Format: uuid */
+                version_id: string;
+                runtime_profile_id: string;
+                /** @enum {string} */
+                model_source: "fixed" | "profile";
+                failure: string | null;
+            } | null;
+            effective_behavior: {
+                applied: {
+                    runtime_profile_id: string;
+                    model: string;
+                    /** @enum {string} */
+                    model_source: "fixed" | "profile";
+                    title_model: string | null;
+                    agent_instructions: string | null;
+                } | null;
+                draft: {
+                    runtime_profile_id: string;
+                    model: string;
+                    /** @enum {string} */
+                    model_source: "fixed" | "profile";
+                    title_model: string | null;
+                    agent_instructions: string | null;
+                } | null;
+            };
+        };
+        SaveAgentResponse: {
+            agent: {
+                /** Format: uuid */
+                id: string;
+                /** Format: uuid */
+                workspace_id: string;
+                slug: string;
+                name: string;
+                description: string | null;
+                managing_team_id: string | null;
+                managing_team_name: string | null;
+                /** @enum {string} */
+                status: "active" | "paused" | "archived";
+                active_release_id: string | null;
+                activation_revision: number;
+                created_by: string | null;
+                /** Format: date-time */
+                created_at: string;
+                /** Format: date-time */
+                updated_at: string;
+            };
+            versions: {
+                /** Format: uuid */
+                id: string;
+                /** Format: uuid */
+                agent_id: string;
+                version_no: number;
+                card: {
+                    role?: string;
+                    instructions?: string;
+                    agent_instructions?: string;
+                    /**
+                     * @default ko
+                     * @enum {string}
+                     */
+                    language: "ko" | "en";
+                    model: string;
+                    capabilities: {
+                        tools: string[] | null;
+                        mcp: {
+                            server: string;
+                        }[] | null;
+                        /** @default [] */
+                        forbidden: string[];
+                        tool_policy?: {
+                            default?: {
+                                /** @enum {string} */
+                                builtin?: "allow" | "ask" | "deny";
+                                /** @enum {string} */
+                                mcp?: "allow" | "ask" | "deny";
+                            };
+                            per_tool?: {
+                                [key: string]: "allow" | "ask" | "deny";
+                            };
+                        };
+                        credential_refs?: string[];
+                    };
+                    /** @default [] */
+                    rules: {
+                        id: string;
+                        text: string;
+                        /** @enum {string} */
+                        source: "user" | "correction";
+                    }[];
+                };
+                content_sha256: string;
+                created_by: string | null;
+                /** Format: date-time */
+                created_at: string;
+            }[];
+            releases: {
+                id: string;
+                /** Format: uuid */
+                agent_id: string;
+                /** Format: uuid */
+                version_id: string;
+                card_sha256: string;
+                runtime_profile_id: string;
+                repository_id: string | null;
+                profile_digest: string;
+                runtime_config_snapshot: {
+                    [key: string]: unknown;
+                };
+                effective_tools: {
+                    tools: string[];
+                    mcp: string[];
+                };
+                policy_pins: {
+                    tools?: {
+                        default: {
+                            /** @enum {string} */
+                            builtin: "allow" | "ask" | "deny";
+                            /** @enum {string} */
+                            mcp: "allow" | "ask" | "deny";
+                        };
+                        per_tool: {
+                            [key: string]: "allow" | "ask" | "deny";
+                        };
+                    };
+                    github?: {
+                        repositories: string[];
+                        push_approval: boolean;
+                        features: {
+                            workflows: boolean;
+                            actions: boolean;
+                            checks: boolean;
+                            issues: boolean;
+                            review: boolean;
+                        };
+                        actions_allow: {
+                            workflow: string;
+                            ref?: string;
+                        }[];
+                    };
+                };
+                created_by: string | null;
+                /** Format: date-time */
+                created_at: string;
+                approved_by: string | null;
+                approved_at: string | null;
+                note: string | null;
+                label: string;
+                activated_at: string | null;
+                deactivated_at: string | null;
+            }[];
+            active_release: {
+                id: string;
+                /** Format: uuid */
+                agent_id: string;
+                /** Format: uuid */
+                version_id: string;
+                card_sha256: string;
+                runtime_profile_id: string;
+                repository_id: string | null;
+                profile_digest: string;
+                runtime_config_snapshot: {
+                    [key: string]: unknown;
+                };
+                effective_tools: {
+                    tools: string[];
+                    mcp: string[];
+                };
+                policy_pins: {
+                    tools?: {
+                        default: {
+                            /** @enum {string} */
+                            builtin: "allow" | "ask" | "deny";
+                            /** @enum {string} */
+                            mcp: "allow" | "ask" | "deny";
+                        };
+                        per_tool: {
+                            [key: string]: "allow" | "ask" | "deny";
+                        };
+                    };
+                    github?: {
+                        repositories: string[];
+                        push_approval: boolean;
+                        features: {
+                            workflows: boolean;
+                            actions: boolean;
+                            checks: boolean;
+                            issues: boolean;
+                            review: boolean;
+                        };
+                        actions_allow: {
+                            workflow: string;
+                            ref?: string;
+                        }[];
+                    };
+                };
+                created_by: string | null;
+                /** Format: date-time */
+                created_at: string;
+                approved_by: string | null;
+                approved_at: string | null;
+                note: string | null;
+                label: string;
+                activated_at: string | null;
+                deactivated_at: string | null;
+            } | null;
+            behavior_revision: number;
+            /** @enum {string} */
+            model_source: "fixed" | "profile";
+            draft: {
+                /** Format: uuid */
+                version_id: string;
+                runtime_profile_id: string;
+                /** @enum {string} */
+                model_source: "fixed" | "profile";
+                failure: string | null;
+            } | null;
+            effective_behavior: {
+                applied: {
+                    runtime_profile_id: string;
+                    model: string;
+                    /** @enum {string} */
+                    model_source: "fixed" | "profile";
+                    title_model: string | null;
+                    agent_instructions: string | null;
+                } | null;
+                draft: {
+                    runtime_profile_id: string;
+                    model: string;
+                    /** @enum {string} */
+                    model_source: "fixed" | "profile";
+                    title_model: string | null;
+                    agent_instructions: string | null;
+                } | null;
+            };
+            release: {
+                /** @enum {string} */
+                status: "applied" | "failed" | "unchanged" | "superseded";
+                reason: string | null;
+                release_id: string | null;
+                version_id: string | null;
+            };
         };
         CreateAgentReleaseResponse: {
             release: {
@@ -24773,7 +25025,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AgentDetail"];
+                    "application/json": components["schemas"]["SaveAgentResponse"];
                 };
             };
             /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
@@ -25089,7 +25341,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AgentDetail"];
+                    "application/json": components["schemas"]["SaveAgentResponse"];
                 };
             };
             /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
@@ -25163,6 +25415,21 @@ export interface operations {
                         error?: {
                             /** @enum {string} */
                             code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision. */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REVISION_CONFLICT";
                         };
                     };
                 };

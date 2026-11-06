@@ -1922,7 +1922,7 @@ describe("에이전트 상세", () => {
     await user.click(screen.getByRole("button", { name: "저장" }));
     expect(
       await screen.findByText(
-        /저장했습니다 — 버전 2\. 아직 활성화되지 않았습니다/,
+        /저장했습니다 — 버전 2\. 새 세션에는 적용하지 못했습니다/,
       ),
     ).toBeDefined();
     expect(screen.queryByText(/다른 곳에서 카드를 저장해/)).toBeNull();
@@ -2818,6 +2818,234 @@ describe("편집 중 다른 곳의 저장", () => {
     );
   });
 
+  describe("프로필을 고른 저장", () => {
+    const bothProfiles = (server: ReturnType<typeof agentServer>) => {
+      const listed = server.routes["GET /v1/profiles"] as () => Response;
+      return async () => {
+        const body = (await listed().json()) as { items: ProfileSummary[] };
+        const local = body.items.find(
+          (item) => item.id === PROFILE,
+        ) as ProfileSummary;
+        return json(200, {
+          items: [
+            local,
+            {
+              ...local,
+              id: "claude-coding-both",
+              model: "claude-haiku-5",
+              models: ["claude-haiku-5", CARD.model],
+            },
+          ],
+        });
+      };
+    };
+
+    test("이름과 함께 프로필만 바꿔도 프로필이 요청에 실린다", async () => {
+      const server = agentServer();
+      const { api } = renderAt(CARD_TAB, {
+        ...meOk,
+        ...server.routes,
+        "GET /v1/profiles": bothProfiles(server),
+      });
+      const user = await setupUser();
+      await openCardEditor(user);
+      const card = screen.getByRole("tabpanel", { name: "상세 설정" });
+      await user.selectOptions(
+        await within(card).findByLabelText("프로필"),
+        "claude-coding-both",
+      );
+      const name = within(card).getByLabelText("이름");
+      await user.clear(name);
+      await user.type(name, "새 이름");
+      await user.click(screen.getByRole("button", { name: "저장" }));
+      await waitFor(() =>
+        expect(api.calls.some((c) => c.method === "PATCH")).toBe(true),
+      );
+      const body = api.calls.find((c) => c.method === "PATCH")?.body as {
+        name?: string;
+        runtime_profile_id?: string;
+      };
+      expect(body.name).toBe("새 이름");
+      expect(body.runtime_profile_id).toBe("claude-coding-both");
+    });
+
+    test("적용하지 못한 저장을 고치면 그 저장의 프로필로 보낸다", async () => {
+      const server = agentServer();
+      const waiting = () => {
+        const body = server.detail();
+        return {
+          ...body,
+          draft: {
+            version_id: body.versions[0]?.id as string,
+            runtime_profile_id: "claude-coding-both",
+            model_source: "profile",
+            failure: "release_refused",
+          },
+        };
+      };
+      const { api } = renderAt(CARD_TAB, {
+        ...meOk,
+        ...server.routes,
+        "GET /v1/profiles": bothProfiles(server),
+        [`GET /v1/agents/${AGENT_ID}`]: () => json(200, waiting()),
+      });
+      const user = await setupUser();
+      await openCardEditor(user);
+      const instructions = await screen.findByLabelText("에이전트 지시문");
+      await user.clear(instructions);
+      await user.type(instructions, "다시 고쳤다.");
+      await user.click(screen.getByRole("button", { name: "저장" }));
+      await waitFor(() =>
+        expect(api.calls.some((c) => c.method === "PATCH")).toBe(true),
+      );
+      const body = api.calls.find((c) => c.method === "PATCH")?.body as {
+        runtime_profile_id?: string;
+        model_source?: string;
+      };
+      expect(body.runtime_profile_id).toBe("claude-coding-both");
+      expect(body.model_source).toBe("profile");
+    });
+
+    // The profile's default model moved on from the one that runs, so saving
+    // the running card again as followed would swap its model.
+    const discardSource = async (defaultModel: string) => {
+      const server = agentServer();
+      await seedRelease(server);
+      await server.routes[`POST /v1/agents/${AGENT_ID}/activate`]?.(
+        new Request("https://console.test/", {
+          method: "POST",
+          body: JSON.stringify({
+            release_id: server.detail().releases[0]?.id,
+            expected_revision: -1,
+          }),
+        }),
+      );
+      const listed = server.routes["GET /v1/profiles"] as () => Response;
+      const withDraft = () => {
+        const body = server.detail();
+        return {
+          ...body,
+          model_source: "profile",
+          draft: {
+            version_id: body.versions[0]?.id as string,
+            runtime_profile_id: PROFILE,
+            model_source: "profile",
+            failure: "release_refused",
+          },
+        };
+      };
+      const { api } = renderAt(CARD_TAB, {
+        ...meOk,
+        ...server.routes,
+        "GET /v1/profiles": async () => {
+          const body = (await listed().json()) as { items: ProfileSummary[] };
+          return json(200, {
+            items: body.items.map((item) =>
+              item.id === PROFILE ? { ...item, model: defaultModel } : item,
+            ),
+          });
+        },
+        [`GET /v1/agents/${AGENT_ID}`]: () => json(200, withDraft()),
+      });
+      const user = await setupUser();
+      const discard = await screen.findByRole("button", { name: "버리기" });
+      await waitFor(() => expect(discard.hasAttribute("disabled")).toBe(false));
+      await user.click(discard);
+      await waitFor(() =>
+        expect(api.calls.some((c) => c.method === "PATCH")).toBe(true),
+      );
+      return (
+        api.calls.find((c) => c.method === "PATCH")?.body as {
+          model_source?: string;
+        }
+      ).model_source;
+    };
+
+    test("버리기는 프로필 기본 모델이 그대로면 따르는 상태를 지키고", async () => {
+      expect(await discardSource(CARD.model)).toBe("profile");
+    });
+
+    test("서버가 모델을 바꿔 적은 카드로 적용되면 안내는 그 릴리스의 버전을 가리킨다", async () => {
+      const server = agentServer();
+      const first = server.versions[0] as (typeof server.versions)[number];
+      renderAt(CARD_TAB, {
+        ...meOk,
+        ...server.routes,
+        "GET /v1/profiles": bothProfiles(server),
+        [`PATCH /v1/agents/${AGENT_ID}`]: async () => {
+          server.versions.push({
+            ...first,
+            id: crypto.randomUUID(),
+            version_no: 2,
+            card: { ...first.card, model: "claude-haiku-5" },
+          });
+          await seedRelease(server);
+          const body = server.detail();
+          return json(200, {
+            ...body,
+            release: {
+              status: "applied",
+              reason: null,
+              release_id: body.releases[0]?.id,
+              version_id: body.versions.at(-1)?.id,
+            },
+          });
+        },
+      });
+      const user = await setupUser();
+      await openCardEditor(user);
+      // Only the profile changes, so the card sent is the first version's.
+      const card = screen.getByRole("tabpanel", { name: "상세 설정" });
+      await user.selectOptions(
+        await within(card).findByLabelText("프로필"),
+        "claude-coding-both",
+      );
+      await user.click(screen.getByRole("button", { name: "저장" }));
+      expect(
+        await screen.findByText(
+          /저장하고 새 세션에 적용했습니다\. 카드는 버전 2입니다/,
+        ),
+      ).toBeDefined();
+    });
+
+    test("프로필 목록을 읽기 전에는 버리기를 누를 수 없다", async () => {
+      const server = agentServer();
+      await seedRelease(server);
+      await server.routes[`POST /v1/agents/${AGENT_ID}/activate`]?.(
+        new Request("https://console.test/", {
+          method: "POST",
+          body: JSON.stringify({
+            release_id: server.detail().releases[0]?.id,
+            expected_revision: -1,
+          }),
+        }),
+      );
+      const body = server.detail();
+      renderAt(CARD_TAB, {
+        ...meOk,
+        ...server.routes,
+        "GET /v1/profiles": () => new Promise<Response>(() => {}),
+        [`GET /v1/agents/${AGENT_ID}`]: () =>
+          json(200, {
+            ...body,
+            model_source: "profile",
+            draft: {
+              version_id: body.versions[0]?.id as string,
+              runtime_profile_id: PROFILE,
+              model_source: "profile",
+              failure: "release_refused",
+            },
+          }),
+      });
+      const discard = await screen.findByRole("button", { name: "버리기" });
+      expect(discard.hasAttribute("disabled")).toBe(true);
+    });
+
+    test("프로필 기본 모델이 옮겨 갔으면 돌던 모델을 고른 것으로 남긴다", async () => {
+      expect(await discardSource("claude-haiku-5")).toBe("fixed");
+    });
+  });
+
   test("모델을 바꾼 뒤 재조회로 공유 프로필이 빠지면 카드 편집과 새 release가 같은 대체 프로필로 간다", async () => {
     const server = agentServer();
     const listed = server.routes["GET /v1/profiles"] as () => Response;
@@ -2956,7 +3184,15 @@ describe("편집 중 다른 곳의 저장", () => {
       ...server.routes,
       [`GET /v1/agents/${AGENT_ID}`]: () => json(200, legacy(server.detail())),
       [`PATCH /v1/agents/${AGENT_ID}`]: () =>
-        json(200, legacy(server.detail())),
+        json(200, {
+          ...legacy(server.detail()),
+          release: {
+            status: "unchanged",
+            reason: null,
+            release_id: null,
+            version_id: null,
+          },
+        }),
     });
     const user = await setupUser();
     await openCardEditor(user);
@@ -3172,7 +3408,16 @@ describe("편집 중 다른 곳의 저장", () => {
       ...meOk,
       ...server.routes,
       [`GET /v1/agents/${OTHER}`]: () => json(200, otherDetail),
-      [`PATCH /v1/agents/${OTHER}`]: () => json(200, otherDetail),
+      [`PATCH /v1/agents/${OTHER}`]: () =>
+        json(200, {
+          ...otherDetail,
+          release: {
+            status: "unchanged",
+            reason: null,
+            release_id: null,
+            version_id: null,
+          },
+        }),
     });
     // Visit the other agent first so it is cached when we come back to it.
     await screen.findByRole("heading", { name: "환불 담당" });

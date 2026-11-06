@@ -54,6 +54,7 @@ import {
   executions,
   idempotencyKeys,
   permissionGrants,
+  pushIntents,
   queueMessages,
   receipts,
   sessions,
@@ -212,6 +213,27 @@ export async function stopExecution(
     await tx
       .delete(permissionGrants)
       .where(inArray(permissionGrants.turnId, cancelledIds));
+    // The push intents the park left deferred moved to that turn with it
+    // (carryPushIntents); a turn that never ran made none of its own, so
+    // whatever is deferred on it goes back to the parked turn.
+    const carrying = await tx
+      .select({
+        turnId: turnContinuations.turnId,
+        parkedTurnId: turnContinuations.parkedTurnId,
+      })
+      .from(turnContinuations)
+      .where(inArray(turnContinuations.turnId, cancelledIds));
+    for (const { turnId, parkedTurnId } of carrying) {
+      await tx
+        .update(pushIntents)
+        .set({ turnId: parkedTurnId, updatedAt: sql`now()` })
+        .where(
+          and(
+            eq(pushIntents.turnId, turnId),
+            eq(pushIntents.status, "deferred"),
+          ),
+        );
+    }
     await tx
       .delete(turnContinuations)
       .where(inArray(turnContinuations.turnId, cancelledIds));

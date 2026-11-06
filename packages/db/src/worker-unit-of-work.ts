@@ -2938,8 +2938,9 @@ export function createPostgresWorkerUnitOfWork(
         // Intents the turn left deferred are pinned to the checkpoint this
         // finalize just advanced to, or cancelled when the turn left none.
         // They are made only while AGENT_ACTION_FLOWS is on, but settled
-        // whatever it is now.
-        if (terminal !== undefined) {
+        // whatever it is now. A parked turn keeps them: the answer starts a
+        // turn that takes them over (continueParkedTurn).
+        if (terminal !== undefined && parked.length === 0) {
           await settleTurnPushIntents(tx, {
             turnRowId: terminal.id,
             completedRevision:

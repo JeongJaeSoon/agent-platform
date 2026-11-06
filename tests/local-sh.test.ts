@@ -494,14 +494,26 @@ echo "$VITE_API_TARGET $*" >> "${dir}/bun-calls"
     ]);
   });
 
-  test("up, reset and dev without a key start nothing and name --fake-model", async () => {
+  test("up without a key starts the real-model stack with no connection and names the console path", async () => {
     await writeFile(config, rendered("local"));
+    const result = await run(["up"], { STUB_API: "127.0.0.1:43123" });
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toContain(
+      "the stack starts with no model connection (not the fake). Add the key in the console: 설정 > 워크스페이스 설정 > 모델 연결 > 연결 추가",
+    );
+    const started = await calls("docker-calls");
+    expect(started).toContain(realUp);
+    expect(started.join("\n")).not.toContain("compose.fake-model.yml");
+  });
+
+  test("an unreadable .env key line still stops up before Docker", async () => {
+    await writeFile(config, rendered("local"));
+    const dotenv = join(dir, "bad.env");
+    await writeFile(dotenv, "ANTHROPIC_API_KEY='unterminated\n");
     for (const command of ["up", "reset", "dev"]) {
-      const result = await run([command]);
+      const result = await run([command], { AGENT_PLATFORM_DOTENV: dotenv });
       expect(result.exitCode).toBe(2);
-      expect(result.stderr).toContain(
-        "up needs ANTHROPIC_API_KEY exported or in .env (docs/real-claude.md), or --fake-model to run without one; nothing was started",
-      );
+      expect(result.stderr).toContain("invalid ANTHROPIC_API_KEY quoting");
     }
     expect(await calls("docker-calls")).toEqual([]);
   });

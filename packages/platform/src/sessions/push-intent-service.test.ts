@@ -70,6 +70,7 @@ function harness(
     githubEnabled?: boolean;
     pinned?: PushSourceResult;
     turnRunning?: boolean;
+    takenTarget?: string;
     pushAttached?: "allow" | "ask" | "deny";
     request?: Partial<PushRequest> | null;
   } = {},
@@ -128,6 +129,12 @@ function harness(
   const intents = {
     createDeferred: async (input: CreatePushIntentInput) => {
       deferred.push(input);
+      if (options.takenTarget !== undefined) {
+        return {
+          outcome: "turn_target_taken",
+          targetBranch: options.takenTarget,
+        };
+      }
       return options.turnRunning === false
         ? { outcome: "turn_not_running" }
         : { outcome: "written", intent: { id: "intent-1" } };
@@ -207,6 +214,19 @@ describe("requestIntent", () => {
     });
     expect(deferred).toEqual([]);
     expect(refusals).toEqual([]);
+  });
+
+  test("a second target of the turn is reported with the first target, not recorded", async () => {
+    const { push } = harness({ takenTarget: `agent/${SESSION}` });
+    expect(
+      await push.requestIntent(actor, SESSION, {
+        ...ask,
+        body: { branch: "docs" },
+      }),
+    ).toEqual({
+      status: "turn_target_taken",
+      target_branch: `agent/${SESSION}`,
+    });
   });
 
   test("a turn that is no longer running is reported, not recorded", async () => {

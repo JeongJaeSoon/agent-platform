@@ -46,7 +46,7 @@ The chart does not create a Git server either. The repository in the settings do
 | `DATABASE_URL` | api, scheduler, reconciler, slack, migrate, checkpoint GC |
 | `EGRESS_AUTHORIZER_TOKEN` | api, egress-proxy (the same value) |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | api, checkpoint GC. Only when `secrets.objectStoreKeys: true`. When `false`, requests are signed with the default AWS credential chain (IRSA) |
-| the names in `secrets.catalogEnv` (default `ANTHROPIC_API_KEY`) | api only. The provider and repository credentials the settings document points to with `value_env`. slack does not receive them |
+| the names in `secrets.catalogEnv` (default `ANTHROPIC_API_KEY`) | api only. The alternative of handing the provider and repository credentials the settings document points to with `value_env` as environment variables. The default way to give the model key is the console after install, under **Settings > Workspace settings > Model connections > Add connection**; then empty the list with `secrets.catalogEnv: []` and keep this key out of the Secret. With the default list, a Secret without that key leaves the Pod unable to start. slack does not receive them |
 | `PLATFORM_SECRET_KEY` | api, slack. Required. A 64-character hex master key. It seals credentials saved from the console. If the Secret lacks it, the Pod does not start |
 
 ## Install order

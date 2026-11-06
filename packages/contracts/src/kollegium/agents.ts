@@ -10,6 +10,7 @@ import {
   agentReleaseIdSchema,
   agentVersionIdSchema,
   canonicalJson,
+  canonicalJsonOfJson,
   INT4_MAX,
   PAGE_LIMIT_MAX,
   pageSchema,
@@ -803,13 +804,106 @@ export const agentReleaseSchema = z
 
 export const agentIdParamsSchema = z.object({ id: agentIdSchema });
 
+/**
+ * Where an agent's run model comes from. `profile`: the profile's default
+ * model, followed when that changes. `fixed`: the model a person chose.
+ */
+export const MODEL_SOURCE_VALUES = ["fixed", "profile"] as const;
+export const modelSourceSchema = z.enum(MODEL_SOURCE_VALUES);
+export type ModelSource = z.infer<typeof modelSourceSchema>;
+
+/**
+ * What a card does when it runs: the card without the fields no run reads
+ * (`role`, `instructions`), with `model` set to the model it runs as. Two
+ * saves with the same key change nothing a session sees, whichever card
+ * version they were saved as.
+ */
+export function behaviorKey(
+  card: AgentCard,
+  model: string,
+  runtimeProfileId: string,
+): string {
+  const { role: _role, instructions: _instructions, ...behavior } = card;
+  return canonicalJsonOfJson({
+    card: { ...behavior, model },
+    runtime_profile_id: runtimeProfileId,
+  });
+}
+
+/**
+ * A saved card, profile and model source that is not the active release yet:
+ * waiting for its release (`failure` null) or refused (`failure` set).
+ */
+export const agentDraftSchema = z
+  .object({
+    version_id: agentVersionIdSchema,
+    runtime_profile_id: z.string().min(1).max(128),
+    model_source: modelSourceSchema,
+    failure: z.string().min(1).max(128).nullable(),
+  })
+  .strict();
+
+/** What a session started now runs with, or would once the draft applies. */
+export const behaviorValuesSchema = z
+  .object({
+    runtime_profile_id: z.string().min(1).max(128),
+    model: z.string().min(1).max(128),
+    model_source: modelSourceSchema,
+    /** The profile's, for sessions' titles only; null when it has none. */
+    title_model: z.string().min(1).max(128).nullable(),
+    /** The card's own instructions, appended to the run's prompt. */
+    agent_instructions: z.string().nullable(),
+  })
+  .strict();
+
+export const effectiveBehaviorSchema = z
+  .object({
+    /** Null before the first release. */
+    applied: behaviorValuesSchema.nullable(),
+    /** Null when nothing is waiting or refused. */
+    draft: behaviorValuesSchema.nullable(),
+  })
+  .strict();
+
 export const agentDetailSchema = z
   .object({
     agent: agentSchema,
     versions: z.array(agentVersionSchema),
     releases: z.array(agentReleaseSchema),
     active_release: agentReleaseSchema.nullable(),
+    /** Bumped by every intent to change what the agent does. */
+    behavior_revision: z.number().int().min(0).max(INT4_MAX),
+    /** Of the active release; the draft carries its own. */
+    model_source: modelSourceSchema,
+    draft: agentDraftSchema.nullable(),
+    effective_behavior: effectiveBehaviorSchema,
   })
+  .strict();
+
+export const RELEASE_STATUS_VALUES = [
+  "applied",
+  "failed",
+  "unchanged",
+  "superseded",
+] as const;
+export const releaseStatusSchema = z.enum(RELEASE_STATUS_VALUES);
+
+/**
+ * How a save ended for the release it asked for. `superseded` is not a
+ * failure: a newer save took over and this one changed nothing.
+ */
+export const saveReleaseSchema = z
+  .object({
+    status: releaseStatusSchema,
+    reason: z.string().min(1).max(128).nullable(),
+    release_id: agentReleaseIdSchema.nullable(),
+    /** The version this save wrote or resolved to; null when it sent no card. */
+    version_id: agentVersionIdSchema.nullable(),
+  })
+  .strict();
+
+export const saveAgentResponseSchema = agentDetailSchema
+  .extend({ release: saveReleaseSchema })
   .strict();
 /** How much of a version's instructions a list summary carries. */
 export const AGENT_SUMMARY_INSTRUCTIONS_MAX = 300;
@@ -945,17 +1039,34 @@ export const createAgentRequestSchema = z
         issue.input === undefined ? "managing_team_id is required" : undefined,
     }),
     card: agentCardRequestSchema,
+    /**
+     * The profile the first release runs on. With it the save makes and
+     * activates that release; without it the agent stays a draft.
+     */
+    runtime_profile_id: z.string().min(1).max(128).optional(),
+    /** Absent: `fixed` (the card's model is kept as sent). */
+    model_source: modelSourceSchema.optional(),
   })
   .strict();
 /**
  * A `card` adds a version unless it equals one the agent already has;
- * `name` and `description` change the row only.
+ * `name` and `description` change the row only. A card, a profile or a model
+ * source changes what the agent does: the save then makes a release of it and
+ * activates it, unless it equals what the agent already runs (`unchanged`).
+ * A profile or source alone re-saves the card the agent runs now.
  */
 export const updateAgentRequestSchema = z
   .object({
     name: z.string().min(1).max(120).optional(),
     description: agentDescriptionSchema.nullable().optional(),
     card: agentCardRequestSchema.optional(),
+    /** Absent: the profile the agent runs on, else the one its draft names. */
+    runtime_profile_id: z.string().min(1).max(128).optional(),
+    /**
+     * Absent: the current source while the card's model is the one running,
+     * else `fixed`. `profile` runs the profile's default model.
+     */
+    model_source: modelSourceSchema.optional(),
   })
   .strict()
   .refine(
@@ -1039,6 +1150,12 @@ export type UpdateAgentRequest = z.infer<typeof updateAgentRequestSchema>;
 export type DraftAgentRequest = z.infer<typeof draftAgentRequestSchema>;
 export type DraftAgentResponse = z.infer<typeof draftAgentResponseSchema>;
 export type AgentDetail = z.infer<typeof agentDetailSchema>;
+export type AgentDraft = z.infer<typeof agentDraftSchema>;
+export type BehaviorValues = z.infer<typeof behaviorValuesSchema>;
+export type EffectiveBehavior = z.infer<typeof effectiveBehaviorSchema>;
+export type ReleaseStatus = z.infer<typeof releaseStatusSchema>;
+export type SaveRelease = z.infer<typeof saveReleaseSchema>;
+export type SaveAgentResponse = z.infer<typeof saveAgentResponseSchema>;
 export type ListAgentsQuery = z.infer<typeof listAgentsQuerySchema>;
 export type ListAgentsResponse = z.infer<typeof listAgentsResponseSchema>;
 export type CountAgentsResponse = z.infer<typeof countAgentsResponseSchema>;

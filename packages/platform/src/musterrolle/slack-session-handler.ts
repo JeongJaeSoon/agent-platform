@@ -55,6 +55,12 @@ const CHANNEL_KIND_OF: Partial<Record<string, SurfaceChannelKind>> = {
   im: "dm",
 };
 
+/** The refusal's machine-readable reason, when its details carry one. */
+function reasonCodeOf(details: unknown): string | undefined {
+  const reason = (details as { reason_code?: unknown } | null)?.reason_code;
+  return typeof reason === "string" ? reason : undefined;
+}
+
 const RETRYABLE_SESSION_CODES = new Set([
   "RATE_LIMITED",
   "BACKEND_UNAVAILABLE",
@@ -352,6 +358,7 @@ export function createSlackSessionHandler(
       deps.logger.warn("Slack input refused by the session", {
         ...ids,
         code: error.code,
+        reason_code: reasonCodeOf(error.details),
       });
       if (
         error.code === "UNSUPPORTED_CAPABILITY" &&

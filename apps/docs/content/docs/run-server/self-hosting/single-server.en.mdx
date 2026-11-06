@@ -250,7 +250,7 @@ For a session to call the model, you need a model key and a profile that uses it
 1. Under **Settings > Workspace settings > Model connections**, choose **Add connection**. Keep the kind `anthropic` and the default address (`https://api.anthropic.com`), paste the Anthropic key and save. The key is stored sealed in the database, and the screen shows only its last four characters.
 2. Under **Profiles > Create installation profile**, pick the connection you just made, choose the model and the repository, and save. Pick this profile when you create an agent.
 
-If you start a session on this profile before entering a key, the request is refused with an error that says the profile's model connection has no usable key and names the screen path from step 1. To change the key later, use **Replace value** on the same screen. Entering the key on this screen was checked against a fake model server; a real Anthropic call was not checked.
+If you start a session on this profile before entering a key, the request is refused with an error that says the profile's model connection has no usable key and names the screen path from step 1. To change the key later, use **Replace value** on the same screen. Entering the key on this screen was checked both against a fake model server and with a real Anthropic call (one session turn).
 
 ### Alternative: put the model key in an environment variable
 
