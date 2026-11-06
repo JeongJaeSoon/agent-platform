@@ -54,9 +54,23 @@ const PUSH_THIS_TURN = [
   "If it answers with a push request instead, that request is for the checkpoint saved at the end of the previous turn, not this turn's commit: call it again in a later turn for this turn's commit.",
 ];
 
+// Revision 3 (AGENT_ACTION_FLOWS on): revision 2's push, with the pull request
+// scheduled in the turn that asks for the push, and the one commit a turn
+// pushes. Revisions 1 and 2 keep their words; they are part of the checkpoint
+// fingerprint of the sessions that run them.
+const PUSH_THIS_TURN_SCHEDULED_PR = [
+  ...PUSH_THIS_TURN,
+  "To open a pull request, call mcp__github__open_pull_request with that push_intent_id in this same turn, right after request_push answers deferred, even when a person has to approve the push: it answers scheduled, the platform opens the pull request once the push is done, and no later turn will, so do not end the turn with a promise to open it next turn.",
+  "A push carries one commit: the HEAD the workspace has when the turn ends, whichever repository the request names. Work on one repository per turn and push one repository per turn, with that repository's branch checked out in the workspace and never from a git worktree or a clone elsewhere, which a push does not capture; push a second repository in a later turn.",
+];
+
+const PUSH_APPROVAL =
+  "If push approval is on for this agent, a person approves each push, whatever the permission mode.";
+
+const PULL_REQUEST_AFTER_PUSH =
+  "Once the push is done, open the pull request with mcp__github__open_pull_request.";
+
 const GITHUB_REST = [
-  "If push approval is on for this agent, a person approves each push, whatever the permission mode.",
-  "Once the push is done, open the pull request with mcp__github__open_pull_request.",
   "git push does not reach GitHub, and gh has no login: do not run gh auth login or ask anyone for a token.",
   "Push only to branches named agent/<session-id> or agent/<session-id>-<name>.",
   "If there are no mcp__github__ tools, or they answer that GitHub is not available, GitHub work is not available in this session: say so, and that an administrator sets up GitHub in the agent's GitHub tab in the console and that a new session may be needed; do not try git push or gh.",
@@ -65,7 +79,13 @@ const GITHUB_REST = [
 function githubText({ prompt_revision }: PlatformPrompt): string {
   return [
     GITHUB_INTRO,
-    ...(prompt_revision === 2 ? PUSH_THIS_TURN : PUSH_NEXT_TURN),
+    ...(prompt_revision === 3
+      ? [...PUSH_THIS_TURN_SCHEDULED_PR, PUSH_APPROVAL]
+      : [
+          ...(prompt_revision === 2 ? PUSH_THIS_TURN : PUSH_NEXT_TURN),
+          PUSH_APPROVAL,
+          PULL_REQUEST_AFTER_PUSH,
+        ]),
     ...GITHUB_REST,
   ].join(" ");
 }
