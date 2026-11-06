@@ -479,9 +479,10 @@ readyz() { curl -sS --max-time 3 "$API_URL/readyz" 2>/dev/null || true; }
 # workspace quota probes.
 start_apps() {
   if ! ops_compose up -d --wait --wait-timeout "$WAIT_TIMEOUT_SEC" "$@" api scheduler reconciler; then
-    log "the installation did not become healthy; last scheduler and api log lines:"
-    ops_compose logs --no-color --tail 30 scheduler api >&2 || true
-    die "start failed; the scheduler's quota or network preflight is the usual cause (docs/operator/test-ops.md)"
+    log "the installation did not become healthy; last log lines of the services that fail first:"
+    ops_compose logs --no-color --tail 30 migrate egress-proxy scheduler api >&2 || true
+    # A first deploy that fails leaves no current.json, so `stop` has nothing to take down.
+    die "start failed (log lines above; for the scheduler, its quota or network preflight is the usual cause, docs/operator/test-ops.md). Containers that started stay up; take them down with: docker compose --project-name $PROJECT down (never -v; the volumes stay)"
   fi
   log "readyz: $(readyz)"
 }

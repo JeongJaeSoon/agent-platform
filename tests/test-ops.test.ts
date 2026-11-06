@@ -762,7 +762,7 @@ describe("rendered installation", () => {
           WORKER_IMAGE: `ghcr.io/x/worker${digest("b")}`,
           EGRESS_PROXY_IMAGE: `ghcr.io/x/egress-proxy${digest("c")}`,
           POSTGRES_PASSWORD: filler("p"),
-          EGRESS_AUTHORIZER_TOKEN: filler("t"),
+          EGRESS_AUTHORIZER_TOKEN: "t".repeat(32),
           ...(store === "s3" ? { S3_BUCKET: "ops-bucket" } : {}),
           AWS_ACCESS_KEY_ID: filler("i"),
           AWS_SECRET_ACCESS_KEY: filler("s"),
@@ -1225,12 +1225,59 @@ exit 0
           repositories: {
             sample: {
               url: "https://github.com/o/r",
+              branch: "main",
               auth: { kind: "github_app" },
             },
           },
         }),
       );
       await checkRender(model, { store: "localstack" });
+    },
+    COMPOSE_RENDER_TIMEOUT_MS,
+  );
+
+  test(
+    "refuses a settings document migrate would refuse, with migrate's own message",
+    async () => {
+      const model = render("localstack");
+      // The owner run of 2026-11-06: ids with no credential source.
+      await writeFile(
+        document,
+        JSON.stringify({
+          version: 1,
+          repositories: {
+            sample: {
+              url: "https://github.com/o/r",
+              branch: "main",
+              auth: { kind: "github_app", app_id: 1, installation_id: 1 },
+            },
+          },
+        }),
+      );
+      await expect(checkRender(model, { store: "localstack" })).rejects.toThrow(
+        "repositories.sample.auth: name app_id, installation_id and exactly one of value_env or secret_id",
+      );
+    },
+    COMPOSE_RENDER_TIMEOUT_MS,
+  );
+
+  test(
+    "refuses an egress authorizer token the egress proxy would not start with",
+    async () => {
+      const model = render("localstack");
+      for (const service of ["api", "egress-proxy"]) {
+        const environment = model.services?.[service]?.environment;
+        if (environment === undefined) throw new Error(`${service} has no env`);
+        environment.EGRESS_AUTHORIZER_TOKEN = "t".repeat(31);
+      }
+      const found = await checkRender(model, { store: "localstack" }).then(
+        () => "",
+        (error: Error) => error.message,
+      );
+      expect(found).toContain("api EGRESS_AUTHORIZER_TOKEN must be at least 32");
+      expect(found).toContain(
+        "egress-proxy EGRESS_AUTHORIZER_TOKEN must be at least 32",
+      );
     },
     COMPOSE_RENDER_TIMEOUT_MS,
   );
