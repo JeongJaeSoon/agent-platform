@@ -667,6 +667,26 @@ integration("profile rollouts on PostgreSQL (U3b reader)", () => {
       });
     });
 
+    test("an install filled by the earlier code has no marker: its agents are held until the fill is run once more, which records it and a repeat reports nothing", async () => {
+      const caller = await owner();
+      await lineage(caller);
+      const filledBefore = await follower(caller);
+      await db
+        .update(agents)
+        .set({ profileTracking: "pinned" })
+        .where(eq(agents.id, filledBefore.agent.id));
+      await follower(caller);
+
+      expect(await rollouts().sweep()).toMatchObject({ held: 1 });
+      const again = await rollouts().backfill({ dryRun: false });
+      if ("refused" in again) throw new Error("refused");
+      expect(again.pinned).toHaveLength(1);
+      expect(await db.select().from(profileFill)).toHaveLength(1);
+      expect(await rollouts().backfill({ dryRun: false })).toMatchObject({
+        pinned: [],
+      });
+    });
+
     test("with nobody behind, an empty outbox is nothing to hold back", async () => {
       const caller = await owner();
       await lineage(caller);

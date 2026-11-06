@@ -107,7 +107,7 @@ export function createProfileRolloutRunner(deps: {
       const held = swept.held ?? 0;
       if (held > 0 && !warnedHeld) {
         logger.warn(
-          "Profile rollout sweep is holding back: agents are behind their profile and the one-time fill has not run",
+          "Profile rollout sweep is holding back: agents are behind their profile and the one-time fill has not recorded its completion (run the profile fill once; a fill made by the earlier code needs one more run)",
           { agents: held },
         );
       }
