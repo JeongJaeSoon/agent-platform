@@ -1954,22 +1954,61 @@ integration("parked pending requests on PostgreSQL", () => {
     });
   });
 
-  test("settleStale and the resume racing, in either order, never cancel a carried push", async () => {
-    for (const staleFirst of [true, false]) {
+  test("a settleStale running alongside the resume never cancels a carried push", async () => {
+    // Both start at once on separate connections; which statement wins the
+    // session lock first is up to Postgres, and both outcomes must hold.
+    for (let round = 0; round < 3; round += 1) {
       const { owner, sessionId, worker } = await runningSession();
       const requestId = await register(worker);
       const parkedRowId = await deferPush(owner, sessionId, worker);
       await parkRows(worker, [requestId]);
       await executionGone(worker);
-      const stale = () => createPostgresPushIntents(db).settleStale();
-      const resume = () => answer(owner, sessionId, requestId);
-      await Promise.all(staleFirst ? [stale(), resume()] : [resume(), stale()]);
+      await Promise.all([
+        createPostgresPushIntents(db).settleStale(),
+        answer(owner, sessionId, requestId),
+      ]);
       const [carried] = await continuations(parkedRowId);
       expect(await intentOf(sessionId)).toMatchObject({
         status: "deferred",
         turnId: carried?.id,
       });
     }
+  });
+
+  test("a group whose requests all expired keeps its push until a person resumes it, then pins it", async () => {
+    const { owner, sessionId, worker } = await runningSession();
+    const requestId = await register(worker);
+    const parkedRowId = await deferPush(owner, sessionId, worker);
+    await parkRows(worker, [requestId]);
+    await executionGone(worker);
+    await db
+      .update(sessions)
+      .set({
+        admissionState: "paused",
+        status: "idle",
+        pauseReason: "awaiting_input",
+      })
+      .where(eq(sessions.id, sessionId));
+    await db
+      .update(pendingRequests)
+      .set({ expiresAt: sql`now() - interval '1 second'` })
+      .where(eq(pendingRequests.requestId, requestId));
+    await expireParkedGroups(db, { limit: 1_000, dryRun: false });
+    expect((await request(requestId)).settledOutcome).toBe("expired");
+
+    // The group is still there for a person to resume.
+    expect(await createPostgresPushIntents(db).settleStale()).toBe(0);
+    expect((await intentOf(sessionId)).status).toBe("deferred");
+
+    expect((await resumeBy(owner, sessionId)).outcome).toBe("accepted");
+    const [carried] = await continuations(parkedRowId);
+    expect(await intentOf(sessionId)).toMatchObject({
+      status: "deferred",
+      turnId: carried?.id,
+    });
+    const next = await claim(sessionId);
+    await completed(next.worker);
+    expect((await intentOf(sessionId)).status).toBe("pinned");
   });
 
   // Turn 1 drain-parked and left open, then turn 2 parked behind it by the
