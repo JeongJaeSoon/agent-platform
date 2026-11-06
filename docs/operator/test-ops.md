@@ -34,6 +34,7 @@ Kubernetes 설치는 `scripts/test-ops.sh`를 쓰지 않는다. 같은 일을 �
 ### LocalStack의 한계
 
 - **LocalStack은 S3를 메모리에만 둔다.** LocalStack 컨테이너나 Docker, 호스트가 재시작되면 checkpoint object가 모두 사라진다. DB는 volume에 있으므로 남는다.
+- `upgrade`는 LocalStack의 최종 렌더링된 서비스 정의(이미지 digest, 환경 변수, 포트, `restart` 정책 등)가 그대로면 컨테이너를 다시 만들지 않아 object가 남는다. LocalStack만 띄워 같은 compose 파일로 `up -d`를 다시 불렀을 때 컨테이너 id가 같았고 object 2개가 그대로였다. 정의가 달라지면 compose가 컨테이너를 다시 만들어 object가 사라진다. 같은 실험에서 `restart: unless-stopped`만 더해도 다시 만들어지고 object가 0개가 됐다. 정의에 닿는 것은 새 release의 `source_commit`에서 바뀐 compose 파일뿐 아니라 env 파일의 `AWS_REGION`·AWS 자격 증명·`TEST_OPS_LOCALSTACK_PORT`도 있다. 업그레이드 전에 `git diff <배포한 commit> <새 source_commit> -- infra/compose.core.yml infra/compose.test-ops.yml infra/compose.localstack.yml infra/compose.test-ops.localstack.yml scripts/test-ops.sh`와 env 파일의 변경을 확인한다. 달라졌으면 "계획 재시작"처럼 백업한 뒤 `reseed`로 복구한다.
 - 그러면 DB에는 미수거 checkpoint가 있는데 bucket에는 object version이 하나도 없는 상태가 된다. 이때 API가 기동을 거부한다(로그 `Checkpoint bucket claude-sessions holds no object version, …`). 로그의 `scripts/local.sh reset` 안내는 로컬 스택용이고, test-ops에서는 아래 "재시작"의 `reseed`나 `reset`으로 푼다.
 - 복구할 수 있는 것은 마지막 백업까지다. 백업 뒤에 생긴 checkpoint가 있으면 `reseed`가 거부하므로 `reset`밖에 없다. 초기화하면 세션·checkpoint·API key가 모두 지워진다.
 - 그래서 **장기 보관이 필요한 세션을 두지 않는다.** 사용자에게도 언제든 초기화될 수 있는 환경이라고 알린다.
@@ -164,7 +165,7 @@ sudo install -d -m 700 -o "$USER" /var/lib/werft/test-ops   # TEST_OPS_STATE_DIR
 
 콘솔에서 GitHub App을 새로 만들려면 env 파일에 `CONSOLE_ORIGIN=<브라우저가 콘솔을 여는 origin>`도 넣는다([api-server.md](api-server.md)의 env 표). 없으면 콘솔의 "GitHub에서 만들기" 버튼이 꺼진다. 예시 파일에는 이 줄이 없다. 단일 서버에서 SSH tunnel로 열면 `http://127.0.0.1:<터널 포트>`다. 바꾼 뒤에는 위와 같이 `upgrade`로 적용했고(api 컨테이너가 다시 만들어지고 `/readyz`가 ready), `start`가 새 값을 읽는지는 확인하지 못했다.
 
-`TEST_OPS_LOCALSTACK_PORT`는 `upgrade`로 바꾸지 못한다. compose가 LocalStack 컨테이너를 다시 만들어 object가 모두 사라지므로(위 "LocalStack의 한계") `preflight`가 실행 중인 포트와 다른 값을 거부한다. "계획 재시작"처럼 `scripts/test-ops.sh backup --stop`으로 백업하고, env 파일을 고치고, 그 백업으로 `reseed`를 부른다. `reseed`가 렌더를 검사한 뒤 LocalStack을 새 포트로 띄우고 object를 되살린다.
+`TEST_OPS_LOCALSTACK_PORT`는 `upgrade`로 바꾸지 못한다. 포트가 바뀌면 compose가 LocalStack 컨테이너를 다시 만들어 object가 모두 사라지므로(위 "LocalStack의 한계") `preflight`가 실행 중인 포트와 다른 값을 거부한다. "계획 재시작"처럼 `scripts/test-ops.sh backup --stop`으로 백업하고, env 파일을 고치고, 그 백업으로 `reseed`를 부른다. `reseed`가 렌더를 검사한 뒤 LocalStack을 새 포트로 띄우고 object를 되살린다.
 
 스크립트 자체의 설정은 셸 변수 넷이다. 기본값을 쓰면 아무것도 설정하지 않아도 된다.
 
