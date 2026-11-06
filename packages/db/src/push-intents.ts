@@ -102,7 +102,7 @@ export function createPostgresPushIntents(db: Database): PushIntentStore {
           )
           .limit(1);
         if (turn === undefined) return { outcome: "turn_not_running" };
-        const [first] = await tx
+        const taken = await tx
           .select()
           .from(pushIntents)
           .where(
@@ -111,11 +111,16 @@ export function createPostgresPushIntents(db: Database): PushIntentStore {
               eq(pushIntents.repositoryId, input.repositoryId),
             ),
           )
-          .orderBy(asc(pushIntents.createdAt), asc(pushIntents.id))
-          .limit(1);
-        if (first?.targetBranch === input.targetBranch) {
-          return { outcome: "existing", intent: publicPushIntent(first) };
+          .orderBy(asc(pushIntents.createdAt), asc(pushIntents.id));
+        // The exact target first: rows written before the one-target rule
+        // may hold several, and asking for any of them is still the same call.
+        const existing = taken.find(
+          (row) => row.targetBranch === input.targetBranch,
+        );
+        if (existing) {
+          return { outcome: "existing", intent: publicPushIntent(existing) };
         }
+        const [first] = taken;
         if (first) {
           return {
             outcome: "turn_target_taken",
