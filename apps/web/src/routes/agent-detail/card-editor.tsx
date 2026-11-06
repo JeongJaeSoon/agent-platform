@@ -126,8 +126,10 @@ export function CardEditor({
       description,
       draft,
       sendsCard,
-    }) =>
-      unwrap(
+    }) => {
+      const waiting = detail.draft;
+      const sentCard = draft ? cardFromDraft(draft, base?.card) : undefined;
+      return unwrap(
         client.PATCH("/v1/agents/{id}", {
           params: {
             path: { id: detail.agent.id },
@@ -140,17 +142,26 @@ export function CardEditor({
               ? { description: description.trim() }
               : {}),
             // Name and description alone change the row, not the version.
-            ...(sendsCard && draft
+            ...(sendsCard && sentCard
               ? {
-                  card: cardFromDraft(draft, base?.card),
+                  card: sentCard,
                   ...(releaseProfile
                     ? { runtime_profile_id: releaseProfile }
+                    : {}),
+                  // A fix to a waiting save keeps how it chose its model; a
+                  // changed model or profile is the server's to judge.
+                  ...(waiting &&
+                  base?.id === waiting.version_id &&
+                  sentCard.model === base.card.model &&
+                  releaseProfile === waiting.runtime_profile_id
+                    ? { model_source: waiting.model_source }
                     : {}),
                 }
               : {}),
           },
         }),
-      ) as Promise<SaveAgentResponse>,
+      ) as Promise<SaveAgentResponse>;
+    },
     onMutate: () => onOutcome(null),
     onSuccess: async (updated, submitted) => {
       // The server keeps one version per card content, so the card just saved

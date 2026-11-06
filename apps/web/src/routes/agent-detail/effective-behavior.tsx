@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ApiError, unwrap } from "@werft-ai/client";
 import type {
   AgentDetail,
@@ -18,7 +18,11 @@ import {
   Text,
 } from "@werft-ai/ui";
 import { useId, useState } from "react";
-import { agentListsFilter, queryKeysOf } from "../../api/queries.ts";
+import {
+  agentListsFilter,
+  profilesQuery,
+  queryKeysOf,
+} from "../../api/queries.ts";
 import { useRole } from "../../auth/guard.tsx";
 import {
   cardFromDraft,
@@ -75,6 +79,19 @@ export function EffectiveBehavior({
   const waiting = detail.draft;
   const none = t("agent.panel.none");
 
+  const profiles = useQuery(profilesQuery(client));
+  // Discarding saves what runs again. A followed profile whose default has
+  // moved on no longer gives the running model, so that save would change
+  // it: the running model is kept as a chosen one.
+  const runningModel = detail.active_release
+    ? shownVersion(detail)?.card.model
+    : undefined;
+  const followsRunning =
+    detail.model_source === "profile" &&
+    profiles.data?.items.find(
+      (p) => p.id === detail.active_release?.runtime_profile_id,
+    )?.model === runningModel;
+
   const resave = useMutation<SaveAgentResponse, ApiError, "retry" | "discard">({
     mutationFn: (mode) => {
       const source =
@@ -93,7 +110,9 @@ export function EffectiveBehavior({
             model_source:
               mode === "retry"
                 ? (waiting?.model_source ?? detail.model_source)
-                : detail.model_source,
+                : followsRunning
+                  ? "profile"
+                  : "fixed",
           },
         }),
       ) as Promise<SaveAgentResponse>;

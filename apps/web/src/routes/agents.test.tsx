@@ -2878,7 +2878,7 @@ describe("편집 중 다른 곳의 저장", () => {
           draft: {
             version_id: body.versions[0]?.id as string,
             runtime_profile_id: "claude-coding-both",
-            model_source: "fixed",
+            model_source: "profile",
             failure: "release_refused",
           },
         };
@@ -2900,8 +2900,73 @@ describe("편집 중 다른 곳의 저장", () => {
       );
       const body = api.calls.find((c) => c.method === "PATCH")?.body as {
         runtime_profile_id?: string;
+        model_source?: string;
       };
       expect(body.runtime_profile_id).toBe("claude-coding-both");
+      expect(body.model_source).toBe("profile");
+    });
+
+    // The profile's default model moved on from the one that runs, so saving
+    // the running card again as followed would swap its model.
+    const discardSource = async (defaultModel: string) => {
+      const server = agentServer();
+      await seedRelease(server);
+      await server.routes[`POST /v1/agents/${AGENT_ID}/activate`]?.(
+        new Request("https://console.test/", {
+          method: "POST",
+          body: JSON.stringify({
+            release_id: server.detail().releases[0]?.id,
+            expected_revision: -1,
+          }),
+        }),
+      );
+      const listed = server.routes["GET /v1/profiles"] as () => Response;
+      const withDraft = () => {
+        const body = server.detail();
+        return {
+          ...body,
+          model_source: "profile",
+          draft: {
+            version_id: body.versions[0]?.id as string,
+            runtime_profile_id: PROFILE,
+            model_source: "profile",
+            failure: "release_refused",
+          },
+        };
+      };
+      const { api } = renderAt(CARD_TAB, {
+        ...meOk,
+        ...server.routes,
+        "GET /v1/profiles": async () => {
+          const body = (await listed().json()) as { items: ProfileSummary[] };
+          return json(200, {
+            items: body.items.map((item) =>
+              item.id === PROFILE ? { ...item, model: defaultModel } : item,
+            ),
+          });
+        },
+        [`GET /v1/agents/${AGENT_ID}`]: () => json(200, withDraft()),
+      });
+      const user = await setupUser();
+      const discard = await screen.findByRole("button", { name: "버리기" });
+      await waitFor(() => expect(discard.hasAttribute("disabled")).toBe(false));
+      await user.click(discard);
+      await waitFor(() =>
+        expect(api.calls.some((c) => c.method === "PATCH")).toBe(true),
+      );
+      return (
+        api.calls.find((c) => c.method === "PATCH")?.body as {
+          model_source?: string;
+        }
+      ).model_source;
+    };
+
+    test("버리기는 프로필 기본 모델이 그대로면 따르는 상태를 지키고", async () => {
+      expect(await discardSource(CARD.model)).toBe("profile");
+    });
+
+    test("프로필 기본 모델이 옮겨 갔으면 돌던 모델을 고른 것으로 남긴다", async () => {
+      expect(await discardSource("claude-haiku-5")).toBe("fixed");
     });
   });
 
