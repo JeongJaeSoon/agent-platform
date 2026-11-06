@@ -25,6 +25,8 @@ import {
   renderDebianSources,
   snapshotAnswers,
   snapshotAnswersWithPrior,
+  snapshotHolds,
+  snapshotResponses,
   snapshotUrl,
 } from "../scripts/third-party-notices.ts";
 
@@ -634,6 +636,37 @@ describe("Debian corresponding source", () => {
     expect(asked).toEqual(["source-0", "source-1"]);
     expect(answers).toEqual(["held", "held"]);
     expect(held.size).toBe(2);
+  });
+
+  test("the response tally tells a bad body from a failure while reading it", async () => {
+    const realFetch = globalThis.fetch;
+    const reply = (json: () => Promise<unknown>) => {
+      globalThis.fetch = (async () => ({
+        status: 200,
+        ok: true,
+        json,
+      })) as unknown as typeof fetch;
+    };
+    try {
+      snapshotResponses.clear();
+      reply(async () => {
+        throw new SyntaxError("Unexpected token");
+      });
+      expect(await snapshotHolds("a", "1", 1000)).toBe("unreachable");
+      reply(async () => {
+        throw new TypeError("connection reset");
+      });
+      expect(await snapshotHolds("a", "1", 1000)).toBe("unreachable");
+      reply(async () => ({ result: [{ hash: "x" }] }));
+      expect(await snapshotHolds("a", "1", 1000)).toBe("held");
+      expect(Object.fromEntries(snapshotResponses)).toEqual({
+        "200": 3,
+        "not-json": 1,
+        error: 1,
+      });
+    } finally {
+      globalThis.fetch = realFetch;
+    }
   });
 
   test("parseHeld keeps only well-formed lines", () => {

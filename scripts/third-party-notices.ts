@@ -983,7 +983,7 @@ function tally(kind: string): void {
  * machine-readable srcfiles listing: 404 or an empty listing says no, anything
  * else that is not a listing is no answer.
  */
-async function snapshotHolds(
+export async function snapshotHolds(
   source: string,
   version: string,
   timeoutMs: number,
@@ -996,9 +996,12 @@ async function snapshotHolds(
     tally(String(response.status));
     if (response.status === 404) return "missing";
     if (response.ok) {
-      const body = (await response.json().catch(() => undefined)) as
-        | { result?: unknown }
-        | undefined;
+      // Only a body that is not JSON is "not-json"; a timeout or reset while
+      // reading it must still reach the outer catch.
+      const body = (await response.json().catch((error: unknown) => {
+        if (error instanceof SyntaxError) return undefined;
+        throw error;
+      })) as { result?: unknown } | undefined;
       if (Array.isArray(body?.result)) {
         return body.result.length > 0 ? "held" : "missing";
       }
