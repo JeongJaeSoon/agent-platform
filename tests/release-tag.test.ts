@@ -288,7 +288,8 @@ describe("release-tag.sh check", () => {
     ]);
     expect(outcome.code).toBe(1);
     expect(outcome.stderr).toContain("already exists");
-    expect(outcome.calls.some((call) => call.includes("-X POST"))).toBe(false);
+    // Nothing after the tag lookup ran: no Release list, no run lookups.
+    expect(outcome.calls).toHaveLength(2);
   });
 
   test("does not take a failed tag lookup for an absent tag", async () => {
