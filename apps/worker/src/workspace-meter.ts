@@ -78,12 +78,15 @@ export function scanWorkspace(
     return result.durationMs >= budgetMs;
   };
   const count = (entry: Stats): boolean => {
-    const key = `${entry.dev}:${entry.ino}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
+    const directory = entry.isDirectory();
+    if (!directory && entry.nlink > 1) {
+      const key = `${entry.dev}:${entry.ino}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+    }
     result.bytes += entry.blocks * 512;
     result.inodes++;
-    return entry.isDirectory();
+    return directory;
   };
   const openDirectory = (path: string) => {
     const fd = openSync(
