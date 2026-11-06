@@ -119,6 +119,7 @@ describe("the folded pull request tail", () => {
       [
         "---",
         PULL_REQUEST_TAIL_MARKER,
+        "<!-- agent-platform:push-request p-1 -->",
         `Opened in a Werft session · [session](<https://console.example.com/sessions/${SESSION}>) · commit \`cacbb01\``,
         "",
         "<details><summary>Details</summary>",
@@ -143,7 +144,7 @@ describe("the folded pull request tail", () => {
       render({ sessionUrl: null }),
     ]) {
       expect(tail).toContain(
-        `${PULL_REQUEST_TAIL_MARKER}\nOpened in a Werft session · commit \`cacbb01\`\n`,
+        `${PULL_REQUEST_TAIL_MARKER}\n<!-- agent-platform:push-request p-1 -->\nOpened in a Werft session · commit \`cacbb01\`\n`,
       );
       expect(tail).toContain(`- Session: \`${SESSION}\``);
       expect(tail).not.toContain("console.example.com");

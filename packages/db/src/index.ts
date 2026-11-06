@@ -1,5 +1,6 @@
 export * from "./achievement-judgments.ts";
 export * from "./achievement-rules.ts";
+export * from "./action-notices.ts";
 export * from "./agent-admins.ts";
 export * from "./agent-authority.ts";
 export * from "./agent-github.ts";
@@ -48,6 +49,7 @@ export * from "./pause-control.ts";
 export * from "./pending-control.ts";
 export * from "./pending-requests.ts";
 export * from "./postgres-unit-of-work.ts";
+export * from "./pull-request-drain.ts";
 export * from "./pull-request-settings.ts";
 export * from "./pull-requests.ts";
 export * from "./push-follow-ups.ts";

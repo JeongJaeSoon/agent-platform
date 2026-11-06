@@ -27,6 +27,13 @@ import {
   type GitHubGrant,
   GitHubUnavailableError,
 } from "../ports/github-gate.ts";
+import {
+  PULL_REQUEST_MAX_ATTEMPTS,
+  type PullRequestDrainOutcome,
+  type PullRequestJob,
+  type PullRequestStageError,
+  pullRequestBackoffMs,
+} from "../ports/pull-request-drain.ts";
 import type { PullRequestSettingsStore } from "../ports/pull-request-settings.ts";
 import {
   PULL_REQUEST_REFUSAL_ERRORS,
@@ -39,6 +46,7 @@ import type { SessionAttributionStore } from "../ports/session-attribution.ts";
 import { repositoryBinding, type SessionCatalog } from "./catalog.ts";
 import {
   pullRequestTail,
+  pushRequestMarkerOf,
   sessionUrlOf,
   withPullRequestTail,
 } from "./git-attribution.ts";
@@ -66,6 +74,12 @@ import {
   requireVerified,
 } from "./push-request-service.ts";
 import { requirePermitted, SessionServiceError } from "./session-service.ts";
+
+const isForgeFailure = (error: unknown): boolean =>
+  error instanceof ForgeCredentialError || error instanceof GitHubCallError;
+
+/** Pull requests read per branch lookup; a full page ends the stage `uncertain`. */
+const BRANCH_LOOKUP_LIMIT = 10;
 
 const EMPTY_RESULT: PullRequestReceiptResult = {
   push_request_id: null,
@@ -538,6 +552,231 @@ export function createPullRequestService(deps: {
         // An adopted pull request keeps the body it has; only its tail moves.
         body_source: created ? written.source : null,
         receipt_id: saved.receiptId,
+      };
+    },
+
+    /**
+     * The drain's way to open the pull request of a pushed request: no
+     * caller, no receipt here (the drain's settle writes it with the state
+     * change). It looks the branch up in every state before it creates, so
+     * a retry after a lost answer finds its own pull request, and compares
+     * the forge's head commit with the pushed one before anything is stored.
+     * The public `open` stays as it was.
+     */
+    async openForPushRequest(
+      job: PullRequestJob,
+      options: { deadline: number },
+    ): Promise<PullRequestDrainOutcome> {
+      const stop = (
+        stage: "failed" | "closed_unrecorded" | "uncertain",
+        error: PullRequestStageError,
+        details?: Record<string, unknown>,
+      ): PullRequestDrainOutcome => ({
+        kind: "stop",
+        stage,
+        error,
+        ...(details === undefined ? {} : { details }),
+      });
+      // A call that may or may not have taken effect is asked again; past
+      // the last attempt the platform does not guess.
+      const unclear = (
+        error: PullRequestStageError,
+      ): PullRequestDrainOutcome =>
+        job.attempt >= PULL_REQUEST_MAX_ATTEMPTS
+          ? stop("uncertain", error)
+          : {
+              kind: "retry",
+              error,
+              delayMs: pullRequestBackoffMs(job.attempt),
+            };
+      if (job.attempt > PULL_REQUEST_MAX_ATTEMPTS) {
+        return stop("uncertain", "lease_expired");
+      }
+      const entry = Object.hasOwn(catalog.repositories, job.repositoryId)
+        ? catalog.repositories[job.repositoryId]
+        : undefined;
+      if (
+        entry === undefined ||
+        job.repositoryBinding === null ||
+        repositoryBinding(job.repositoryId, entry) !== job.repositoryBinding
+      ) {
+        return stop("failed", "catalog_changed");
+      }
+      const head = job.targetBranch;
+      if (!isSessionPushBranch(job.sessionId, head)) {
+        return stop("failed", "target_refused");
+      }
+      let grant: GitHubGrant | null;
+      try {
+        grant = await gate.grant({
+          sessionId: job.sessionId,
+          purpose: "pull_request",
+          repositoryId: job.repositoryId,
+          actor: null,
+        });
+      } catch (error) {
+        if (error instanceof GitHubGateError) {
+          return stop("failed", "github_refused", {
+            reason_code: error.reasonCode,
+          });
+        }
+        if (error instanceof GitHubUnavailableError) {
+          return stop("failed", "no_forge");
+        }
+        if (error instanceof ForgeCredentialError)
+          return unclear("forge_failed");
+        throw error;
+      }
+      if (grant === null) return stop("failed", "no_forge");
+      const forge = grant.api;
+      const repository = `${grant.repo.owner}/${grant.repo.name}`.toLowerCase();
+
+      let listed: Awaited<ReturnType<typeof forge.findPullRequestsForBranch>>;
+      try {
+        listed = await forge.findPullRequestsForBranch(head, {
+          limit: BRANCH_LOOKUP_LIMIT,
+        });
+      } catch (error) {
+        if (!isForgeFailure(error)) throw error;
+        return unclear("lookup_failed");
+      }
+      // A full page may hide a marked pull request on the next one, and the
+      // platform does not guess.
+      if (listed.length >= BRANCH_LOOKUP_LIMIT) {
+        return stop("uncertain", "lookup_failed", {
+          limit: BRANCH_LOOKUP_LIMIT,
+        });
+      }
+      // The marker and the branch name can be written by anyone, so a
+      // candidate must also be in this repository, on this head and base.
+      const candidates = listed.filter(
+        (found) =>
+          found.head === head &&
+          found.base === entry.branch &&
+          found.headRepository === repository,
+      );
+      const open = candidates.filter((found) => found.state === "open");
+      const settings = await settingsFor(job.ownerId, job.sessionId);
+      const tail = await tailFor(
+        {
+          sessionId: job.sessionId,
+          id: job.id,
+          gitCommit: job.gitCommit,
+        },
+        settings.sessionLink,
+      );
+      if (open.length > 1) {
+        return stop("uncertain", "duplicate_pull_request", {
+          numbers: open.map((found) => found.number),
+        });
+      }
+      const [adopted] = open;
+      if (adopted !== undefined) {
+        if (adopted.headSha !== job.gitCommit) {
+          return stop("failed", "head_moved", {
+            number: adopted.number,
+            url: adopted.url,
+            expected_sha: job.gitCommit,
+            actual_sha: adopted.headSha,
+          });
+        }
+        // A later push request of the session reuses the branch's open
+        // pull request; its tail names this push's commit from now on.
+        try {
+          await forge.updatePullRequestBody(adopted.number, (current) =>
+            withPullRequestTail(current, tail),
+          );
+        } catch (error) {
+          logger.warn("Pull request tail not updated", {
+            session_id: job.sessionId,
+            push_request_id: job.id,
+            number: adopted.number,
+            error: error instanceof Error ? error.name : "error",
+          });
+        }
+        return {
+          kind: "opened",
+          pullRequest: {
+            number: adopted.number,
+            url: adopted.url,
+            head,
+            base: adopted.base,
+            headSha: adopted.headSha,
+            title: null,
+            created: false,
+          },
+        };
+      }
+      const marked = candidates.filter(
+        (found) =>
+          pushRequestMarkerOf(found.body) === job.id &&
+          found.headSha === job.gitCommit,
+      );
+      if (marked.length > 0) {
+        return stop("closed_unrecorded", "closed_unrecorded", {
+          numbers: marked.map((found) => found.number),
+          urls: marked.map((found) => found.url),
+          merged: marked.some((found) => found.mergedAt !== null),
+        });
+      }
+      // The body can take several forge reads (the repository template), so
+      // it is built first and the lease checked right before the create.
+      const title = cleanTitle(
+        job.intent?.title ?? `Agent session ${job.sessionId}`,
+        redact,
+      );
+      const written = await bodyFor(forge, job.intent ?? {}, {
+        repositoryId: job.repositoryId,
+        maxLength: forge.maxBodyLength,
+        tail,
+        settings,
+      });
+      // Too little lease left to create and still record it.
+      if (Date.now() >= options.deadline) {
+        return { kind: "retry", error: "lease_expired", delayMs: 0 };
+      }
+      let made: Awaited<ReturnType<typeof forge.createPullRequest>>;
+      try {
+        made = await forge.createPullRequest({
+          head,
+          base: entry.branch,
+          title,
+          body: written.body,
+        });
+      } catch (error) {
+        if (!isForgeFailure(error)) throw error;
+        // Unknown whether GitHub took it; the next claim looks first.
+        return unclear("forge_failed");
+      }
+      // A create the forge answered with an existing pull request (422) was
+      // found by head alone; it is held to the same repository, head and
+      // base as a listed candidate.
+      if (made.head !== head || made.base !== entry.branch) {
+        return stop("uncertain", "duplicate_pull_request", {
+          numbers: [made.number],
+          urls: [made.url],
+        });
+      }
+      if (made.headSha !== job.gitCommit) {
+        return stop("failed", "head_moved", {
+          number: made.number,
+          url: made.url,
+          expected_sha: job.gitCommit,
+          actual_sha: made.headSha,
+        });
+      }
+      return {
+        kind: "opened",
+        pullRequest: {
+          number: made.number,
+          url: made.url,
+          head,
+          base: made.base,
+          headSha: made.headSha,
+          title: made.created ? title : null,
+          created: made.created,
+          template: made.created ? written.template : null,
+        },
       };
     },
 

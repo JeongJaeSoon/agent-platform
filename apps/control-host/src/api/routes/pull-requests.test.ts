@@ -97,6 +97,10 @@ function app(
       fail("lookup");
       return null;
     },
+    findPullRequestsForBranch: async () => {
+      fail("lookup");
+      return [];
+    },
     createPullRequest: async (input) => ({
       number: 5,
       url: "https://github.com/acme/app/pull/5",

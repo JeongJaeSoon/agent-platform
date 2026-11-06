@@ -25,7 +25,8 @@ export type SlackOutboxKind =
   | "notice"
   | "failure_notice"
   | "input_notice"
-  | "welcome";
+  | "welcome"
+  | "action_notice";
 
 /**
  * `uncertain`: the send was under way when its lease ran out or its answer

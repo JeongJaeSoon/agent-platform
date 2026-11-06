@@ -185,25 +185,109 @@ async function findSessionRowByUrl(
   return row;
 }
 
-export function createPostgresPullRequests(db: Database): PullRequestStore {
-  async function findPullRequest(
-    tx: Database,
-    ownerId: string,
-    pushRequestId: string,
-  ): Promise<PullRequest | null> {
-    const [row] = await tx
-      .select()
-      .from(pullRequests)
-      .where(
-        and(
-          eq(pullRequests.pushRequestId, pushRequestId.toLowerCase()),
-          eq(pullRequests.ownerId, ownerId),
-        ),
-      )
-      .limit(1);
-    return row ? publicPullRequest(row) : null;
-  }
+export async function findPullRequest(
+  tx: Database,
+  ownerId: string,
+  pushRequestId: string,
+): Promise<PullRequest | null> {
+  const [row] = await tx
+    .select()
+    .from(pullRequests)
+    .where(
+      and(
+        eq(pullRequests.pushRequestId, pushRequestId.toLowerCase()),
+        eq(pullRequests.ownerId, ownerId),
+      ),
+    )
+    .limit(1);
+  return row ? publicPullRequest(row) : null;
+}
 
+type SavePullRequestInput = Parameters<PullRequestStore["savePullRequest"]>[0];
+
+/**
+ * The write behind `savePullRequest`, for a caller that holds the
+ * transaction (the pull request drain settles the stage in the same one).
+ */
+export async function savePullRequestIn(
+  tx: Database,
+  input: SavePullRequestInput,
+): Promise<{ pullRequest: PullRequest; created: boolean; receiptId: string }> {
+  await lockSession(tx, input.sessionId);
+  const same = await findSessionRowByUrl(tx, input.sessionId, input.url);
+  const recorded =
+    (await findPullRequest(tx, input.ownerId, input.pushRequestId)) ??
+    (same?.pushRequestId != null ? publicPullRequest(same) : null);
+  const shown = recorded ?? {
+    repository_id: input.repositoryId,
+    number: input.number,
+    url: input.url,
+    head: input.head,
+    base: input.base,
+  };
+  const created = recorded === null && same === undefined && input.created;
+  const receiptId = await insertReceipt(tx, {
+    ...input,
+    operation: "open_pull_request",
+    result: {
+      push_request_id: input.pushRequestId,
+      verdict: "allow",
+      refusal: null,
+      repository_id: shown.repository_id,
+      number: shown.number,
+      url: shown.url,
+      head: shown.head,
+      base: shown.base,
+      created,
+      ...(input.template == null ? {} : { template: input.template }),
+    } satisfies PullRequestReceiptResult,
+  });
+  if (recorded !== null) {
+    return { pullRequest: recorded, created: false, receiptId };
+  }
+  const values = {
+    sessionId: input.sessionId,
+    url: input.url,
+    pushRequestId: input.pushRequestId,
+    ownerId: input.ownerId,
+    repositoryId: input.repositoryId,
+    number: input.number,
+    head: input.head,
+    base: input.base,
+    receiptId,
+  };
+  // A row from before push requests is filled in, not duplicated.
+  const [row] =
+    same === undefined
+      ? await tx.insert(pullRequests).values(values).returning()
+      : await tx
+          .update(pullRequests)
+          .set({ ...values, createdAt: new Date() })
+          .where(
+            and(
+              eq(pullRequests.sessionId, input.sessionId),
+              eq(pullRequests.url, input.url),
+            ),
+          )
+          .returning();
+  if (!row) throw new Error("pull request insert returned no row");
+  await insertPullRequestOutcome(tx, {
+    ownerId: input.ownerId,
+    sessionId: input.sessionId,
+    url: input.url,
+    repositoryId: input.repositoryId,
+    number: input.number,
+    title: input.title,
+    head: input.head,
+    base: input.base,
+    adopted: !input.created,
+    receiptId,
+    createdAt: row.createdAt ?? new Date(),
+  });
+  return { pullRequest: publicPullRequest(row), created, receiptId };
+}
+
+export function createPostgresPullRequests(db: Database): PullRequestStore {
   return {
     async findSource(ownerId, sessionId, pushRequestId) {
       const [row] = await db
@@ -281,81 +365,7 @@ export function createPostgresPullRequests(db: Database): PullRequestStore {
     },
 
     savePullRequest(input) {
-      return db.transaction(async (tx) => {
-        await lockSession(tx, input.sessionId);
-        const same = await findSessionRowByUrl(tx, input.sessionId, input.url);
-        const recorded =
-          (await findPullRequest(tx, input.ownerId, input.pushRequestId)) ??
-          (same?.pushRequestId != null ? publicPullRequest(same) : null);
-        const shown = recorded ?? {
-          repository_id: input.repositoryId,
-          number: input.number,
-          url: input.url,
-          head: input.head,
-          base: input.base,
-        };
-        const created =
-          recorded === null && same === undefined && input.created;
-        const receiptId = await insertReceipt(tx, {
-          ...input,
-          operation: "open_pull_request",
-          result: {
-            push_request_id: input.pushRequestId,
-            verdict: "allow",
-            refusal: null,
-            repository_id: shown.repository_id,
-            number: shown.number,
-            url: shown.url,
-            head: shown.head,
-            base: shown.base,
-            created,
-            ...(input.template == null ? {} : { template: input.template }),
-          } satisfies PullRequestReceiptResult,
-        });
-        if (recorded !== null) {
-          return { pullRequest: recorded, created: false, receiptId };
-        }
-        const values = {
-          sessionId: input.sessionId,
-          url: input.url,
-          pushRequestId: input.pushRequestId,
-          ownerId: input.ownerId,
-          repositoryId: input.repositoryId,
-          number: input.number,
-          head: input.head,
-          base: input.base,
-          receiptId,
-        };
-        // A row from before push requests is filled in, not duplicated.
-        const [row] =
-          same === undefined
-            ? await tx.insert(pullRequests).values(values).returning()
-            : await tx
-                .update(pullRequests)
-                .set({ ...values, createdAt: new Date() })
-                .where(
-                  and(
-                    eq(pullRequests.sessionId, input.sessionId),
-                    eq(pullRequests.url, input.url),
-                  ),
-                )
-                .returning();
-        if (!row) throw new Error("pull request insert returned no row");
-        await insertPullRequestOutcome(tx, {
-          ownerId: input.ownerId,
-          sessionId: input.sessionId,
-          url: input.url,
-          repositoryId: input.repositoryId,
-          number: input.number,
-          title: input.title,
-          head: input.head,
-          base: input.base,
-          adopted: !input.created,
-          receiptId,
-          createdAt: row.createdAt ?? new Date(),
-        });
-        return { pullRequest: publicPullRequest(row), created, receiptId };
-      });
+      return db.transaction((tx) => savePullRequestIn(tx, input));
     },
   };
 }

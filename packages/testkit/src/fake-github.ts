@@ -578,6 +578,7 @@ export async function startFakeGitHub(
         ref: pull.head,
         sha: pull.head_sha ?? "1".repeat(40),
         label: `${owner}:${pull.head}`,
+        repo: { full_name: `${owner}/${name}` },
       },
       base: { ref: pull.base },
       merged_at: pull.merged_at,

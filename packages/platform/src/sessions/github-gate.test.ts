@@ -100,6 +100,7 @@ function fakeApi(): GitHubApi {
     readTree: unused,
     readBlob: unused,
     findPullRequestForBranch: unused,
+    findPullRequestsForBranch: unused,
     createPullRequest: unused,
     getPullRequest: unused,
     updatePullRequestBody: unused,

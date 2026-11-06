@@ -80,7 +80,8 @@ export type PullRequestReceipt = {
   ownerId: string;
   sessionId: string;
   pushRequestId: string;
-  actor: ReceiptActor;
+  /** Null for the pull request drain, which acts for no caller. */
+  actor: ReceiptActor | null;
   operation: PullRequestOperation;
   result: PullRequestReceiptResult;
 };
