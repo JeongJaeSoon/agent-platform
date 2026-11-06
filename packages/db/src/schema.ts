@@ -2424,6 +2424,8 @@ export const pushIntents = pgTable(
       sql`(${table.status} NOT IN ('pinned','requested') OR ${table.pinnedRevision} IS NOT NULL) AND ((${table.status} = 'requested') = (${table.pushRequestId} IS NOT NULL)) AND ((${table.status} IN ('failed','cancelled')) = (${table.refusalCode} IS NOT NULL))`,
     ),
     // One intent per turn and target: the same call again is the same row.
+    // One target per turn and repository is enforced by `createDeferred`
+    // under the session row lock, not by this index.
     uniqueIndex("push_intents_turn_target_idx").on(
       table.turnId,
       table.repositoryId,

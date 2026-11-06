@@ -1,5 +1,5 @@
 {
-  "id": "98eb6e1f-ec88-4b11-951b-5e6e624d4781",
+  "id": "4c0fd330-3fa8-4cd1-b2c9-3cc7e9675700",
   "prevId": "a585f3eb-5d4e-4b68-97d3-adba44039e5b",
   "version": "7",
   "dialect": "postgresql",
@@ -7035,38 +7035,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.profile_fill": {
-      "name": "profile_fill",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "integer",
-          "primaryKey": true,
-          "notNull": true,
-          "default": 1
-        },
-        "completed_at": {
-          "name": "completed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "profile_fill_single_check": {
-          "name": "profile_fill_single_check",
-          "value": "\"profile_fill\".\"id\" = 1"
-        }
-      },
-      "isRLSEnabled": false
-    },
     "public.profile_rollout_items": {
       "name": "profile_rollout_items",
       "schema": "",
@@ -8096,7 +8064,7 @@
         },
         "push_intents_refusal_check": {
           "name": "push_intents_refusal_check",
-          "value": "\"push_intents\".\"refusal_code\" IS NULL OR \"push_intents\".\"refusal_code\" IN ('turn_ended_without_checkpoint','turn_finalized_without_pin','session_closed','rejected_before','request_open','github_disabled','over_workspace_ceiling','repository_not_allowed','checkpoint_unavailable','source_missing','attribution_mismatch','uncommitted_changes','pinned_source_invalid')"
+          "value": "\"push_intents\".\"refusal_code\" IS NULL OR \"push_intents\".\"refusal_code\" IN ('turn_ended_without_checkpoint','turn_finalized_without_pin','superseded_by_turn','session_closed','rejected_before','request_open','github_disabled','over_workspace_ceiling','repository_not_allowed','checkpoint_unavailable','source_missing','attribution_mismatch','uncommitted_changes','pinned_source_invalid')"
         },
         "push_intents_shape_check": {
           "name": "push_intents_shape_check",

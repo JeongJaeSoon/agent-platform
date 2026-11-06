@@ -120,6 +120,8 @@ export const outputsKo = {
     "턴이 체크포인트 없이 끝났습니다.",
   "session.github.reason.turn_finalized_without_pin":
     "턴이 끝났지만 push할 체크포인트를 고정하지 못했습니다.",
+  "session.github.reason.superseded_by_turn":
+    "답변을 기다리는 사이 다른 턴이 먼저 실행돼 push를 취소했습니다.",
   "session.github.reason.session_closed": "세션이 닫혔습니다.",
   "session.github.reason.rejected_before": "같은 커밋을 이미 거절했습니다.",
   "session.github.reason.request_open":
@@ -277,6 +279,8 @@ export const outputsJa: Record<keyof typeof outputsKo, string> = {
     "ターンがチェックポイントなしで終了しました。",
   "session.github.reason.turn_finalized_without_pin":
     "ターンは終了しましたが、push するチェックポイントを固定できませんでした。",
+  "session.github.reason.superseded_by_turn":
+    "回答待ちの間に別のターンが先に実行されたため、push を取り消しました。",
   "session.github.reason.session_closed": "セッションが閉じられました。",
   "session.github.reason.rejected_before":
     "同じコミットをすでに却下しています。",
@@ -435,6 +439,8 @@ export const outputsEn: Record<keyof typeof outputsKo, string> = {
     "The turn ended without a checkpoint.",
   "session.github.reason.turn_finalized_without_pin":
     "The turn ended but no checkpoint could be pinned to push.",
+  "session.github.reason.superseded_by_turn":
+    "Another turn ran while the answer was pending, so the push was cancelled.",
   "session.github.reason.session_closed": "The session was closed.",
   "session.github.reason.rejected_before": "This commit was already rejected.",
   "session.github.reason.request_open":

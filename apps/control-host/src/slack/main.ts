@@ -57,6 +57,7 @@ import {
   platformPromptRevisionFromEnv,
   profileCatalog,
   releaseStartable,
+  repositoryView,
   resolveAgentRelease,
   type SecretKey,
   type SlackInboundEventStore,
@@ -147,12 +148,18 @@ export function slackProfileCatalog(db: Database, environment: Environment) {
     }),
     // The api's catalog, so a release the console's repositories allow runs
     // here too.
-    (rows, settings) =>
-      Object.fromEntries(
-        Object.entries(
-          withConsoleRepositories(rows, settings?.repositories),
-        ).map(([id, { auth: _auth, ...repository }]) => [id, repository]),
-      ),
+    (rows, settings) => slackRepositoryViews(rows, settings?.repositories),
+  );
+}
+
+export function slackRepositoryViews(
+  ...args: Parameters<typeof withConsoleRepositories>
+) {
+  return Object.fromEntries(
+    Object.entries(withConsoleRepositories(...args)).map(([id, repository]) => [
+      id,
+      repositoryView(repository),
+    ]),
   );
 }
 

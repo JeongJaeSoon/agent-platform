@@ -418,6 +418,20 @@ export function createGitHubMcpServer(deps: {
               retryable: false,
             });
           }
+          if (asked.status === "turn_target_taken") {
+            // One source per turn in this stage: the turn-end checkpoint is
+            // pushed to one target, and the next target waits for the next
+            // input.
+            return refused({
+              code: "source_ref_unsupported",
+              by: "platform",
+              retryable: false,
+              details: {
+                reason: "one_target_per_turn",
+                target_branch: asked.target_branch,
+              },
+            });
+          }
           if (asked.status === "turn_not_running") {
             return refused({
               code: "no_running_turn",
