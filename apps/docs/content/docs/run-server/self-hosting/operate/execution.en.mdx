@@ -169,7 +169,7 @@ A session without a checkpoint follows the same rule. If the worker ends without
 - After fixing the cause, bring it up again with `start_fresh`. This session has no checkpoint to discard, so nothing is lost. To end the session, use `close`.
 - A worker that ended by pause, terminate, close or revocation of the execution permission is not counted.
 - A worker drained by SIGTERM is not counted either. The worker puts `stop_kind: "drain"` in the release. An old API that does not know this field has a strict schema and rejects it with 400 `BAD_REQUEST`. Then the worker logs `worker.release.stop_kind_refused` and releases once more without the field. The session comes back at once without waiting for the lease to expire. But the old API counts that ending by the old rule. If it is a claim with a restore pending, that is one failure.
-- **Deployment order:** raise the control host image (`API_IMAGE`, shared by api and scheduler) first, and change `WORKER_IMAGE` after that. The request schema of the worker protocol is strict, so an old API rejects a new field sent by a new worker with 400. There is no such fallback path except for release.
+- **Deployment order:** raise the control host image (`API_IMAGE`, shared by api and scheduler) first, and change `WORKER_IMAGE` after that. The request schema of the worker protocol is strict, so an old API rejects a new field sent by a new worker with 400. A fallback path exists for release, for the pending-control `reason` and `answer_result`, and for `platform_tool_trust` (if the old API rejects them, the worker drops that field and sends once more). New fields other than these have none.
 
 ### A turn whose outcome is unknown after an interrupt
 
