@@ -46,11 +46,13 @@ import type {
   CheckpointCodec,
   CheckpointManifest,
   CheckpointObjectStore,
+  CheckpointOutput,
   CompatibilityMismatch,
   ObjectRef,
   RuntimeFingerprint,
   TranscriptRevision,
 } from "@werft-ai/runtime-core";
+import { storedOutputs } from "@werft-ai/runtime-core";
 
 /** One `checkpoints` row, as far as its objects are concerned. */
 export type CheckpointRow = {
@@ -512,6 +514,7 @@ export function refsOf(manifest: CheckpointManifest): ObjectRef[] {
     ...(manifest.workspace.baseBundles ?? []),
     manifest.workspace.bundle,
     ...manifest.workspace.untracked,
+    ...storedOutputs(manifest.outputs),
   ];
 }
 
@@ -849,6 +852,15 @@ export async function planRepin(input: {
       }
       const repinned: CheckpointManifest = {
         ...manifest,
+        ...(manifest.outputs === undefined
+          ? {}
+          : {
+              outputs: await sequential(
+                manifest.outputs,
+                async (output): Promise<CheckpointOutput> =>
+                  "omitted" in output ? output : pin(output),
+              ),
+            }),
         transcripts: {
           root: await pinRevision(manifest.transcripts.root),
           subagents,
