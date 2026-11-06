@@ -11,6 +11,7 @@ import {
   createAgentReleaseResponseSchema,
   createApiKeyResponseSchema,
   githubSettingsResponseSchema,
+  newSessionGitHubPolicy,
   putAgentGitHubEnabledResponseSchema,
   putAgentGitHubSettingsResponseSchema,
 } from "@werft-ai/contracts";
@@ -25,6 +26,7 @@ import {
   createPostgresGitHubGateStore,
   createPostgresGitHubOAuthStore,
   createPostgresGitHubSettingsStore,
+  createPostgresPullRequestSettingsStore,
   createPostgresWorkspaceKeyStore,
   memberships,
   users,
@@ -32,6 +34,7 @@ import {
 import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
 import {
   createAgentGitHubService,
+  createAgentPullRequestService,
   createAgentService,
   createApiKeyService,
   createAuthorizationPolicy,
@@ -51,6 +54,7 @@ import {
 import { createGitHubAppDirectory } from "./forge-github.ts";
 import { DatabaseApiKeyStore, generateApiKey, hashApiKey } from "./keys.ts";
 import { registerAgentGitHubRoutes } from "./routes/agent-github.ts";
+import { registerAgentPullRequestRoutes } from "./routes/agent-pull-request.ts";
 import { registerAgentRoutes } from "./routes/agents.ts";
 import { registerApiKeyRoutes } from "./routes/api-keys.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
@@ -190,6 +194,7 @@ integration("agent GitHub tab over HTTP on PostgreSQL", () => {
           createGitHubSettingsService({
             authorization,
             store: githubSettings,
+            pullRequestSettings: createPostgresPullRequestSettingsStore(db),
             oauth: createPostgresGitHubOAuthStore(db, null),
             callbackUrl: null,
             secretsOn: false,
@@ -205,6 +210,14 @@ integration("agent GitHub tab over HTTP on PostgreSQL", () => {
             store: createPostgresAgentGitHubStore(db),
             catalog,
             githubSettings,
+          }),
+        );
+        registerAgentPullRequestRoutes(
+          router,
+          createAgentPullRequestService({
+            authorization,
+            agents: agentStore,
+            settings: createPostgresPullRequestSettingsStore(db),
           }),
         );
       },
@@ -913,5 +926,150 @@ integration("agent GitHub tab over HTTP on PostgreSQL", () => {
     await activateOf(saved.id);
     const after = await read();
     expect(after.github).toEqual(GITHUB);
+  });
+
+  test("two first saves of an agent's pull request settings race to one winner, and a GitHub settings save beside one neither blocks nor conflicts with it", async () => {
+    const created = await send("POST", "/v1/agents", asCookie(cookies.admin), {
+      slug: "pr-race",
+      name: "pr-race",
+      managing_team_id: teamId,
+      card,
+    });
+    expect(created.status).toBe(201);
+    const id = ((await created.json()) as { agent: { id: string } }).agent.id;
+    const layout = (formatting: "on" | "off") => ({
+      pull_request: { formatting, template: null, template_name: null },
+      revision: 0,
+    });
+    const put = (body: unknown) =>
+      send(
+        "PUT",
+        `/v1/agents/${id}/github/pull-request`,
+        asCookie(cookies.admin),
+        body,
+      );
+    const raced = await Promise.all([put(layout("on")), put(layout("off"))]);
+    expect(raced.map((r) => r.status).sort()).toEqual([200, 409]);
+
+    // Next to the GitHub settings save: separate rows and revisions, both win.
+    const beside = await Promise.all([
+      send("PUT", `/v1/agents/${id}/github/settings`, asCookie(cookies.admin), {
+        expected_revision: null,
+        settings: GITHUB,
+        start_repository_id: "sample-app",
+      }),
+      put({
+        pull_request: {
+          formatting: "inherit",
+          template: "## A\n",
+          template_name: null,
+        },
+        revision: 1,
+      }),
+    ]);
+    expect(beside.map((r) => r.status)).toEqual([200, 200]);
+  });
+
+  // Pull request layout of the agent (its own table: saving it must not
+  // give the agent a GitHub settings row, which would move its sessions off
+  // their release).
+  test("an agent's pull request settings are saved with a receipt, found through a session, and leave the GitHub policy alone", async () => {
+    // An agent of its own: the shared one already has a GitHub settings row.
+    const created = await send("POST", "/v1/agents", asCookie(cookies.admin), {
+      slug: "pr-layout",
+      name: "pr-layout",
+      managing_team_id: teamId,
+      card,
+    });
+    expect(created.status).toBe(201);
+    const made = (await created.json()) as {
+      agent: { id: string };
+      versions: { id: string }[];
+    };
+    const id = made.agent.id;
+    const released = await send(
+      "POST",
+      `/v1/agents/${id}/releases`,
+      asCookie(cookies.admin),
+      {
+        version_id: made.versions[0]?.id,
+        runtime_profile_id: "claude-optional-v1",
+      },
+    );
+    expect(released.status).toBe(200);
+    const releaseId = createAgentReleaseResponseSchema.parse(
+      await released.json(),
+    ).release.id;
+    const path = `/v1/agents/${id}/github/pull-request`;
+    const store = createPostgresPullRequestSettingsStore(db);
+    const settings = {
+      formatting: "off",
+      template: "## Summary\n<!-- ours -->\n",
+      template_name: "feature.md",
+    } as const;
+    const read = async () =>
+      (await send("GET", path, asCookie(cookies.admin))).json();
+    expect(await read()).toEqual({
+      pull_request: {
+        formatting: "inherit",
+        template: null,
+        template_name: null,
+      },
+      pull_request_revision: 0,
+    });
+    const sessionId = await session(releaseId, adminId);
+    expect(await store.agentOfSession(workspaceId, sessionId)).toBeNull();
+
+    const put = (revision: number, body = settings) =>
+      send("PUT", path, asCookie(cookies.admin), {
+        pull_request: body,
+        revision,
+      });
+    const saved = await put(0);
+    expect(saved.status).toBe(200);
+    expect(await saved.json()).toMatchObject({
+      pull_request: settings,
+      pull_request_revision: 1,
+      receipt_id: expect.any(String),
+    });
+    expect((await put(0)).status).toBe(409);
+    expect(
+      ((await (await put(1)).json()) as { receipt_id: unknown }).receipt_id,
+    ).toBeNull();
+    expect(await store.agentOfSession(workspaceId, sessionId)).toEqual(
+      settings,
+    );
+    // Not the agent's GitHub settings row.
+    const github = await send(
+      "GET",
+      `/v1/agents/${id}/github`,
+      asCookie(cookies.admin),
+    );
+    expect(
+      agentGitHubResponseSchema.parse(await github.json()).settings_revision,
+    ).toBeNull();
+    // What a session started now reads: no GitHub row, so the release's pin
+    // is the policy source and the gate sees no agent row at all.
+    const row = await createPostgresAgentGitHubStore(db).settings(id);
+    expect(row).toBeNull();
+    expect(newSessionGitHubPolicy(row, null).source).toBe("release");
+    const { rows: held } = await pool.query(
+      "SELECT count(*)::int AS n FROM agent_github_settings WHERE agent_id = $1",
+      [id],
+    );
+    expect(held[0].n).toBe(0);
+    // A member who does not manage the agent may neither read nor save.
+    expect((await send("GET", path, asCookie(cookies.other))).status).toBe(403);
+    // The receipt keeps a template's size and hash, never its text.
+    const { rows } = await pool.query(
+      "SELECT result FROM receipts WHERE operation = 'set_agent_pull_request_settings' AND owner_id = $1 AND target_ref->'resource'->>'id' = $2",
+      [workspaceId, id],
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0].result.after.template).toEqual({
+      bytes: new TextEncoder().encode(settings.template).length,
+      sha256: expect.stringMatching(/^[0-9a-f]{64}$/),
+    });
+    expect(JSON.stringify(rows[0].result)).not.toContain("ours");
   });
 });

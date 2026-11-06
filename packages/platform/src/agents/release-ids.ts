@@ -5,6 +5,7 @@ import {
   canonicalJsonOfJson,
   DEFAULT_TOOL_POLICY,
   type EffectiveTools,
+  GITHUB_MCP_SERVER,
   MCP_TOOL_PREFIX,
   type PolicyPins,
   type ToolPolicy,
@@ -261,6 +262,23 @@ function resolveToolPolicy(
       error: {
         field: "card.capabilities.tool_policy.per_tool",
         message: `release under runtime profile ${profileId} does not run ${unknown.join(", ")}`,
+      },
+    };
+  }
+  // The built-in server's tools are judged by the agent's GitHub settings
+  // (their action class), so a policy here would read as a permission the
+  // release does not give. Releases made before this check keep what they
+  // have; only a new release is refused.
+  const builtinServer = `${MCP_TOOL_PREFIX}${GITHUB_MCP_SERVER}__`;
+  const platformNamed = Object.keys(named).filter((tool) =>
+    tool.startsWith(builtinServer),
+  );
+  if (platformNamed.length > 0) {
+    return {
+      ok: false,
+      error: {
+        field: "card.capabilities.tool_policy.per_tool",
+        message: `${platformNamed.join(", ")} belongs to the built-in ${GITHUB_MCP_SERVER} server, whose tools follow the agent's GitHub settings, not this policy`,
       },
     };
   }

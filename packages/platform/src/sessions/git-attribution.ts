@@ -59,10 +59,13 @@ export function claimGitOf(
   record: SessionAttributionRecord | null,
   consoleOrigin: string | null,
   sessionId: string,
+  sessionLink: "url" | "id" = "url",
 ): ClaimGit {
   return {
     co_author: coAuthorOf(record),
-    session_url: sessionUrlOf(consoleOrigin, sessionId),
+    // Null makes the worker's trailer name the session id.
+    session_url:
+      sessionLink === "id" ? null : sessionUrlOf(consoleOrigin, sessionId),
   };
 }
 

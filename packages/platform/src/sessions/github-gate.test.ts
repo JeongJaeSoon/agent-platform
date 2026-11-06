@@ -862,6 +862,43 @@ describe("another repository than the session's", () => {
     });
   });
 
+  test("a push to an attached repository gets no credential when push.attached is deny, whoever approved the request", async () => {
+    const onList = settings({ repositories: ["app", "docs"] });
+    for (const [pushAttached, granted] of [
+      ["allow", true],
+      ["ask", true],
+      ["deny", false],
+    ] as const) {
+      const { grant, receipts } = harness({
+        catalog: MULTI,
+        policy: agentPolicy(onList, { pushAttached }),
+        repositoryCeiling: {
+          repository_ids: ["app", "docs"],
+          github_app_repositories: "listed",
+        },
+      });
+      if (granted) {
+        expect(
+          await grant({ purpose: "push", repositoryId: "docs" }),
+        ).toMatchObject({ repo: { owner: "acme", name: "docs" } });
+        continue;
+      }
+      expect(
+        (await refused(grant({ purpose: "push", repositoryId: "docs" })))
+          .reason,
+      ).toBe("repository_not_allowed");
+      expect(receipts.at(-1)?.result).toMatchObject({
+        repository_id: "docs",
+        purpose: "push",
+      });
+      // The session's own repository and a clone of the attached one stay.
+      expect(await grant({ purpose: "push" })).not.toBeNull();
+      expect(
+        await grant({ purpose: "clone", repositoryId: "docs" }),
+      ).not.toBeNull();
+    }
+  });
+
   test("is repository_not_allowed off the release's list, the profile or with GitHub off", async () => {
     const cases: Array<Parameters<typeof harness>[0]> = [
       { catalog: MULTI, github: settings({ repositories: ["app"] }) },

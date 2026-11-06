@@ -826,6 +826,7 @@ describe("which policy a new session runs on", () => {
     features: { ...GITHUB_CEILING_NONE },
     actionsAllow: [],
     startRepositoryId: "app",
+    pushAttached: null,
     revision: 2,
     updatedBy: null,
   };

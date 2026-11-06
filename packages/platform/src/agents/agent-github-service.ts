@@ -13,6 +13,7 @@ import {
   type PutAgentGitHubEnabledResponse,
   type PutAgentGitHubSettingsRequest,
   type PutAgentGitHubSettingsResponse,
+  pushAttachedOf,
   type RepositoryCeiling,
 } from "@werft-ai/contracts";
 import {
@@ -321,6 +322,11 @@ export function createAgentGitHubService(deps: {
         github,
         settings_revision: agentRow?.revision ?? null,
         start_repository_id: agentRow?.startRepositoryId ?? null,
+        // No row: what a first save writes. A row: its value, `ask` for one
+        // from before the column. A value this image cannot read shows as
+        // `deny`, as the gate would treat it.
+        push_attached:
+          agentRow === null ? "allow" : pushAttachedOf(agentRow.pushAttached),
         legacy_defaults: legacyDefaults,
         options: {
           repositories,
@@ -422,6 +428,7 @@ export function createAgentGitHubService(deps: {
         expectedRevision: request.expected_revision,
         settings,
         startRepositoryId: start,
+        pushAttached: request.push_attached,
         userId,
         principal: caller,
         managerRoles: MANAGEMENT_ROLES["agent.manage"] ?? [],

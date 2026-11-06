@@ -151,7 +151,7 @@ owner 모델은 **API-key owner**다. 같은 provider key를 쓰더라도 사용
 ### 재부팅 뒤
 
 - [ ] NTP, XFS `prjquota`, Docker 자동 기동, 디스크·inode 여유를 다시 확인한다.
-- [ ] S3 설치의 [재시작 절차](test-ops.md#s3)로 현재 manifest를 다시 적용한다.
+- [ ] S3 설치의 [재시작 절차](test-ops.md#s3)로 `scripts/test-ops.sh start`를 불러 현재 release를 다시 띄운다.
 - [ ] `status`, `/readyz`, scheduler, reconciler가 정상이다.
 - [ ] 재부팅 전 세션을 resume하고 새 worker가 이전 workspace를 이어 가는지 확인한다.
 - [ ] API는 선택한 내부 경로에서만 접근되고 PostgreSQL·Docker socket은 외부에서 닫혀 있다.

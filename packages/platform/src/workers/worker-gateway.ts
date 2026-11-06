@@ -141,6 +141,7 @@ import {
   type SessionMcp,
   sessionProfile,
   type ToolList,
+  trustedGitHubTools,
   usesWorkspaceCeiling,
   type WorkspaceProfiles,
   workspaceCatalogProfiles,
@@ -592,6 +593,10 @@ export function createWorkerGateway(deps: {
     // against them.
     ledger?: CommitAttributionLedger;
     consoleOrigin: string | null;
+    // What names the session in the commit trailer: `id` leaves the console's
+    // address out. Read at claim, so a change reaches commits made after the
+    // worker's next claim. Absent, the address.
+    sessionLink?: (workspaceId: string) => Promise<"url" | "id">;
     // The numeric id of an App's bot user; null when GitHub does not say.
     // Absent, a claim names no commit author and the image's default stays.
     appBotUserId?: (app: {
@@ -1044,6 +1049,9 @@ export function createWorkerGateway(deps: {
       githubMcp?: SessionGitHubMcp | null;
     },
     servers: typeof catalog.mcp_servers,
+    // The claiming worker announced `platform_tool_trust`; for one that did
+    // not, the strict claim schema refuses the marks, so they are left off.
+    trust = false,
   ): ClaimedMcpServer[] {
     const { mcp, githubMcp } = session;
     const server = mcp ? own(servers ?? {}, mcp.server) : undefined;
@@ -1065,6 +1073,9 @@ export function createWorkerGateway(deps: {
               endpoint: GITHUB_MCP_ENDPOINT,
               binding: githubMcpBinding(githubMcp.releaseId),
               tools: githubMcp.tools,
+              ...(trust
+                ? { trusted: trustedGitHubTools(githubMcp.tools) }
+                : {}),
             },
           ]
         : []),
@@ -1626,7 +1637,11 @@ export function createWorkerGateway(deps: {
           );
         default: {
           const binding = result.binding;
-          const mcp = claimedMcp(binding, mcpServers);
+          const mcp = claimedMcp(
+            binding,
+            mcpServers,
+            request.capabilities?.platform_tool_trust === true,
+          );
           const { tool_configs: toolConfigs, ...resolvedProfile } =
             resolveProfile(
               binding.profileId,
@@ -1665,6 +1680,8 @@ export function createWorkerGateway(deps: {
                   record,
                   attribution.consoleOrigin,
                   binding.sessionId,
+                  (await attribution.sessionLink?.(binding.ownerScope)) ??
+                    "url",
                 );
           const gitAuthor = await gitAuthorOf(
             attribution,

@@ -11,7 +11,7 @@ import {
 } from "@anthropic-ai/claude-agent-sdk";
 import type { RuntimeProcessObserver } from "@werft-ai/runtime-core";
 
-import { PLATFORM_AUTO_MODE } from "./auto-mode.ts";
+import { platformAutoMode } from "./auto-mode.ts";
 import type { ClaudeRuntimeConfig } from "./config.ts";
 import type { DriverRun, RuntimeHooks } from "./driver.ts";
 import { MEMORY_READ_GUIDANCE, readsOnlyMemory } from "./memory-read.ts";
@@ -115,6 +115,7 @@ export function buildSdkOptions(
   processObserver?: RuntimeProcessObserver,
 ): Options {
   const permittedTools = new Set(config.tools);
+  const trustedTools = new Set(config.trustedTools ?? []);
   const bypass = config.permissionMode === "bypassPermissions";
   // Neither mode calls canUseTool for a call it lets through.
   const unattended = bypass || config.permissionMode === "auto";
@@ -180,8 +181,9 @@ export function buildSdkOptions(
     // The checkpoint quiescence gate. PreToolUse runs for
     // every tool before the permission check, auto-allowed ones included, so
     // it is where a checkpoint lease refuses a new writer; the other three
-    // are the ways a tool it admitted can end. An allow answers nothing:
-    // "allow" here would skip the permission check.
+    // are the ways a tool it admitted can end. An allow answers nothing
+    // except for a `trusted` tool, for which it is the point: "allow" here
+    // skips the permission check.
     hooks: {
       PreToolUse: [
         {
@@ -219,8 +221,25 @@ export function buildSdkOptions(
                 passed = guard;
               }
               const admission = ledger.toolStarting(input.tool_use_id);
-              if (admission.allowed) return {};
-              return deny(admission.message);
+              if (!admission.allowed) return deny(admission.message);
+              // The one judgment this skips is the engine's permission
+              // stage (a person's answer, the auto classifier). It comes
+              // last so the allowlist, the admission guard and the ledger
+              // record above still bind a trusted tool. Plan mode keeps
+              // asking: it promises no side effects.
+              if (
+                "tool_name" in input &&
+                trustedTools.has(input.tool_name) &&
+                config.permissionMode !== "plan"
+              ) {
+                return {
+                  hookSpecificOutput: {
+                    hookEventName: "PreToolUse" as const,
+                    permissionDecision: "allow" as const,
+                  },
+                };
+              }
+              return {};
             },
           ],
         },
@@ -260,7 +279,7 @@ export function buildSdkOptions(
     settings: {
       attribution: ENGINE_ATTRIBUTION_OFF,
       ...(config.permissionMode === "auto"
-        ? { autoMode: PLATFORM_AUTO_MODE }
+        ? { autoMode: platformAutoMode(trustedTools.size > 0) }
         : {}),
     },
     settingSources: config.settingSources ?? ["project"],

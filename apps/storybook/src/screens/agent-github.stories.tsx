@@ -154,6 +154,7 @@ const DATA: AgentGitHubResponse = {
   active_release_id: RELEASE.id,
   github: SETTINGS,
   settings_revision: 3,
+  push_attached: "ask",
   start_repository_id: null,
   legacy_defaults: null,
   options: {

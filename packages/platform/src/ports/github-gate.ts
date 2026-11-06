@@ -77,14 +77,12 @@ export type GitHubRateLimit = {
   retryAfterSeconds: number | null;
 };
 
-/** One entry of a git tree, as the Git Database API lists it. */
 export type GitTreeEntry = {
   name: string;
   /** Octal mode: 100644 and 100755 are files, 120000 a symlink, 160000 a submodule. */
   mode: string;
   type: "blob" | "tree" | "commit";
   sha: string;
-  /** Blobs only. */
   size: number | null;
 };
 
@@ -93,10 +91,6 @@ export interface GitHubApi {
   /** Longest pull request or comment body GitHub takes. */
   readonly maxBodyLength: number;
   getRepository(): Promise<ForgeRepository>;
-  /**
-   * The commit a branch points at and that commit's root tree. Everything
-   * read from the tree afterwards is by SHA, so it cannot mix two commits.
-   */
   getBranchHead(
     branch: string,
   ): Promise<{ commitSha: string; treeSha: string }>;
