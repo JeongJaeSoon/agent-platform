@@ -53,7 +53,11 @@ export function workspaceMount(
     const mount = {
       mountPoint,
       filesystem,
-      options: `${fields[5]},${tail[2]}`.split(","),
+      options: `${fields[5]},${tail[2]}`
+        .split(",")
+        .filter((option) =>
+          ["rw", "ro", "prjquota", "pquota"].includes(option),
+        ),
     };
     if (
       selected === undefined ||

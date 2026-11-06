@@ -104,7 +104,7 @@ test("mountinfo finds the most specific mount on a path boundary and decodes oct
     "1 0 0:1 / / rw - overlay overlay rw",
     "2 1 8:1 / /workspace rw - ext4 /dev/sda rw",
     "3 1 8:2 / /workspace-other rw - nfs server rw",
-    "4 1 8:3 / /workspace/a\\040b rw - xfs /dev/sdb rw,prjquota",
+    "4 1 8:3 / /workspace/a\\040b rw - xfs /dev/sdb rw,prjquota,username=fixture-user",
     "malformed",
   ].join("\n");
   expect(workspaceMount(lines, "/workspace/repo")?.filesystem).toBe("ext4");
@@ -112,6 +112,9 @@ test("mountinfo finds the most specific mount on a path boundary and decodes oct
     "prjquota",
   );
   expect(workspaceMount("", "/workspace")).toBeUndefined();
+  expect(workspaceMount(lines, "/workspace/a b")?.options).not.toContain(
+    "username=fixture-user",
+  );
   expect(
     workspaceMount(
       `${lines}\n5 1 8:4 / /workspace rw - xfs /dev/sdc rw,pquota`,
