@@ -2965,6 +2965,44 @@ describe("편집 중 다른 곳의 저장", () => {
       expect(await discardSource(CARD.model)).toBe("profile");
     });
 
+    test("서버가 모델을 바꿔 적은 카드로 적용되면 안내는 그 릴리스의 버전을 가리킨다", async () => {
+      const server = agentServer();
+      const first = server.versions[0] as (typeof server.versions)[number];
+      renderAt(CARD_TAB, {
+        ...meOk,
+        ...server.routes,
+        [`PATCH /v1/agents/${AGENT_ID}`]: async () => {
+          server.versions.push({
+            ...first,
+            id: crypto.randomUUID(),
+            version_no: 2,
+            card: { ...first.card, model: "claude-haiku-5" },
+          });
+          await seedRelease(server);
+          const body = server.detail();
+          return json(200, {
+            ...body,
+            release: {
+              status: "applied",
+              reason: null,
+              release_id: body.releases[0]?.id,
+            },
+          });
+        },
+      });
+      const user = await setupUser();
+      await openCardEditor(user);
+      const instructions = await screen.findByLabelText("에이전트 지시문");
+      await user.clear(instructions);
+      await user.type(instructions, "다른 지시.");
+      await user.click(screen.getByRole("button", { name: "저장" }));
+      expect(
+        await screen.findByText(
+          /저장하고 새 세션에 적용했습니다\. 카드는 버전 2입니다/,
+        ),
+      ).toBeDefined();
+    });
+
     test("프로필 목록을 읽기 전에는 버리기를 누를 수 없다", async () => {
       const server = agentServer();
       await seedRelease(server);

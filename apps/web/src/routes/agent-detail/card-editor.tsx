@@ -166,13 +166,25 @@ export function CardEditor({
     onSuccess: async (updated, submitted) => {
       // The server keeps one version per card content, so the card just saved
       // may be an older version rather than the highest one.
+      const { release } = updated;
+      // The server may write a different model into the card than was sent
+      // (a followed profile's default), so the release and the waiting save
+      // say which version this was before the card content does.
+      const versionOf = (id: string | null | undefined) =>
+        updated.versions.find((v) => v.id === id);
       const saved = submitted.sendsCard
-        ? savedVersion(detail, updated, submitted)
+        ? (versionOf(
+            updated.releases.find((r) => r.id === release.release_id)
+              ?.version_id,
+          ) ??
+          (release.status === "failed"
+            ? versionOf(updated.draft?.version_id)
+            : undefined) ??
+          savedVersion(detail, updated, submitted))
         : undefined;
       if (saved) onSaved(saved.id);
       const isNew =
         saved !== undefined && !detail.versions.some((v) => v.id === saved.id);
-      const { release } = updated;
       onOutcome(
         release.status === "failed"
           ? {
