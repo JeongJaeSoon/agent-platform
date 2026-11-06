@@ -19,6 +19,70 @@ test("interval targets at most ten percent duty with a thirty second floor", () 
   expect(measurementInterval(8000)).toBe(80_000);
 });
 
+test("classification waits for the first successful measurement after an exception", async () => {
+  const logs: Array<{ event: string; fields?: Record<string, unknown> }> = [];
+  const log = (event: string, fields?: Record<string, unknown>) =>
+    logs.push({ event, ...(fields === undefined ? {} : { fields }) });
+  let now = 0;
+  let calls = 0;
+  const observer = new WorkspaceObserver(
+    { root: "/workspace", evidence: { localQuota: "enforced" } },
+    { info: log, warn: log, error: log },
+    async () => {
+      if (++calls === 1) throw new Error("measurement unavailable");
+      return {
+        ...complete,
+        mount: { mountPoint: "/workspace", filesystem: "xfs", options: [] },
+        filesystem: {
+          totalBytes: 1000,
+          freeBytes: 900,
+          totalInodes: 100,
+          freeInodes: 97,
+        },
+      };
+    },
+    () => now,
+  );
+  try {
+    observer.start();
+    await tick();
+    expect(calls).toBe(1);
+    expect(
+      logs.some((row) => row.event === "workspace_measurement_incomplete"),
+    ).toBe(true);
+    expect(logs.filter((row) => row.event === "workspace_limit_mode")).toEqual(
+      [],
+    );
+    expect(
+      logs.filter((row) => row.fields?.metric === "workspace_limit_mode"),
+    ).toEqual([]);
+
+    now = 30_000;
+    observer.nudge();
+    await tick();
+    expect(calls).toBe(2);
+    expect(
+      logs.find((row) => row.event === "workspace_limit_mode")?.fields,
+    ).toMatchObject({ bytes: "hard", inodes: "hard" });
+
+    now = 60_000;
+    observer.nudge();
+    await tick();
+    expect(calls).toBe(3);
+    expect(
+      logs.filter((row) => row.event === "workspace_limit_mode"),
+    ).toHaveLength(1);
+    expect(
+      logs.filter((row) => row.fields?.metric === "workspace_limit_mode"),
+    ).toMatchObject([
+      { fields: { axis: "bytes", mode: "hard" } },
+      { fields: { axis: "inodes", mode: "hard" } },
+    ]);
+  } finally {
+    observer.stop();
+  }
+});
+
 test("nudges coalesce, retain complete usage after errors and expose degraded state", async () => {
   const logs: Array<{ event: string; fields?: Record<string, unknown> }> = [];
   const log = (event: string, fields?: Record<string, unknown>) =>

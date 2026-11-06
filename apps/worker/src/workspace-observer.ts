@@ -147,18 +147,6 @@ export class WorkspaceObserver {
       if (!result.complete || result.errors > 0) this.warning(result.errors);
     } catch {
       if (!this.stopped) {
-        if (!this.classified) {
-          this.logger.info("workspace_limit_mode", workspaceLimitMode({}));
-          for (const axis of ["bytes", "inodes"] as const) {
-            this.logger.info("workspace_metric", {
-              metric: "workspace_limit_mode",
-              axis,
-              mode: "unknown",
-              value: 1,
-            });
-          }
-          this.classified = true;
-        }
         this.errors++;
         this.warning(1);
       }
