@@ -41,7 +41,7 @@ const ALLOWED: Record<string, string> = {
     "contributor rules for building screens; the Storybook introduction links its source of truth",
   "examples/LICENSE": "license file of the sample code",
   "CHANGELOG.md":
-    "the changelog is one repository file in Korean; the release notes are cut from it",
+    "the changelog is one repository file in Korean, holding what a release's generated notes cannot: security fixes and operator actions",
   "docs/quickstart.md":
     "the full local-stack runbook (session lap, restart, scripted prompts) that CI runs as written; the site's dev-server page carries the reader steps and the site links there",
   "docs/contributing":

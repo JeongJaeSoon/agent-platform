@@ -262,6 +262,7 @@ if (args[0] === "api") {
     jq(state.releases, expr);
   } else { console.error("unexpected api call " + args.join(" ")); process.exit(9); }
 } else if (args[0] === "release" && args[1] === "create") {
+  state.createArgs = args;
   state.releases.push({ id: 100 + state.releases.length, tag_name: args[2], draft: args.includes("--draft"), prerelease: args.includes("--prerelease"), assets: [] });
   save();
 } else if (args[0] === "release" && args[1] === "upload") {
@@ -283,6 +284,7 @@ type Fake = {
   }[];
   listFails?: boolean;
   uploadFails?: boolean;
+  createArgs?: string[];
 };
 
 function publish(initial: Fake, manifest: object, name = tag) {
@@ -345,6 +347,15 @@ describe("release-publish.sh", () => {
     expect(JSON.parse(state.releases[0]?.assets[0]?.content ?? "")).toEqual(
       manifest,
     );
+  });
+
+  test("the body is the generated notes plus the manifest line", () => {
+    const { state } = publish({ releases: [] }, manifest);
+    const args = state.createArgs ?? [];
+    expect(args).toContain("--generate-notes");
+    const notes = args[args.indexOf("--notes") + 1] ?? "";
+    expect(notes).toContain(MANIFEST_ASSET);
+    expect(notes).toContain("image digests");
   });
 
   test("a prerelease tag makes a prerelease", () => {
