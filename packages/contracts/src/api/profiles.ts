@@ -135,7 +135,7 @@ export const profileRolloutSchema = z
     applied: z.number().int().min(0),
     pending: z.number().int().min(0),
     failed: z.number().int().min(0),
-    /** The agents a person can retry; empty when none failed. */
+    /** The agents a person can retry; empty when none failed, and for a caller who is not an owner or admin (`failed` still counts them). */
     failed_agents: z.array(
       z
         .object({

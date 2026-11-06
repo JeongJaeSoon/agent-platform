@@ -355,9 +355,21 @@ export function createWorkspaceProfileService(deps: {
       const workspaceId = caller.actor?.workspaceId;
       if (deps.rollouts === undefined || !workspaceId) return listed;
       const rollouts = await deps.rollouts.summaries(workspaceId);
+      // Who was refused names agents the caller may not otherwise see.
+      const names = await manager(caller).then(
+        () => true,
+        (error: unknown) => {
+          if (error instanceof SessionServiceError) return false;
+          throw error;
+        },
+      );
       return {
         items: listed.items.map((item) => {
-          const rollout = rollouts.get(item.id);
+          const found = rollouts.get(item.id);
+          const rollout =
+            found !== undefined && !names
+              ? { ...found, failed_agents: [] }
+              : found;
           return rollout !== undefined && item.installation !== undefined
             ? { ...item, installation: { ...item.installation, rollout } }
             : item;

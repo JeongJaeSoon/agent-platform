@@ -100,6 +100,30 @@ describe("an agent that does not follow its profile", () => {
     ).toBeDefined();
   });
 
+  test("a request another one overtook says it was superseded, not applied", async () => {
+    const state = serverWith({ profile_tracking: "pinned" });
+    renderAt(DETAIL, {
+      ...state.routes,
+      [`PATCH ${PATH}`]: () =>
+        json(200, {
+          ...agentServer().detail(),
+          profile_tracking: "pinned",
+          release: {
+            status: "superseded",
+            reason: null,
+            release_id: null,
+            version_id: null,
+          },
+        }),
+    });
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: "최신으로 올리기" }),
+    );
+    await screen.findByText(/더 나중의 저장이 먼저 적용되어/);
+    expect(screen.queryByText("프로필의 최신 버전을 적용했습니다.")).toBeNull();
+  });
+
   test("a refused request shows the refusal and keeps the note", async () => {
     const state = serverWith({ profile_tracking: "pinned" });
     renderAt(DETAIL, {

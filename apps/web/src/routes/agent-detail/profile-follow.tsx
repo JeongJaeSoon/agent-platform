@@ -38,7 +38,9 @@ export function ProfileFollow({
           ? t("agent.profileFollow.failed", {
               reason: saveFailureText(t, release.reason),
             })
-          : t("agent.profileFollow.done"),
+          : release.status === "superseded"
+            ? t("agent.save.superseded")
+            : t("agent.profileFollow.done"),
       );
       queryClient.setQueryData(
         queryKeysOf(client).agent(detail.agent.id),
