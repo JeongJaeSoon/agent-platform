@@ -9,6 +9,7 @@ import {
   createAgentRequestSchema,
   listAgentsQuerySchema,
   listAgentsResponseSchema,
+  saveAgentResponseSchema,
   updateAgentRequestSchema,
 } from "@werft-ai/contracts";
 import type { AgentService } from "@werft-ai/platform";
@@ -45,7 +46,7 @@ export function registerAgentRoutes(
     const detail = await mapped(() =>
       service.createAgent(context.get("caller"), body),
     );
-    return jsonWithSchema(context, agentDetailSchema, detail, 201);
+    return jsonWithSchema(context, saveAgentResponseSchema, detail, 201);
   });
 
   apiRoute(router, "getAgent", async (context) => {
@@ -62,7 +63,7 @@ export function registerAgentRoutes(
     const detail = await mapped(() =>
       service.updateAgent(context.get("caller"), params.id, body),
     );
-    return jsonWithSchema(context, agentDetailSchema, detail);
+    return jsonWithSchema(context, saveAgentResponseSchema, detail);
   });
 
   apiRoute(router, "createAgentRelease", async (context) => {
