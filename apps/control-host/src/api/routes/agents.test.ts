@@ -198,7 +198,10 @@ function asPerson(caller: Caller): Caller {
   };
 }
 
-type Routed = Omit<AgentService, "resolveRelease" | "promptIdentity">;
+type Routed = Omit<
+  AgentService,
+  "resolveRelease" | "promptIdentity" | "rolloutRelease"
+>;
 
 function app(
   agentStore: AgentStore = store(),

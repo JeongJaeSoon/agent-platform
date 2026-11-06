@@ -52,6 +52,7 @@ import {
   rethrowCursorCastError,
 } from "./cursors.ts";
 import { DB_NOW } from "./db-clock.ts";
+import { isNewestProfile, runsLineageOf } from "./profile-rollouts.ts";
 import type { Database } from "./queries.ts";
 import { earlierInSecond, releaseLabel } from "./release-labels.ts";
 import {
@@ -347,6 +348,7 @@ async function lockAgent(tx: Database, workspaceId: string, agentId: string) {
       activationRevision: agents.activationRevision,
       behaviorRevision: agents.behaviorRevision,
       modelSource: agents.modelSource,
+      profileTracking: agents.profileTracking,
       draftVersionId: agents.draftVersionId,
     })
     .from(agents)
@@ -369,6 +371,7 @@ export async function lockAgentToChange(
     principal: Principal;
     workspaceId: string;
     managerRoles: readonly WorkspaceRole[];
+    requireRoles?: readonly WorkspaceRole[];
   },
   agentId: string,
 ): Promise<
@@ -379,6 +382,12 @@ export async function lockAgentToChange(
   // No person behind the principal: nothing to re-read, as actorStillMember.
   const role = userId ? await lockedRole(tx, input.workspaceId, userId) : null;
   if (userId && role === null) return { outcome: "actor_inactive" };
+  if (
+    input.requireRoles !== undefined &&
+    (role === null || !input.requireRoles.includes(role))
+  ) {
+    return { outcome: userId ? "outranked" : "actor_inactive" };
+  }
   const agent = await lockAgent(tx, input.workspaceId, agentId);
   if (!agent) return { outcome: "not_found" };
   if (
@@ -865,6 +874,17 @@ export function createPostgresAgentStore(db: Database): AgentStore {
         ) {
           return { outcome: "superseded" };
         }
+        // A rollout is judged again on what the lock now shows, whatever the
+        // process that asked had read.
+        if (
+          intent?.kind === "rollout" &&
+          (agent.profileTracking !== "follow" ||
+            agent.behaviorRevision !== intent.behaviorRevision ||
+            !(await isNewestProfile(tx, intent.targetProfileId)) ||
+            !(await runsLineageOf(tx, input.agentId, intent.targetProfileId)))
+        ) {
+          return { outcome: "superseded" };
+        }
         const intentColumns =
           intent?.kind === "save"
             ? {
@@ -880,6 +900,9 @@ export function createPostgresAgentStore(db: Database): AgentStore {
                   modelSource: intent.releaseRunsProfileDefault
                     ? sql`${agents.modelSource}`
                     : "fixed",
+                  ...(intent.pinsProfile === true
+                    ? { profileTracking: "pinned" }
+                    : {}),
                 }
               : {};
         // expected + 1: a retry of a request whose first attempt already swapped.

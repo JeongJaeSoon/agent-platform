@@ -23,6 +23,7 @@ import {
   type ModelSource,
   type SaveAgentResponse,
   type SaveRelease,
+  type WorkspaceRole,
 } from "@werft-ai/contracts";
 import {
   type AuthorizationPolicy,
@@ -30,6 +31,7 @@ import {
   MANAGEMENT_ROLES,
   type OutsideAgentAccessSetting,
   outsideAgentsUse,
+  type Principal,
 } from "../musterrolle/policy.ts";
 import {
   ACTOR_INACTIVE,
@@ -49,6 +51,7 @@ import type {
 import type { WorkspaceKeyStore } from "../ports/api-key-store.ts";
 import type { CredentialBindingStore } from "../ports/credential-binding-store.ts";
 import type { GitHubSettingsStore } from "../ports/github-settings.ts";
+import type { ProfileRolloutStore } from "../ports/profile-rollout-store.ts";
 import {
   acceptedRuntimeVersions,
   allowedPair,
@@ -64,6 +67,7 @@ import {
   workspaceProfileRefusal,
 } from "../sessions/catalog.ts";
 import type { AgentPromptIdentity } from "../sessions/platform-prompt.ts";
+import { sameExecutionForm } from "../sessions/profile-execution-form.ts";
 import {
   profileBlockedError,
   requirePermitted,
@@ -164,6 +168,8 @@ export function createAgentService(deps: {
   githubSettings?: Pick<GitHubSettingsStore, "get">;
   /** Axis A, as the policy reads it; absent: `use`. */
   outsideAgents?: OutsideAgentAccessSetting;
+  /** Where a profile's newest version is read; absent: no agent is pinned. */
+  profileLineage?: Pick<ProfileRolloutStore, "inspect">;
 }) {
   const { authorization, store, catalog, credentials } = deps;
   const outsideAgents = deps.outsideAgents ?? outsideAgentsUse;
@@ -388,7 +394,7 @@ export function createAgentService(deps: {
    * can keep them on the draft.
    */
   async function releaseAgent(
-    caller: Caller,
+    caller: Principal,
     userId: string,
     input: {
       agentId: string;
@@ -397,8 +403,9 @@ export function createAgentService(deps: {
       /** The active release the save was read from. */
       active: AgentRelease | null;
       expectedActivationRevision: number;
-      intent: Extract<ActivationIntent, { kind: "save" }>;
+      intent: Exclude<ActivationIntent, { kind: "direct" }>;
       reason: ReleaseReason;
+      requireRoles?: readonly WorkspaceRole[];
     },
   ): Promise<ReleaseOutcome> {
     const { version, profileId, active } = input;
@@ -475,6 +482,9 @@ export function createAgentService(deps: {
       principal: caller,
       workspaceId: caller.ownerId,
       managerRoles: AGENT_MANAGERS,
+      ...(input.requireRoles === undefined
+        ? {}
+        : { requireRoles: input.requireRoles }),
       // Judged under the agent's lock: a first settings row saved since the
       // read above makes what was carried wrong.
       refuseGitHubWhenSettings: carry,
@@ -510,6 +520,9 @@ export function createAgentService(deps: {
       expectedRevision: input.expectedActivationRevision,
       approvedBy: userId,
       managerRoles: AGENT_MANAGERS,
+      ...(input.requireRoles === undefined
+        ? {}
+        : { requireRoles: input.requireRoles }),
       intent: input.intent,
       reason: input.reason,
     });
@@ -818,8 +831,125 @@ export function createAgentService(deps: {
   const resolveRelease = (workspaceId: string, releaseId: string) =>
     resolveAgentRelease({ store, catalog }, workspaceId, releaseId);
 
+  // Going back to a release whose profile runs differently from the newest
+  // version of its lineage ends the agent's following (design 2.4).
+  async function runsBehindLineage(
+    agentId: string,
+    release: AgentRelease,
+  ): Promise<boolean> {
+    if (deps.profileLineage === undefined) return false;
+    const seen = await deps.profileLineage.inspect({
+      agentId,
+      targetProfileId: release.runtime_profile_id,
+      activeProfileId: release.runtime_profile_id,
+    });
+    return (
+      seen.latest !== null &&
+      seen.active !== null &&
+      !sameExecutionForm(seen.active.definition, seen.latest.definition)
+    );
+  }
+
+  // The person a rollout acts for must still be an owner or admin; a team
+  // right left over from a demotion is not enough (design 2.3).
+  const ROLLOUT_ROLES: readonly WorkspaceRole[] = ["owner", "admin"];
+
+  /**
+   * One agent's step of a profile rollout (design 2.3): the agent's release
+   * moved to the newest version of the profile, on its own card, or on a
+   * card whose model is the profile's new default when the agent follows
+   * that. Judged again under the agent's lock; a refusal, including a
+   * person who lost their role, is an outcome for the item.
+   */
+  async function rolloutRelease(input: {
+    workspaceId: string;
+    agentId: string;
+    actorUserId: string | null;
+    targetProfileId: string;
+  }): Promise<ReleaseOutcome> {
+    const { workspaceId, agentId, actorUserId, targetProfileId } = input;
+    if (actorUserId === null)
+      return { status: "failed", reason: "actor_inactive" };
+    const principal: Principal = {
+      ownerId: workspaceId,
+      actor: {
+        principal: { kind: "user", id: actorUserId },
+        userId: actorUserId,
+        workspaceId,
+        apiKeyId: null,
+      },
+    };
+    try {
+      const record = await store.get(workspaceId, agentId);
+      const active = record?.active_release ?? null;
+      if (!record || !active) return { status: "superseded" };
+      const activeVersion = record.versions.find(
+        (version) => version.id === active.version_id,
+      );
+      if (!activeVersion)
+        return { status: "failed", reason: "release_refused" };
+      let profile: CatalogProfile;
+      try {
+        profile = await usableProfile(workspaceId, targetProfileId);
+      } catch (error) {
+        if (refusalCode(error) === null) throw error;
+        return { status: "failed", reason: "profile_unusable" };
+      }
+      let version = activeVersion;
+      if (
+        record.model_source === "profile" &&
+        activeVersion.card.model !== profile.model
+      ) {
+        const card = { ...activeVersion.card, model: profile.model };
+        const contentSha256 = cardContentSha256(card);
+        const saved = await store.update({
+          principal,
+          workspaceId,
+          agentId,
+          card: { card, contentSha256 },
+          updatedBy: actorUserId,
+          managerRoles: AGENT_MANAGERS,
+          requireRoles: ROLLOUT_ROLES,
+        });
+        if (saved.outcome === "stale") return { status: "retry" };
+        if (saved.outcome === "not_found") return { status: "superseded" };
+        if (saved.outcome !== "updated") {
+          return { status: "failed", reason: "actor_inactive" };
+        }
+        const written = saved.detail.versions.find(
+          (candidate) => candidate.content_sha256 === contentSha256,
+        );
+        if (!written) throw new Error("a model-only card version is stored");
+        version = written;
+      }
+      return await releaseAgent(principal, actorUserId, {
+        agentId,
+        version,
+        profileId: targetProfileId,
+        active,
+        expectedActivationRevision: record.agent.activation_revision,
+        intent: {
+          kind: "rollout",
+          behaviorRevision: record.behavior_revision,
+          targetProfileId,
+        },
+        reason: "profile_rollout",
+        requireRoles: ROLLOUT_ROLES,
+      });
+    } catch (error) {
+      if (error instanceof SessionServiceError) {
+        if (error.code === "FORBIDDEN") {
+          return { status: "failed", reason: "actor_inactive" };
+        }
+        if (error.code === "NOT_FOUND") return { status: "superseded" };
+      }
+      throw error;
+    }
+  }
+
   return {
     resolveRelease,
+    rolloutRelease,
     promptIdentity: (workspaceId: string, releaseId: string) =>
       agentPromptIdentity(store, workspaceId, releaseId),
 
@@ -1107,6 +1237,7 @@ export function createAgentService(deps: {
           releaseRunsProfileDefault:
             releaseModel(release) ===
             catalogProfile(catalog, release.runtime_profile_id)?.model,
+          pinsProfile: await runsBehindLineage(agentId, release),
         },
         reason: "direct",
       });

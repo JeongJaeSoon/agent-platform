@@ -366,6 +366,12 @@ const NOT_SETTINGS: Record<string, string> = {
   // whenever any proxy is set (s3.ts).
   ALL_PROXY: "a standard proxy variable, not one of ours",
   DOCKER_BACKEND_TEST_HELPER_IMAGE: "tests only",
+  WORKER_WORKSPACE_MOUNT_DIR:
+    "derived by the execution backend, not an operator setting",
+  WORKER_WORKSPACE_QUOTA_BYTES:
+    "derived from the backend's existing workspace quota",
+  WORKER_WORKSPACE_QUOTA_MODE:
+    "reports the local backend's validated quota mode",
   K8S_BACKEND_TEST: "tests only (docs/contributing/development.md)",
   K8S_BACKEND_TEST_IMAGE: "tests only (docs/contributing/development.md)",
   K8S_BACKEND_TEST_KEEP: "tests only (docs/contributing/development.md)",
