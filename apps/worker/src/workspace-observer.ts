@@ -28,6 +28,10 @@ export class WorkspaceObserver {
   private lastComplete: number;
   private errors = 0;
   private classified = false;
+  private classification: WorkspaceLimitMode | undefined;
+  private readonly classificationListeners = new Set<
+    (mode: WorkspaceLimitMode) => void
+  >();
   private lastUsage: WorkspaceMeasurement | undefined;
   private flight: Promise<WorkspaceMeasurement | undefined> | undefined;
   private readonly listeners = new Set<
@@ -41,6 +45,11 @@ export class WorkspaceObserver {
     return () => {
       this.listeners.delete(listener);
     };
+  }
+
+  onClassified(listener: (mode: WorkspaceLimitMode) => void): void {
+    if (this.classification !== undefined) listener(this.classification);
+    else if (!this.stopped) this.classificationListeners.add(listener);
   }
 
   async measureNow(): Promise<WorkspaceMeasurement | undefined> {
@@ -86,6 +95,7 @@ export class WorkspaceObserver {
     clearTimeout(this.timer);
     clearTimeout(this.staleTimer);
     this.controller.abort();
+    this.classificationListeners.clear();
   }
 
   private sample(): Promise<WorkspaceMeasurement | undefined> {
@@ -138,6 +148,9 @@ export class WorkspaceObserver {
           });
         }
         this.classified = true;
+        this.classification = mode;
+        for (const listener of this.classificationListeners) listener(mode);
+        this.classificationListeners.clear();
       }
       this.intervalMs = measurementInterval(result.durationMs);
       if (result.complete) {

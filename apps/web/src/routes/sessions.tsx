@@ -49,6 +49,7 @@ import { SessionOutputsCount, SessionOutputsTab } from "./session-outputs.tsx";
 import { SessionsOverview } from "./session-overview.tsx";
 import { SessionReleaseBlock } from "./session-release.tsx";
 import { SessionShareBlock } from "./session-share.tsx";
+import { SessionWorkspaceLimit } from "./session-workspace-limit.tsx";
 
 export function loadError(error: unknown, onRetry: () => void) {
   if (isApiError(error, "FORBIDDEN")) {
@@ -412,6 +413,7 @@ export function SessionDetailScreen() {
         renderError={loadError}
         controls={(session) => (
           <>
+            <SessionWorkspaceLimit mode={session.workspace_limit_mode} />
             <SessionReleaseBlock agent={session.agent} />
             <SessionShareBlock id={session.id} />
           </>
