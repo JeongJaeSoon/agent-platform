@@ -141,6 +141,7 @@ import {
   type SessionMcp,
   sessionProfile,
   type ToolList,
+  trustedGitHubTools,
   usesWorkspaceCeiling,
   type WorkspaceProfiles,
   workspaceCatalogProfiles,
@@ -1044,6 +1045,9 @@ export function createWorkerGateway(deps: {
       githubMcp?: SessionGitHubMcp | null;
     },
     servers: typeof catalog.mcp_servers,
+    // The claiming worker announced `platform_tool_trust`; for one that did
+    // not, the strict claim schema refuses the marks, so they are left off.
+    trust = false,
   ): ClaimedMcpServer[] {
     const { mcp, githubMcp } = session;
     const server = mcp ? own(servers ?? {}, mcp.server) : undefined;
@@ -1065,6 +1069,9 @@ export function createWorkerGateway(deps: {
               endpoint: GITHUB_MCP_ENDPOINT,
               binding: githubMcpBinding(githubMcp.releaseId),
               tools: githubMcp.tools,
+              ...(trust
+                ? { trusted: trustedGitHubTools(githubMcp.tools) }
+                : {}),
             },
           ]
         : []),
@@ -1626,7 +1633,11 @@ export function createWorkerGateway(deps: {
           );
         default: {
           const binding = result.binding;
-          const mcp = claimedMcp(binding, mcpServers);
+          const mcp = claimedMcp(
+            binding,
+            mcpServers,
+            request.capabilities?.platform_tool_trust === true,
+          );
           const { tool_configs: toolConfigs, ...resolvedProfile } =
             resolveProfile(
               binding.profileId,

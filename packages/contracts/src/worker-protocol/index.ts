@@ -76,10 +76,16 @@ export const checkpointRefSchema = z.object({
 // asking is the one that has to parse the answer. Each key is a promise to
 // parse a field an older worker's strict schemas refuse.
 //   approval_remember: a permission answer may carry `remember`
-// A server older than this field refuses the body, so servers deploy first.
+//   platform_tool_trust: an `mcp_servers` entry may carry `platform` and
+//     `trusted`, and the worker lets the named tools past the engine's
+//     permission stage
+// A server older than a key refuses the body as a 400 whose `details.issues`
+// names it; the worker sends once more without `platform_tool_trust`, so
+// neither side has to deploy first.
 export const workerCapabilitiesSchema = z
   .object({
     approval_remember: z.literal(true).optional(),
+    platform_tool_trust: z.literal(true).optional(),
   })
   .strict();
 
@@ -225,12 +231,20 @@ export const projectSettingsSchema = z
 // Absent when the release names none: a worker built before the field
 // refuses unknown keys, which is the right answer from a worker that could
 // not call it.
+//
+// `platform` marks the built-in server and `trusted` names the tools of it
+// the server judges itself (push, pull request, repository read), which the
+// worker lets past the engine's permission stage. Both are left out for a
+// worker that did not announce `platform_tool_trust`: its strict schema
+// refuses them, and without them the engine asks as it always did.
 export const runtimeMcpServerSchema = z
   .object({
     name: mcpServerIdSchema,
     endpoint: z.url(),
     binding: z.string().regex(/^sha256:[0-9a-f]{64}$/),
     access: egressTokenAuthSchema,
+    platform: z.literal(true).optional(),
+    trusted: z.array(z.string().min(1)).min(1).optional(),
   })
   .strict();
 

@@ -169,7 +169,7 @@ checkpointのないセッションも、同じ規則に従います。workerがc
 - 原因を直したあと、`start_fresh`で起動し直します。このセッションには捨てるcheckpointがないので、失うものはありません。セッションを終えるには、`close`を使います。
 - pause、terminate、close、実行権限の取り消しで終わったworkerは、数えません。
 - SIGTERMでdrainされたworkerも、数えません。workerはreleaseに`stop_kind: "drain"`を載せます。このフィールドを知らない古いAPIは、strict schemaなので400 `BAD_REQUEST`で拒否します。すると、workerは`worker.release.stop_kind_refused`をログに残し、フィールドなしでもう一度releaseします。セッションは、lease期限切れを待たず、すぐに戻ります。ただし、古いAPIはその終了を以前の規則で数えます。復元が掛かったclaimなら、失敗1回です。
-- **デプロイ順序:** 制御ホストのイメージ(`API_IMAGE`、apiとschedulerで共通)を先に上げ、`WORKER_IMAGE`はそのあとで変えます。worker protocolの要求schemaはstrictなので、新しいworkerが送った新しいフィールドを、古いAPIは400で拒否します。release以外には、このような代替経路がありません。
+- **デプロイ順序:** 制御ホストのイメージ(`API_IMAGE`、apiとschedulerで共通)を先に上げ、`WORKER_IMAGE`はそのあとで変えます。worker protocolの要求schemaはstrictなので、新しいworkerが送った新しいフィールドを、古いAPIは400で拒否します。代替経路があるのは、release、pending-controlの`reason`と`answer_result`、`platform_tool_trust`です(古いAPIが拒否すると、workerはそのフィールドを外してもう一度送ります)。これ以外の新しいフィールドには、代替経路がありません。
 
 ### interruptのあと結果が分からないturn
 

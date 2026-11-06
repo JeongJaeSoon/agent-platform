@@ -691,6 +691,123 @@ describe.serial("Agent SDK 0.3.270 and Claude Code 2.1.270", () => {
     expect(await readFile(outputPath, "utf8")).toBe("x");
   }, 60_000);
 
+  // A platform tool (`trusted`) gets a PreToolUse allow from the adapter and
+  // nothing else: the claim is that the allow takes the call out of the
+  // whole permission stage, the auto classifier included. The classifier is
+  // observable only on a model it is offered for (`claude-sonnet-5`; on
+  // `claude-sonnet-4-5`, the harness default, auto asks canUseTool and never
+  // calls a model). Its requests carry no tools and quote the tool call, so
+  // the control run shows them and the allowed run must show none.
+  // The in-process server stands in for the adapter's relay, which is an
+  // SDK MCP server too.
+  describe("a PreToolUse allow on an MCP tool", () => {
+    const PUSH = "mcp__github__request_push";
+    const allowHook = async () => ({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse" as const,
+        permissionDecision: "allow" as const,
+      },
+    });
+    const denyHook = async () => ({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse" as const,
+        permissionDecision: "deny" as const,
+        permissionDecisionReason: "outside the allowlist",
+      },
+    });
+    async function pushRun(
+      permissionMode: "auto" | "default",
+      hooks: (typeof allowHook | typeof denyHook)[],
+    ) {
+      context = await createProbeContext();
+      server = startFakeAnthropicServer((request, index) =>
+        index === 0
+          ? toolReply(PUSH, { value: "p" }, "toolu_sdkcompat_trusted")
+          : (request.body.tools ?? []).length === 0
+            ? // The classifier's question; no verdict it can parse.
+              textReply("no verdict")
+            : textReply("push complete"),
+      );
+      const ran: string[] = [];
+      const asked: string[] = [];
+      await runSdkQuery(context, server.url, "Push it.", {
+        model: "claude-sonnet-5",
+        canUseTool: async (name, input) => {
+          asked.push(name);
+          return { behavior: "allow", updatedInput: input };
+        },
+        hooks:
+          hooks.length === 0
+            ? {}
+            : { PreToolUse: hooks.map((hook) => ({ hooks: [hook] })) },
+        mcpServers: {
+          github: createSdkMcpServer({
+            name: "github",
+            version: "1.0.0",
+            tools: [
+              tool(
+                "request_push",
+                "Push the checkpoint",
+                { value: z.string() },
+                async ({ value }) => {
+                  ran.push(value);
+                  return { content: [{ type: "text", text: "pushed" }] };
+                },
+              ),
+            ],
+          }),
+        },
+        permissionMode,
+      });
+      const classifierRequests = server.requests.filter(
+        (request) =>
+          (request.body.tools ?? []).length === 0 &&
+          JSON.stringify(request.body).includes("request_push"),
+      ).length;
+      return { asked, classifierRequests, ran };
+    }
+
+    test("auto: a control run reaches the classifier, and the allow does not", async () => {
+      const control = await pushRun("auto", []);
+      // The classifier was asked about the call, and its unparsable answer
+      // did not let the tool run: the stage is really in play.
+      expect(control.classifierRequests).toBeGreaterThan(0);
+      expect(control.ran).toEqual([]);
+      await context?.dispose();
+      server?.stop();
+
+      const allowed = await pushRun("auto", [allowHook]);
+      expect(allowed).toEqual({ asked: [], classifierRequests: 0, ran: ["p"] });
+    }, 120_000);
+
+    test("default: a control run asks canUseTool, and the allow does not", async () => {
+      const control = await pushRun("default", []);
+      expect(control).toEqual({
+        asked: [PUSH],
+        classifierRequests: 0,
+        ran: ["p"],
+      });
+      await context?.dispose();
+      server?.stop();
+
+      const allowed = await pushRun("default", [allowHook]);
+      expect(allowed).toEqual({ asked: [], classifierRequests: 0, ran: ["p"] });
+    }, 120_000);
+
+    test.each([
+      ["deny after allow", [allowHook, denyHook]],
+      ["deny before allow", [denyHook, allowHook]],
+    ] as const)(
+      "loses to a PreToolUse deny: %s",
+      async (_name, hooks) => {
+        const result = await pushRun("auto", [...hooks]);
+        expect(result.ran).toEqual([]);
+        expect(result.asked).toEqual([]);
+      },
+      60_000,
+    );
+  });
+
   // The engine proposes a rule for the call it asks about, and for a command
   // with a redirect or a second command the rule does not match that call.
   // The adapter's offerableRules relies on this; it has no API to ask.
