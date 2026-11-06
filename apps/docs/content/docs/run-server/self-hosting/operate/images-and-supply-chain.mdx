@@ -69,7 +69,7 @@ docker pull "ghcr.io/jeongjaesoon/werft-worker@<digest read above>"
 지금까지 `v*` 태그를 단 적이 없어 이 경로는 한 번도 실행되지 않았다.
 
 1. `main`의 검증된 commit에 `vX.Y.Z` 또는 `vX.Y.Z-<프리릴리스>` 태그를 push한다. 그 commit이 `main`의 조상이 아니면 게시 job이 실패한다. 다른 꼴의 태그(`v1`, `v1.2.3+build`)는 이미지만 나가고 `chart` job에서 실패한다.
-2. `publish` job이 `release` environment 승인을 받고, 이어서 `index`·`promote`·`chart-publish`가 승인 없이 끝나는지 본다. 승인은 `publish` 앞에서 한 번만 요청된다. 뒤 job은 `publish`가 성공해야 도므로 그 승인이 모두를 지킨다. `publish`와 `index` 사이의 `sources`는 30분까지 걸릴 수 있다.
+2. `publish` job이 `release` environment 승인을 받고, 이어서 `index`·`promote`·`chart-publish`가 승인 없이 끝나는지 본다. 승인은 `publish` 앞에서 한 번만 요청된다. 뒤 job은 `publish`가 성공해야 돌므로 그 승인이 모두를 지킨다. `publish`와 `index` 사이의 `sources`는 30분까지 걸릴 수 있다.
 3. `chart-publish`가 끝나면 `release` job이 태그의 GitHub Release를 만들고 `release-manifest.json`을 붙인다. 이 job은 승인을 따로 받지 않는다. `publish` 앞의 승인이 이미 지났고, `contents: write`는 이 job만 가진다. Release는 draft로 만들어 manifest를 올리고 다시 읽어 본 뒤에야 공개한다. [릴리스 manifest 읽기](#릴리스-manifest-읽기)의 명령으로 digest와 chart 버전을 확인한다.
 4. 같은 태그를 "Re-run failed jobs"로 다시 돌려도 안전하다. 이미 붙은 manifest와 내용이 같으면 통과하고, 다르면 실패하며 덮어쓰지 않는다. Release 생성이나 업로드가 중간에 끊겼으면 같은 방법으로 마저 채운다. 이미지가 같은 태그로 다시 빌드돼 digest가 달라지는 경우는 `promote`가 먼저 거부한다.
 
