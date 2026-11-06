@@ -55,6 +55,25 @@ export async function isNewestProfile(
   return later.length === 0;
 }
 
+/** Whether the agent's active release runs a version of the target's lineage. */
+export async function runsLineageOf(
+  tx: Database,
+  agentId: string,
+  targetProfileId: string,
+): Promise<boolean> {
+  const found = await rows(
+    tx,
+    sql`SELECT 1 FROM agents a
+      JOIN agent_releases r ON r.id = a.active_release_id
+      JOIN installation_profiles active ON active.id = r.runtime_profile_id
+      JOIN installation_profiles target ON target.id = ${targetProfileId}
+      WHERE a.id = ${agentId}
+        AND ${LINEAGE("active")} IS NOT NULL
+        AND ${LINEAGE("active")} = ${LINEAGE("target")}`,
+  );
+  return found.length > 0;
+}
+
 /** Each lineage's newest version, whatever its state (design 2.3). */
 async function latestPerLineage(tx: Database) {
   const found = await rows<ProfileRow>(
@@ -113,7 +132,7 @@ export function createPostgresProfileRolloutStore(
         db,
         sql`WITH picked AS (
             SELECT rollout_id, agent_id, generation FROM profile_rollout_items
-            WHERE status = 'pending'
+            WHERE status = 'pending' AND attempts < ${ROLLOUT_MAX_CLAIMS}
               AND (locked_until IS NULL OR locked_until < now())
             ORDER BY created_at, rollout_id, agent_id
             LIMIT ${limit}
@@ -326,10 +345,13 @@ export function createPostgresProfileRolloutStore(
           if (any.length > 0) return { refused: "rollouts_exist" as const };
         }
         const { behind } = await behindLatest(tx);
-        const pinned = behind.map((agent) => agent.agent_id).sort();
-        const same = await rows<{ id: string }>(
+        const behindSorted = [...behind].sort((a, b) =>
+          a.agent_id < b.agent_id ? -1 : a.agent_id > b.agent_id ? 1 : 0,
+        );
+        const pinned = behindSorted.map((agent) => agent.agent_id);
+        const same = await rows<{ id: string; revision: number }>(
           tx,
-          sql`SELECT a.id FROM agents a
+          sql`SELECT a.id, a.activation_revision AS revision FROM agents a
             JOIN agent_releases r ON r.id = a.active_release_id
             JOIN installation_profiles p ON p.id = r.runtime_profile_id
             WHERE a.model_source = 'fixed'
@@ -337,15 +359,21 @@ export function createPostgresProfileRolloutStore(
             ORDER BY a.id`,
         );
         const modelFollowsProfile = same.map((row) => row.id);
+        // Agent changes do not take the profile lock, so each update holds
+        // only if the agent's release has not moved since it was read.
         if (!dryRun) {
-          for (const id of pinned) {
+          for (const agent of behindSorted) {
             await tx.execute(
-              sql`UPDATE agents SET profile_tracking = 'pinned' WHERE id = ${id}`,
+              sql`UPDATE agents SET profile_tracking = 'pinned'
+                WHERE id = ${agent.agent_id}
+                  AND activation_revision = ${agent.revision}`,
             );
           }
-          for (const id of modelFollowsProfile) {
+          for (const agent of same) {
             await tx.execute(
-              sql`UPDATE agents SET model_source = 'profile' WHERE id = ${id}`,
+              sql`UPDATE agents SET model_source = 'profile'
+                WHERE id = ${agent.id} AND model_source = 'fixed'
+                  AND activation_revision = ${agent.revision}`,
             );
           }
         }

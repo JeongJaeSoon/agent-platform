@@ -52,7 +52,7 @@ import {
   rethrowCursorCastError,
 } from "./cursors.ts";
 import { DB_NOW } from "./db-clock.ts";
-import { isNewestProfile } from "./profile-rollouts.ts";
+import { isNewestProfile, runsLineageOf } from "./profile-rollouts.ts";
 import type { Database } from "./queries.ts";
 import { earlierInSecond, releaseLabel } from "./release-labels.ts";
 import {
@@ -880,7 +880,8 @@ export function createPostgresAgentStore(db: Database): AgentStore {
           intent?.kind === "rollout" &&
           (agent.profileTracking !== "follow" ||
             agent.behaviorRevision !== intent.behaviorRevision ||
-            !(await isNewestProfile(tx, intent.targetProfileId)))
+            !(await isNewestProfile(tx, intent.targetProfileId)) ||
+            !(await runsLineageOf(tx, input.agentId, intent.targetProfileId)))
         ) {
           return { outcome: "superseded" };
         }

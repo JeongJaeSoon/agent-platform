@@ -87,12 +87,19 @@ const CATALOG: SessionCatalog = withSeededInstallation({
     op_ops_v2: V2,
     op_ops_v3: V3,
     op_ops_v4: V4,
+    op_other_v1: V1,
   },
   repositories: {
     app: {
       url: "https://example.invalid/app.git",
       branch: "main",
-      profiles: ["op_ops_v1", "op_ops_v2", "op_ops_v3", "op_ops_v4"],
+      profiles: [
+        "op_ops_v1",
+        "op_ops_v2",
+        "op_ops_v3",
+        "op_ops_v4",
+        "op_other_v1",
+      ],
       auth: { kind: "github_app", registered: true },
     },
   },
@@ -527,6 +534,35 @@ integration("profile rollouts on PostgreSQL (U3b reader)", () => {
     });
     expect(outcome.status).toBe("superseded");
     // The release row may exist (its id is fixed); it was not switched on.
+    const row = await agentRow(made.agent.id);
+    expect(row?.activeReleaseId).toBe(made.agent.active_release_id);
+    expect(row?.activationRevision).toBe(made.agent.activation_revision);
+  });
+
+  test("a rollout activation is superseded when the agent moved to another profile", async () => {
+    const caller = await owner();
+    await lineage(caller);
+    await db.insert(installationProfiles).values({
+      id: "op_other_v1",
+      name: "other",
+      version: 1,
+      origin: "console",
+      definition: definitionOf(V1),
+      permissionMode: "default",
+      fingerprint: "fp-other",
+      repositoryIds: [],
+      createdBy: userOf(caller),
+    });
+    // The agent follows, but its release is on another lineage than the
+    // rollout's target: the rollout must not switch it to `ops`.
+    const made = await follower(caller, { profile: "op_other_v1" });
+    const outcome = await service().rolloutRelease({
+      workspaceId: caller.ownerId,
+      agentId: made.agent.id,
+      actorUserId: userOf(caller),
+      targetProfileId: "op_ops_v2",
+    });
+    expect(outcome.status).toBe("superseded");
     const row = await agentRow(made.agent.id);
     expect(row?.activeReleaseId).toBe(made.agent.active_release_id);
     expect(row?.activationRevision).toBe(made.agent.activation_revision);
