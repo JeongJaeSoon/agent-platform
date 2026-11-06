@@ -38,6 +38,7 @@ test("worker environment names retain both proxy spellings", () => {
     workspaceDir: "WORKER_WORKSPACE_DIR",
     workspaceMountDir: "WORKER_WORKSPACE_MOUNT_DIR",
     workspaceQuotaBytes: "WORKER_WORKSPACE_QUOTA_BYTES",
+    workspacePvcCapacityBytes: "WORKER_WORKSPACE_PVC_CAPACITY_BYTES",
     workspaceQuotaMode: "WORKER_WORKSPACE_QUOTA_MODE",
     httpProxy: "HTTP_PROXY",
     httpProxyLower: "http_proxy",

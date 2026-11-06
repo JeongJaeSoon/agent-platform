@@ -101,6 +101,7 @@ export type Secret = { metadata: ObjectMeta };
 
 export type PersistentVolumeClaim = {
   metadata: ObjectMeta;
+  status?: { capacity?: { storage?: string } };
   spec: {
     resources?: { requests?: { storage?: string } };
     storageClassName?: string;

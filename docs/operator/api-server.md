@@ -300,6 +300,10 @@ API의 `WORKSPACE_ENFORCE`는 `warn`(기본)·`fail`·`off` 중 하나다. 다�
 
 소프트 상한은 사후 탐지이므로 측정과 interrupt 사이에 쓰기가 더 진행될 수 있고 유한한 초과량을 보장하지 않는다. 열린 채 unlink한 파일 같은 순회 측정의 한계도 있다. 큰 쓰기를 확실히 막아야 하면 스토리지의 하드 상한이 필요하다.
 
+세션 상세의 workspace 상한 줄은 최신 attempt가 기록한 `system/workspace_limit_mode` 이벤트의 바이트·inode 판별을 읽는다. 기록이 없으면 두 축 모두 미확인이다. `workspace_limit_mode` 응답 필드는 선택이며, 사용량이나 초과 횟수가 아니다. `workspace_quota_exceeded_total`은 계속 초과 표본 수를 세며 이 화면에서 세션 수로 표시하지 않는다.
+
+Kubernetes scheduler는 해당 PVC의 `status.capacity.storage`만 읽어 내부 전달값 `WORKER_WORKSPACE_PVC_CAPACITY_BYTES`를 만든다. 운영자가 직접 설정하는 값이 아니며 PVC가 아직 Bound가 아니거나 조회 권한이 없으면 생략한다. capacity가 요청과 같아도 강제의 증거는 아니므로 기본 판별은 미확인이다. StorageClass·PV 읽기와 ClusterRole은 추가하지 않는다.
+
 ### 턴이 끝날 때 push하기 (`AGENT_ACTION_FLOWS`)
 
 기본은 꺼져 있다. 꺼져 있으면 `request_push`는 예전처럼 동작한다(요청을 만들고, 승인되면 이어 가는 턴이 따로 돈다). 켜면 실행 중인 턴 안의 `request_push`는 요청을 만들지 않고 "이 턴이 끝날 때의 결과를 push한다"는 의도(`push_intents`)만 남긴다. 이어 가는 턴은 없다.
