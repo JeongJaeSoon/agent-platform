@@ -21,6 +21,34 @@ description: 게시된 Helm chart로 Kubernetes에 Werft를 설치하고 /readyz
 
 chart는 PostgreSQL, object store, Secret 값을 만들지 않는다. worker Pod도 만들지 않는다. scheduler가 세션마다 만든다. 게시 이미지는 `linux/amd64`와 `linux/arm64`를 담은 index이므로 노드가 자기 아키텍처를 받는다.
 
+### workspace 저장소와 상한
+
+단일 서버는 XFS `prjquota`가 workspace 용량과 inode를 막는다([디스크 준비](/run-server/self-hosting/single-server)). Kubernetes에는 그 조건이 없다. 대신 상한의 구조가 다르다. 아래 표는 두 경로를 같은 항목으로 놓은 것이다.
+
+| 항목 | 단일 서버 | Kubernetes |
+| --- | --- | --- |
+| 저장 위치 | 세션마다 Docker `local` volume. Docker 데이터 루트의 XFS | 세션마다 PVC 하나(`werft-ws-<installationId>-<sessionId>`), worker의 `/workspace`에 마운트. `ReadWriteOnce`, `Filesystem`. `/tmp`와 HOME은 메모리 emptyDir이고 hostPath는 쓰지 않는다 |
+| 용량 상한 | `EXECUTION_WORKSPACE_QUOTA_MB` 기본 4096MiB(최솟값 1024) | PVC의 `requests.storage`, helm `worker.workspace.quotaMb` 기본 4096MiB(최솟값 1024). 실제로 막는지는 StorageClass가 정한다 |
+| inode 상한 | `EXECUTION_WORKSPACE_QUOTA_INODES` 기본 1,000,000 | **없다.** Werft도 chart도 걸지 않는다. 파일시스템 기본값을 따른다(ext4는 만들 때 개수가 정해진다) |
+| 강제 주체 | XFS `prjquota`(커널). scheduler preflight가 확인 | kubelet과 CSI 드라이버. Werft는 크기를 요청만 하고 사용량을 읽지 않는다. 확인하는 preflight도 없다 |
+| 넘었을 때 | worker 쓰기가 `ENOSPC`. 상한을 걸 수 없으면 scheduler가 기동하지 않음 | StorageClass가 용량을 강제하면 `ENOSPC`. 강제하지 않으면 상한이 없는 것과 같다. 노드 디스크(PVC 밖, 주로 로그)는 `worker.ephemeralStorageMb`(기본 1024MiB, requests=limits)를 넘으면 kubelet이 Pod를 evict |
+| 운영자가 정할 값 | Docker 데이터 루트의 파일시스템과 크기, 위 두 상한 | `worker.storageClass`(비우면 클러스터 기본), `worker.workspace.quotaMb`, `worker.ephemeralStorageMb`, worker 노드의 파일시스템 크기 |
+| 확인 명령 | `findmnt -no FSTYPE,OPTIONS -T "$(docker info -f '{{.DockerRootDir}}')"`, `xfs_quota -x -c 'report -p'` | 아래 |
+
+```bash
+kubectl get storageclass
+kubectl -n werft get pvc -l app.kubernetes.io/part-of=werft,werft.installation=<installationId> \
+  -o custom-columns=NAME:.metadata.name,REQUEST:.spec.resources.requests.storage,CAPACITY:.status.capacity.storage
+kubectl -n werft exec <worker-pod> -- df -h /workspace
+kubectl -n werft exec <worker-pod> -- df -i /workspace
+```
+
+`kubectl get storageclass`에서 쓸 StorageClass의 provisioner가 용량을 강제하는 볼륨(예: EBS gp3는 요청한 크기가 곧 블록 장치 크기다)을 만드는지 확인한다. `df -h`의 총량이 `quotaMb`와 같아야 하고, `df -i`로 inode 총량을 본다. 이 명령들은 클러스터에서 실행해 보지 않았다(**미검증**). 값은 코드(`specs.ts`, `config.ts`)와 chart에서 읽었다.
+
+- `worker.workspace.quotaMb`를 바꾸면 이미 있는 세션의 PVC는 만들 때의 크기와 달라 그 세션이 거절된다(`werft.workspace-size` annotation과 비교한다). 새 세션부터 적용하려면 진행 중인 세션이 없을 때 바꾼다.
+- kind의 기본 StorageClass(local-path 계열)는 PVC 크기를 강제하지 않는 것으로 알려져 있다. 이 저장소에서 측정하지 않았다(**미검증**). kind에서 `Bound`가 됐다고 상한이 선 것은 아니다.
+- **알려진 한계.** inode 상한이 없고, 용량 상한은 StorageClass에 맡겨져 있다. 상한을 강제하지 않는 StorageClass를 골라도 chart는 거부하지 않는다. 이 한계를 막을 코드 변경은 이 페이지의 범위 밖이다.
+
 ## 1. 버전 정하기
 
 버전은 항상 정확히 적는다. `main` 머지의 chart 버전은 `0.1.0-main-<12>`이고 `<12>`는 commit SHA의 앞 12자다. `main` 버전끼리는 순서에 뜻이 없으므로 `--devel`로 최신을 고르지 않는다. 저장소의 [Images workflow](https://github.com/JeongJaeSoon/werft/blob/main/.github/workflows/images.yml)에서 초록색으로 끝난 `main` run의 commit을 골라 적는다.

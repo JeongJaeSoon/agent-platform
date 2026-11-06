@@ -21,6 +21,34 @@ description: 公開された Helm chart で Kubernetes に Werft を設置し、
 
 chart は PostgreSQL、オブジェクトストア、Secret の値を作りません。worker Pod も作りません。scheduler がセッションごとに作ります。公開イメージは `linux/amd64` と `linux/arm64` を含む index なので、ノードは自分のアーキテクチャを取得します。
 
+### workspace のストレージと上限
+
+単一サーバーでは XFS `prjquota` が workspace の容量と inode を制限します([ディスクの準備](/run-server/self-hosting/single-server))。Kubernetes にはその条件がなく、上限の仕組みが違います。表は2つの経路を同じ項目で並べたものです。
+
+| 項目 | 単一サーバー | Kubernetes |
+| --- | --- | --- |
+| 保存場所 | セッションごとに Docker `local` volume。Docker データルートの XFS 上 | セッションごとに PVC が1つ(`werft-ws-<installationId>-<sessionId>`)で、worker の `/workspace` に mount する。`ReadWriteOnce`、`Filesystem`。`/tmp` と HOME はメモリの emptyDir で、hostPath は使わない |
+| 容量の上限 | `EXECUTION_WORKSPACE_QUOTA_MB`、既定 4096MiB(最小 1024) | PVC の `requests.storage`、helm の `worker.workspace.quotaMb`、既定 4096MiB(最小 1024)。実際に強制されるかは StorageClass 次第 |
+| inode の上限 | `EXECUTION_WORKSPACE_QUOTA_INODES`、既定 1,000,000 | **ない。** Werft も chart も設定しない。ファイルシステムの既定に従う(ext4 は作るときに数が決まる) |
+| 強制する主体 | XFS `prjquota`(カーネル)。scheduler の preflight が確認 | kubelet と CSI ドライバー。Werft はサイズを要求するだけで、使用量は読まない。確認する preflight もない |
+| 超えたとき | worker の書き込みが `ENOSPC`。上限を設定できなければ scheduler は起動しない | StorageClass がサイズを強制すれば `ENOSPC`。強制しなければ上限がないのと同じ。PVC の外のノードディスク(主にログ)は `worker.ephemeralStorageMb`(既定 1024MiB、requests=limits)を超えると kubelet が Pod を evict する |
+| 運用者が決める値 | Docker データルートのファイルシステムとサイズ、2つの上限 | `worker.storageClass`(空ならクラスターの既定)、`worker.workspace.quotaMb`、`worker.ephemeralStorageMb`、worker ノードのファイルシステムのサイズ |
+| 確認コマンド | `findmnt -no FSTYPE,OPTIONS -T "$(docker info -f '{{.DockerRootDir}}')"`、`xfs_quota -x -c 'report -p'` | 下記 |
+
+```bash
+kubectl get storageclass
+kubectl -n werft get pvc -l app.kubernetes.io/part-of=werft,werft.installation=<installationId> \
+  -o custom-columns=NAME:.metadata.name,REQUEST:.spec.resources.requests.storage,CAPACITY:.status.capacity.storage
+kubectl -n werft exec <worker-pod> -- df -h /workspace
+kubectl -n werft exec <worker-pod> -- df -i /workspace
+```
+
+`kubectl get storageclass` で、使う StorageClass の provisioner がサイズを強制する volume を作るか確認します(例: EBS gp3 は要求したサイズがそのままブロックデバイスの大きさになる)。`df -h` の合計が `quotaMb` と一致するはずで、`df -i` で inode の合計が見えます。これらのコマンドはクラスターで実行していません(**未検証**)。値はコード(`specs.ts`、`config.ts`)と chart から読みました。
+
+- `worker.workspace.quotaMb` を変えると、既存セッションの PVC は作成時のサイズと合わなくなり、そのセッションは拒否されます(`werft.workspace-size` annotation と比べる)。新しいセッションから適用するには、進行中のセッションがないときに変えます。
+- kind の既定 StorageClass(local-path 系)は PVC のサイズを強制しないことが知られています。このリポジトリでは測っていません(**未検証**)。kind で PVC が `Bound` になっても、上限が効いているとは限りません。
+- **既知の制限。** inode の上限がなく、容量の上限は StorageClass に任されています。サイズを強制しない StorageClass を選んでも chart は拒否しません。これを塞ぐコード変更はこのページの範囲外です。
+
 ## 1. バージョンを決める
 
 バージョンは常に正確に指定します。`main` マージの chart バージョンは `0.1.0-main-<12>` で、`<12>` は commit SHA の先頭12文字です。`main` のバージョン同士の順序に意味はないので、`--devel` で最新を選びません。リポジトリの [Images workflow](https://github.com/JeongJaeSoon/werft/blob/main/.github/workflows/images.yml) で緑で終わった `main` の run の commit を選んで書きます。

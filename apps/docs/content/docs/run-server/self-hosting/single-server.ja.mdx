@@ -27,12 +27,57 @@ Linux サーバー1台に Docker Compose で Werft を設置します。イメ�
 | OS | Linux。`x86_64` と `arm64` のどちらも使える |
 | Docker Engine | 28 以上 |
 | Docker Compose | 2.24.6 以上 |
-| ディスク | Docker のデータルートが XFS で、`prjquota` 付きで mount されている。`preflight` はこれを検査しない。そうでないと `deploy` で scheduler の quota 検査が失敗し、設置が止まる。Docker Desktop では使えない。OrbStack の既定のマシンは btrfs なのでこの条件を満たさない。マシン内で sparse イメージファイル(60G)に `mkfs.xfs` で XFS を作り、`loop,prjquota` で mount して Docker の `data-root` に指定すると、mount オプションに `prjquota` が現れ、`deploy` の quota 検査が通る(OrbStack マシン1台で1回確認した) |
+| ディスク | Docker のデータルートが XFS で、`prjquota` 付きで mount されている。`preflight` はこれを検査しない。そうでないと `deploy` で scheduler の quota 検査が失敗し、設置が止まる。ext4 のサーバーは、下の「ディスクの準備」で XFS を作る。Docker Desktop では使えない |
 | 時刻 | NTP で同期している。再起動後に Docker が自動で起動する |
 | ツール | `git`、`jq`、`curl`、`openssl`、Bun 1.3.14、Docker Buildx プラグイン。Docker daemon に接続できるアカウント |
 | ネットワーク | ホストが `ghcr.io` と Docker Hub からイメージを取得できる。パッケージはログイン不要。セッションは `api.anthropic.com` と `github.com` に接続する |
 
 設置にはリポジトリの checkout が必要です。compose ファイルと `scripts/test-ops.sh` を checkout から読むためです。イメージは checkout からビルドしません。
+
+### ディスクの準備: XFS `prjquota`
+
+**なぜ必要か。** セッションごとに workspace volume が1つでき、その volume は同じディスクの PostgreSQL、LocalStack、ほかのセッションと容量を分け合います。Werft は volume ごとに容量(`EXECUTION_WORKSPACE_QUOTA_MB`、既定 4096MiB)と inode(`EXECUTION_WORKSPACE_QUOTA_INODES`、既定 1,000,000)の上限を設定します。この上限を強制するのは XFS の project quota です。`prjquota` のないファイルシステム(ext4 を含む)では、Docker が `size` オプションを受け付けません。そのため scheduler は起動時に probe volume を作り、作れなければ worker を1つも起動せずに終了します。上限なしで動かす方法は `EXECUTION_WORKSPACE_QUOTA=off` だけですが、`test-ops` の設定検査がこの値を拒否するので、この設置手順では使えません。
+
+**今のサーバーが条件を満たすか確認する。**
+
+```bash
+findmnt -no FSTYPE,OPTIONS -T "$(docker info -f '{{.DockerRootDir}}')"
+docker volume create --driver local --opt size=64m quota-probe && docker volume rm quota-probe
+```
+
+1行目に `xfs` が出てオプションに `prjquota` があり、2行目がエラーなく終われば良いです。ext4 だと2行目は `quota size requested but no quota support` で拒否されます。設置済みなら `xfs_quota -x -c 'report -p'` で volume ごとの使用量と上限が見えます。
+
+**ext4 のサーバーを準備する。** 以下は Docker をまだ使っていないサーバーが前提です。イメージファイルに XFS を作り、`/var/lib/docker` に `loop,prjquota` で mount します。イメージファイルは mount 先の外に置きます。
+
+```bash
+sudo apt-get install -y xfsprogs          # dnf なら dnf install -y xfsprogs
+sudo systemctl stop docker docker.socket
+sudo truncate -s 60G /var/lib/docker.xfs.img
+sudo mkfs.xfs -q /var/lib/docker.xfs.img
+sudo mkdir -p /var/lib/docker
+echo '/var/lib/docker.xfs.img /var/lib/docker xfs loop,prjquota 0 0' | sudo tee -a /etc/fstab
+sudo mount /var/lib/docker
+mount | grep 'on /var/lib/docker .*prjquota'
+sudo systemctl start docker
+```
+
+Docker がすでにイメージや volume を持っているなら、`mount` の前に `/var/lib/docker` を `/var/lib/docker.old` に移し、mount の後、Docker を起動する前に `sudo rsync -aHAX /var/lib/docker.old/ /var/lib/docker/` で戻します。上の確認コマンドが通ってから `deploy` に進みます。
+
+- 60G は Docker 全体(イメージ、ログ、すべての volume)の上限です。イメージファイルは sparse なので書いた分だけホストのディスクを使いますが、小さくはなりません。ホストのファイルシステムにその分の空きが必要です。
+- 確認したこと: `truncate`、`mkfs.xfs`、`mount -o loop,prjquota`、`mount | grep prjquota` は、リポジトリの CI の `workspace-quota` job がそのまま実行します(8G のイメージ)。イメージファイルを Docker の `data-root` に指定する方法は OrbStack マシン1台で1回確認しました。`/etc/fstab` の行と `rsync` での移行は、このページを書く間に実行していません(**未検証**)。先にテスト用サーバーで試します。
+- 2つの配備経路の workspace 上限を同じ項目で並べた表は、[Kubernetes への設置](/run-server/self-hosting/kubernetes)の「workspace のストレージと上限」にあります。
+
+**このサーバーの workspace ストレージと上限。**
+
+| 項目 | 単一サーバー |
+| --- | --- |
+| 保存場所 | セッションごとに Docker `local` volume が1つ。名前にはランダムな接尾辞が付き、label で探す。Docker データルートの XFS の上にある |
+| 容量の上限 | `EXECUTION_WORKSPACE_QUOTA_MB`、既定 4096MiB、最小 1024MiB。volume を作るとき `size` で設定する |
+| inode の上限 | `EXECUTION_WORKSPACE_QUOTA_INODES`、既定 1,000,000。同じ XFS project に `ihard`・`isoft` で設定する |
+| 強制する主体 | XFS `prjquota`(カーネル)。上限を設定できるかは scheduler の quota preflight が確認する |
+| 超えたとき | worker 内の書き込みが `ENOSPC` で失敗する。上限を設定できないサーバーでは scheduler が起動しない |
+| 運用者が決める値 | Docker データルートのファイルシステム(XFS、`prjquota`)とそのサイズ、上の2つの上限 |
+| 確認コマンド | `findmnt -no FSTYPE,OPTIONS -T "$(docker info -f '{{.DockerRootDir}}')"`、`xfs_quota -x -c 'report -p'`、`df -h`、`df -i` |
 
 ## 1. イメージの digest を読む
 
