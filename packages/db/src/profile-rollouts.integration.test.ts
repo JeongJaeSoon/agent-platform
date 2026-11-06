@@ -780,9 +780,7 @@ integration("profile rollouts on PostgreSQL (U3b reader)", () => {
       expect(filled).toEqual({ ...dry, dryRun: false });
       expect(filled.modelFollowsProfile).not.toContain(fixed.agent.id);
       expect((await agentRow(fixed.agent.id))?.modelSource).toBe("fixed");
-      expect((await agentRow(failed.agent.id))?.profileTracking).toBe(
-        "follow",
-      );
+      expect((await agentRow(failed.agent.id))?.profileTracking).toBe("follow");
       expect(await db.select().from(profileFill)).toHaveLength(1);
     });
 
