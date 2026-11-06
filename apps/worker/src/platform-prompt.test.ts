@@ -247,6 +247,22 @@ describe("runtimeProfile with a platform prompt", () => {
     );
   });
 
+  // A change in wording moves these, and a session of that revision then
+  // cannot resume its checkpoint (INCOMPATIBLE_CHECKPOINT): add a revision.
+  test("a revision 1 and a revision 2 claim keep the digests they had on main, so their checkpoints resume", () => {
+    const digest = (prompt: PlatformPrompt) =>
+      claimFingerprint(config)({
+        principal,
+        runtime_config: { ...base, platform_prompt: prompt },
+      }).profileSha256;
+    expect(digest(withRepository)).toBe(
+      "e2bdae38e8ad6d8e5202f3a83942be92650dd4617463d0510b2174b9c2c60e35",
+    );
+    expect(digest({ ...withRepository, prompt_revision: 2 })).toBe(
+      "3b5a2f6b048c9240abb2dddfe1354935fd27a7fd499e7fc8ea7c3ec8063567ce",
+    );
+  });
+
   test("a revision 0 claim keeps the digest it had before the field, so its checkpoints resume", () => {
     const before = claimFingerprint(config)({
       principal,

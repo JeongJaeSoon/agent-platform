@@ -66,6 +66,7 @@ export function agentServer({
   const bindings: CredentialBindingView[] = [];
   let active: string | null = null;
   let revision = -1;
+  let draftId: string | null = null;
 
   function version(no: number, card: AgentCard): AgentVersion {
     return {
@@ -99,6 +100,17 @@ export function agentServer({
       versions: [...versions],
       releases: [...releases],
       active_release: releases.find((r) => r.id === active) ?? null,
+      behavior_revision: 0,
+      model_source: "fixed",
+      draft: draftId
+        ? {
+            version_id: draftId,
+            runtime_profile_id: "claude-coding-local",
+            model_source: "fixed",
+            failure: "release_refused",
+          }
+        : null,
+      effective_behavior: { applied: null, draft: null },
     };
   }
 
@@ -152,7 +164,15 @@ export function agentServer({
       name = body.name;
       description = body.description ?? null;
       team = body.managing_team_id === undefined ? null : TEAM;
-      return json(201, detail());
+      return json(201, {
+        ...detail(),
+        release: {
+          status: "unchanged",
+          reason: null,
+          release_id: null,
+          version_id: null,
+        },
+      });
     },
     [`PUT ${path}/managing-team`]: async (request: Request) => {
       const body = (await request.json()) as { team_id: string };
@@ -206,12 +226,32 @@ export function agentServer({
       if (body.name !== undefined) name = body.name;
       if (body.description !== undefined) description = body.description;
       const card = body.card;
+      let fresh = false;
       if (
         card &&
         !versions.some((v) => JSON.stringify(v.card) === JSON.stringify(card))
-      )
-        versions.push(version(versions.length + 1, card));
-      return json(200, detail());
+      ) {
+        const added = version(versions.length + 1, card);
+        versions.push(added);
+        draftId = added.id;
+        fresh = true;
+      }
+      return json(200, {
+        ...detail(),
+        release: fresh
+          ? {
+              status: "failed",
+              reason: "release_refused",
+              release_id: null,
+              version_id: draftId,
+            }
+          : {
+              status: "unchanged",
+              reason: null,
+              release_id: null,
+              version_id: null,
+            },
+      });
     },
     [`POST ${path}/releases`]: async (request: Request) => {
       const body = (await request.json()) as {

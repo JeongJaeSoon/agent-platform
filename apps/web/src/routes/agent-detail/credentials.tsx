@@ -45,7 +45,7 @@ import { SECTION_BODY } from "../../components/section-body.ts";
 import { StatusScreen } from "../../components/status-screen.tsx";
 import { type Translate, useI18n } from "../../i18n/i18n.tsx";
 import { agentRefusal } from "../agents.tsx";
-import { latestVersion } from "./versions.tsx";
+import { nextVersion } from "./versions.tsx";
 
 /** Under the agent's key, so whatever refreshes the agent refreshes these. */
 const bindingsKey = (client: ApiClient, agentId: string) =>
@@ -366,7 +366,7 @@ function namedRefs(detail: AgentDetail, missing: readonly string[]) {
   return [
     ...new Set([
       ...missing,
-      ...(latestVersion(detail)?.card.capabilities.credential_refs ?? []),
+      ...(nextVersion(detail)?.card.capabilities.credential_refs ?? []),
       ...(activeVersion?.card.capabilities.credential_refs ?? []),
     ]),
   ];

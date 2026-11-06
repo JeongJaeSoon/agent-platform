@@ -34,6 +34,7 @@ import {
   createPostgresMcpEgressStore,
   createPostgresMemberStore,
   createPostgresPendingRequests,
+  createPostgresProfileRolloutStore,
   createPostgresPullRequestDrain,
   createPostgresPullRequestSettingsStore,
   createPostgresPullRequests,
@@ -101,6 +102,7 @@ import {
   createOutcomeRefresher,
   createPendingRequestService,
   createProfileRegistry,
+  createProfileRolloutRunner,
   createPullRequestDrain,
   createPullRequestService,
   createPushExecutor,
@@ -505,6 +507,7 @@ const slackWelcome =
         logger,
       });
 const githubSettingsStore = createPostgresGitHubSettingsStore(db);
+const profileRollouts = createPostgresProfileRolloutStore(db);
 const agents = createAgentService({
   authorization,
   store: agentStore,
@@ -514,6 +517,7 @@ const agents = createAgentService({
   ...(slackWelcome === null ? {} : { welcome: slackWelcome }),
   keys: createPostgresWorkspaceKeyStore(db),
   outsideAgents: agentAccess,
+  profileLineage: profileRollouts,
 });
 const archivedEvents = archivedEventSource(checkpointStorage);
 const sessions = createSessionService({
@@ -995,6 +999,15 @@ const pushIntentRunner = createPushIntentRunner({
   createFromIntent: (job) => pushRequests.createFromIntent(job),
   logger,
 }).start();
+// Moves agents that follow a profile onto its newest version (design 2.3).
+// Every replica runs it; an item's lease and the activation's compare-and-swap
+// make a second one harmless. `sweep` stays off until the writer is open.
+const profileRolloutRunner = createProfileRolloutRunner({
+  rollouts: profileRollouts,
+  agentStore,
+  agents,
+  logger,
+}).start();
 // The pull request drain of the control-host's action-broker starts whether
 // or not AGENT_ACTION_FLOWS is on: a stage left from before a restart with
 // the setting off is still finished.
@@ -1380,6 +1393,10 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
       [
         { name: "push-executor", close: () => pushExecutor.stop() },
         { name: "push-intent-runner", close: () => pushIntentRunner.stop() },
+        {
+          name: "profile-rollout-runner",
+          close: () => profileRolloutRunner.stop(),
+        },
         { name: "pull-request-drain", close: () => pullRequestDrain.stop() },
         { name: "outcome-refresher", close: () => outcomeRefresher.stop() },
         { name: "achievement-judge", close: () => achievementJudge.stop() },
