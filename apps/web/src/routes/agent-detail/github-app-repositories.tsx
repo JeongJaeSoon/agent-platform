@@ -124,7 +124,10 @@ export function AppRepositoryPicker({
       <Heading id={titleId} level={3} className="font-medium text-control">
         {t("agentGitHub.pickTitle")}
       </Heading>
-      <Text variant="meta">{t("agentGitHub.pickHint")}</Text>
+      {/* The hint states the ceiling; a failed first read has not learned it. */}
+      {list.isError ? null : (
+        <Text variant="meta">{t("agentGitHub.pickHint")}</Text>
+      )}
       {list.isError ? (
         <LoadFailure error={list.error} onRetry={() => list.refetch()} />
       ) : (

@@ -297,6 +297,44 @@ describe("에이전트 GitHub 탭", () => {
     expect(screen.queryByText(/저장소 범위 밖/)).toBeNull();
   });
 
+  test("저장소 상한이 목록뿐이면 App 저장소 고르기 칸과 전체 허용 안내를 그리지 않는다", async () => {
+    const { server } = await activeAgent();
+    const { api } = renderAt(DETAIL, routesFor(server, TAB));
+    await screen.findByRole("heading", { name: "저장소" });
+    await waitFor(() =>
+      expect(
+        api.calls.some((c) => c.path === `${PATH}/github/repositories`),
+      ).toBe(true),
+    );
+    // Let the answer land: until then the picker is hidden for any ceiling.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(screen.queryByText(/App 저장소 전체를 허용/) === null).toBe(true);
+    expect(
+      screen.queryByRole("region", {
+        name: "App이 설치된 저장소에서 고르기",
+      }) === null,
+    ).toBe(true);
+  });
+
+  test("고르기 칸을 읽지 못하면 오류만 보이고 전체 허용 안내는 보이지 않는다", async () => {
+    const { server } = await activeAgent();
+    renderAt(
+      DETAIL,
+      routesFor(server, TAB, {
+        // A suspended installation is the one failure react-query does not retry.
+        [`GET ${PATH}/github/repositories`]: () =>
+          apiError(409, "INSTALLATION_SUSPENDED", "suspended"),
+      }),
+    );
+    const picker = within(
+      await screen.findByRole("region", {
+        name: "App이 설치된 저장소에서 고르기",
+      }),
+    );
+    await picker.findByRole("alert");
+    expect(screen.queryByText(/App 저장소 전체를 허용/) === null).toBe(true);
+  });
+
   test("쓸 수 없는 저장소와 권한은 그 이유를 행에 적고 스위치를 잠근다", async () => {
     const { server } = await activeAgent();
     const reason = <R,>(r: R) => ({ available: false, reason: r });
