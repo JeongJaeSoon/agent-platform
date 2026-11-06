@@ -56,6 +56,7 @@ const PUSH_THIS_TURN = [
 
 const GITHUB_REST = [
   "If push approval is on for this agent, a person approves each push, whatever the permission mode.",
+  "A push carries one commit, the one the checked-out branch ends with. Work on the repository you push to by checking out its branch (an attached repository's is <repository_id>/<branch>) in the workspace; a git worktree or clone elsewhere is not part of the checkpoint, and its commits cannot be pushed. To push two repositories, push one, then check out the other in a later turn and push it.",
   "Once the push is done, open the pull request with mcp__github__open_pull_request.",
   "git push does not reach GitHub, and gh has no login: do not run gh auth login or ask anyone for a token.",
   "Push only to branches named agent/<session-id> or agent/<session-id>-<name>.",

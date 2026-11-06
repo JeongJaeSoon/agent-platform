@@ -75,7 +75,7 @@ describe("platformPromptText (revision 1)", () => {
     "",
   ];
   const githubPath =
-    "GitHub work goes through the mcp__github__ tools; mcp__github__list_repositories says which repositories you can use now. Push with mcp__github__request_push. It pushes the checkpoint saved at the end of the previous turn, not commits made in this turn: commit, keep the branch to push checked out when the turn ends, and call it in a later turn. Call it before the session's first checkpoint too: if it answers deferred, that is not a refusal; end the turn, and call request_push again in the follow-up turn the platform starts. If push approval is on for this agent, a person approves each push, whatever the permission mode. Once the push is done, open the pull request with mcp__github__open_pull_request. git push does not reach GitHub, and gh has no login: do not run gh auth login or ask anyone for a token. Push only to branches named agent/<session-id> or agent/<session-id>-<name>. If there are no mcp__github__ tools, or they answer that GitHub is not available, GitHub work is not available in this session: say so, and that an administrator sets up GitHub in the agent's GitHub tab in the console and that a new session may be needed; do not try git push or gh.";
+    "GitHub work goes through the mcp__github__ tools; mcp__github__list_repositories says which repositories you can use now. Push with mcp__github__request_push. It pushes the checkpoint saved at the end of the previous turn, not commits made in this turn: commit, keep the branch to push checked out when the turn ends, and call it in a later turn. Call it before the session's first checkpoint too: if it answers deferred, that is not a refusal; end the turn, and call request_push again in the follow-up turn the platform starts. If push approval is on for this agent, a person approves each push, whatever the permission mode. A push carries one commit, the one the checked-out branch ends with. Work on the repository you push to by checking out its branch (an attached repository's is <repository_id>/<branch>) in the workspace; a git worktree or clone elsewhere is not part of the checkpoint, and its commits cannot be pushed. To push two repositories, push one, then check out the other in a later turn and push it. Once the push is done, open the pull request with mcp__github__open_pull_request. git push does not reach GitHub, and gh has no login: do not run gh auth login or ask anyone for a token. Push only to branches named agent/<session-id> or agent/<session-id>-<name>. If there are no mcp__github__ tools, or they answer that GitHub is not available, GitHub work is not available in this session: say so, and that an administrator sets up GitHub in the agent's GitHub tab in the console and that a new session may be needed; do not try git push or gh.";
   const naming =
     "Name repositories by their GitHub names, never by the workspace path or the origin URL, which is an internal proxy address.";
   const closing = [
@@ -164,6 +164,16 @@ describe("platformPromptText (revision 2, action flows on)", () => {
     expect(text).toContain("waits_for turn_end");
     expect(text).toContain("If it answers with a push request instead");
     expect(platformPromptText(withRepository)).not.toContain("waits_for");
+  });
+
+  test("says a push carries one checked-out commit and keeps worktrees out", () => {
+    for (const text of [
+      platformPromptText(flows),
+      platformPromptText(withRepository),
+    ]) {
+      expect(text).toContain("A push carries one commit");
+      expect(text).toContain("a git worktree or clone elsewhere");
+    }
   });
 
   test("keeps every rule that does not depend on the flow", () => {
