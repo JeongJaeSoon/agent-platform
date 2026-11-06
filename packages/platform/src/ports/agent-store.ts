@@ -110,6 +110,11 @@ export type ActivationIntent =
       behaviorRevision: number;
       draftVersionId: string;
       modelSource: ModelSource;
+      /**
+       * The save is "bring this agent to the newest version of its profile":
+       * the agent follows again in the same write as the release.
+       */
+      followsProfile?: boolean;
     }
   | {
       kind: "rollout";
@@ -243,6 +248,17 @@ export interface AgentStore {
     draftVersionId: string;
     failure: string;
   }): Promise<boolean>;
+  /**
+   * The agent follows its profile again without a release (it already runs
+   * the newest version). Under the agent's lock, as a save is.
+   */
+  followProfile(
+    input: {
+      principal: Principal;
+      workspaceId: string;
+      agentId: string;
+    } & ManagerRoles,
+  ): Promise<{ outcome: "updated" | "not_found" } | Inactive | Outranked>;
   /**
    * Inserts the release, a `release_created` event and a receipt in one
    * transaction, or returns the row already stored under that id.

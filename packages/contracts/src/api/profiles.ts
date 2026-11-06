@@ -1,5 +1,6 @@
 import { z } from "zod";
 import {
+  agentIdSchema,
   receiptIdSchema,
   timestampSchema,
   userIdSchema,
@@ -123,6 +124,33 @@ export const permissionWaitSchema = z
   .strict();
 
 /**
+ * Where a profile version's rollout stands in the caller's workspace: the
+ * agents that follow the profile and were to move onto this version, and the
+ * agents whose own model a change of the default model does not reach.
+ */
+export const profileRolloutSchema = z
+  .object({
+    /** Agents counted: `applied`, `pending` and `failed`. */
+    total: z.number().int().min(0),
+    applied: z.number().int().min(0),
+    pending: z.number().int().min(0),
+    failed: z.number().int().min(0),
+    /** The agents a person can retry; empty when none failed. */
+    failed_agents: z.array(
+      z
+        .object({
+          agent_id: agentIdSchema,
+          name: z.string(),
+          reason: z.string().min(1).max(128),
+        })
+        .strict(),
+    ),
+    /** Agents running this profile on a model of their own, not its default. */
+    fixed_model_agents: z.number().int().min(0),
+  })
+  .strict();
+
+/**
  * GET /v1/profiles: the profiles a session or a release may name, the
  * operator's and this workspace's. Only what a caller picks by; the
  * provider endpoint and credential reference stay with the operator.
@@ -194,6 +222,9 @@ export const profileSummarySchema = z
         blocked_by: userIdSchema.nullable().optional(),
         blocked_at: timestampSchema.nullable().optional(),
         github_app_repositories: githubAppRepositoriesSchema.optional(),
+        // Optional so a reader ahead of its server reads a profile without
+        // it; absent when this workspace has nothing to show for the version.
+        rollout: profileRolloutSchema.optional(),
       })
       .strict()
       .optional(),
@@ -320,6 +351,18 @@ export const installationProfileIdParamsSchema = workspaceProfileIdParamsSchema;
 export const installationProfileChangeResponseSchema =
   workspaceProfileChangeResponseSchema;
 
+/** POST /v1/installation-profiles/{profile_id}/rollout/retry */
+export const retryProfileRolloutRequestSchema = z
+  .object({ agent_id: agentIdSchema })
+  .strict();
+
+export const retryProfileRolloutResponseSchema = z
+  .object({
+    /** False: nothing of this agent was in `failed` (already retried, say). */
+    retried: z.boolean(),
+  })
+  .strict();
+
 /**
  * GET /v1/installation-profiles/options: what a new ceiling may name. A
  * connection shows only its id, kind and billing; its endpoint and
@@ -397,4 +440,11 @@ export type CreateInstallationProfileRequest = z.infer<
 >;
 export type InstallationProfileOptionsResponse = z.infer<
   typeof installationProfileOptionsResponseSchema
+>;
+export type ProfileRollout = z.infer<typeof profileRolloutSchema>;
+export type RetryProfileRolloutRequest = z.infer<
+  typeof retryProfileRolloutRequestSchema
+>;
+export type RetryProfileRolloutResponse = z.infer<
+  typeof retryProfileRolloutResponseSchema
 >;

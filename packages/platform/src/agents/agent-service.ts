@@ -611,6 +611,8 @@ export function createAgentService(deps: {
       card?: AgentCard;
       runtime_profile_id?: string;
       model_source?: ModelSource;
+      /** The save brings the agent to its profile's newest version. */
+      followsProfile?: boolean;
     },
   ): Promise<SaveAgentResponse> {
     const done = (record: AgentRecord, release: SaveRelease) => ({
@@ -769,6 +771,7 @@ export function createAgentService(deps: {
             behaviorRevision: saved.behaviorRevision,
             draftVersionId: saved.versionId,
             modelSource,
+            ...(fields.followsProfile === true ? { followsProfile: true } : {}),
           },
           reason:
             active && profileId !== active.runtime_profile_id
@@ -826,6 +829,64 @@ export function createAgentService(deps: {
       if (!fresh) throw NOT_FOUND();
       return done(fresh, release);
     }
+  }
+
+  /**
+   * "Bring this agent to the newest version of its profile" (design 2.3): the
+   * save of the agent's own card onto that version, and the agent follows
+   * again in the same write. A refusal leaves it pinned and is the release's
+   * `failed` reason, kept on the draft like any save.
+   */
+  async function followLatestProfile(
+    caller: Caller,
+    userId: string,
+    agentId: string,
+  ): Promise<SaveAgentResponse> {
+    const record = await store.get(caller.ownerId, agentId);
+    if (!record) throw NOT_FOUND();
+    const active = record.active_release;
+    const seen =
+      active === null || deps.profileLineage === undefined
+        ? null
+        : await deps.profileLineage.inspect({
+            agentId,
+            targetProfileId: active.runtime_profile_id,
+            activeProfileId: active.runtime_profile_id,
+          });
+    if (active === null || seen === null || seen.latest === null) {
+      throw new SessionServiceError(
+        "BAD_REQUEST",
+        "The agent runs no profile that has a newer version",
+        undefined,
+        { reason_code: "no_profile_lineage" },
+      );
+    }
+    if (seen.latest.id !== active.runtime_profile_id) {
+      return saveAgent(caller, userId, agentId, {
+        runtime_profile_id: seen.latest.id,
+        followsProfile: true,
+      });
+    }
+    const followed = await store.followProfile({
+      principal: caller,
+      workspaceId: caller.ownerId,
+      agentId,
+      managerRoles: AGENT_MANAGERS,
+    });
+    if (followed.outcome === "not_found") throw NOT_FOUND();
+    if (followed.outcome === "actor_inactive") throw ACTOR_INACTIVE();
+    if (followed.outcome === "outranked") throw OUTRANKED();
+    const fresh = await store.get(caller.ownerId, agentId);
+    if (!fresh) throw NOT_FOUND();
+    return {
+      ...withBehavior(fresh),
+      release: {
+        status: "unchanged",
+        reason: null,
+        release_id: null,
+        version_id: null,
+      },
+    };
   }
 
   const resolveRelease = (workspaceId: string, releaseId: string) =>
@@ -1073,6 +1134,9 @@ export function createAgentService(deps: {
       request: UpdateAgentRequest,
     ): Promise<SaveAgentResponse> {
       const userId = await manageAgent(caller, agentId);
+      if (request.follow_latest_profile === true) {
+        return followLatestProfile(caller, userId, agentId);
+      }
       return saveAgent(caller, userId, agentId, {
         ...(request.name === undefined ? {} : { name: request.name }),
         ...(request.description === undefined

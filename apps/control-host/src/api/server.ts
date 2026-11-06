@@ -748,6 +748,7 @@ const workspaceProfiles = createWorkspaceProfileService({
   authorization,
   store: workspaceProfileStore,
   catalog,
+  rollouts: profileRollouts,
 });
 const achievementRules = createAchievementRuleService({
   authorization,
@@ -756,6 +757,7 @@ const achievementRules = createAchievementRuleService({
 const installationProfiles = createInstallationProfileService({
   authorization,
   store: installationProfileStore,
+  rollouts: profileRollouts,
   catalog,
   connections: () => workspaceProfileVersions.connections,
   allowUnattended: unattendedAllowed(process.env),
@@ -1001,12 +1003,14 @@ const pushIntentRunner = createPushIntentRunner({
 }).start();
 // Moves agents that follow a profile onto its newest version (design 2.3).
 // Every replica runs it; an item's lease and the activation's compare-and-swap
-// make a second one harmless. `sweep` stays off until the writer is open.
+// make a second one harmless. The sweep puts in what the insert-time write
+// missed; the one-time fill has run before the writer opened (design 5.1).
 const profileRolloutRunner = createProfileRolloutRunner({
   rollouts: profileRollouts,
   agentStore,
   agents,
   logger,
+  sweep: true,
 }).start();
 // The pull request drain of the control-host's action-broker starts whether
 // or not AGENT_ACTION_FLOWS is on: a stage left from before a restart with

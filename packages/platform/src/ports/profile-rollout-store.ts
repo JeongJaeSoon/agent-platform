@@ -1,3 +1,5 @@
+import type { ProfileRollout } from "@werft-ai/contracts";
+
 /** One agent's turn in a profile rollout (design 2.3). */
 export type RolloutItemRef = {
   rolloutId: string;
@@ -65,6 +67,17 @@ export interface ProfileRolloutStore {
   abandon(items: readonly ClaimedRolloutItem[]): Promise<number>;
   /** A failed item back to pending: the one way a person resumes it. */
   retry(item: RolloutItemRef): Promise<boolean>;
+  /**
+   * The same for one agent's failed items of a profile version, found by the
+   * profile and the workspace the agent is in. False: none was failed.
+   */
+  retryFailed(input: {
+    workspaceId: string;
+    targetProfileId: string;
+    agentId: string;
+  }): Promise<boolean>;
+  /** Each profile version's rollout in one workspace, for the screens. */
+  summaries(workspaceId: string): Promise<Map<string, ProfileRollout>>;
   /**
    * Puts in the items the insert-time write missed (design 2.3, the sweep).
    * Writes the outbox, so it is run only once the writer is open.

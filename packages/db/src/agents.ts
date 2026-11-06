@@ -52,7 +52,11 @@ import {
   rethrowCursorCastError,
 } from "./cursors.ts";
 import { DB_NOW } from "./db-clock.ts";
-import { isNewestProfile, runsLineageOf } from "./profile-rollouts.ts";
+import {
+  isNewestProfile,
+  openRolloutStep,
+  runsLineageOf,
+} from "./profile-rollouts.ts";
 import type { Database } from "./queries.ts";
 import { earlierInSecond, releaseLabel } from "./release-labels.ts";
 import {
@@ -250,6 +254,8 @@ async function detailOf(
       releases.find((release) => release.id === agent.activeReleaseId) ?? null,
     behavior_revision: agent.behaviorRevision,
     model_source: agent.modelSource as ModelSource,
+    profile_tracking: agent.profileTracking === "pinned" ? "pinned" : "follow",
+    profile_rollout: await openRolloutStep(db, agent.id, agent.activeReleaseId),
     draft:
       agent.draftVersionId === null ||
       agent.draftProfileId === null ||
@@ -761,6 +767,18 @@ export function createPostgresAgentStore(db: Database): AgentStore {
       return failed.length > 0;
     },
 
+    followProfile(input) {
+      return db.transaction(async (tx) => {
+        const locked = await lockAgentToChange(tx, input, input.agentId);
+        if ("outcome" in locked) return locked;
+        await tx
+          .update(agents)
+          .set({ profileTracking: "follow", updatedAt: DB_NOW })
+          .where(eq(agents.id, locked.agent.id));
+        return { outcome: "updated" as const };
+      });
+    },
+
     async hasGitHubSettings(agentId) {
       const [row] = await db
         .select({ agentId: agentGitHubSettings.agentId })
@@ -893,6 +911,9 @@ export function createPostgresAgentStore(db: Database): AgentStore {
                 draftProfileId: null,
                 draftModelSource: null,
                 draftFailure: null,
+                ...(intent.followsProfile === true
+                  ? { profileTracking: "follow" }
+                  : {}),
               }
             : intent?.kind === "direct"
               ? {
