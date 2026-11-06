@@ -59,7 +59,7 @@ compose 파일(`infra/compose.core.yml` + `infra/compose.test-ops.yml` + object 
 
 ```bash
 findmnt -no FSTYPE,OPTIONS -T "$(docker info -f '{{.DockerRootDir}}')"   # xfs, 옵션에 prjquota
-docker volume create --driver local --opt size=64m quota-probe && docker volume rm quota-probe
+P="quota-probe-$(date +%s)"; docker volume create --driver local --opt size=64m "$P" && docker volume rm "$P"
 ```
 
 ext4 서버는 xfs 이미지 파일을 `/var/lib/docker`에 `loop,prjquota`로 mount한다. 아래는 한 줄로 이어져 있어 어느 단계든 실패하면 Docker 시작까지 가지 않는다. 기존 `/var/lib/docker`는 `.old`로 옮겼다가 mount 뒤 `rsync`로 되돌리고, 처음 쓰는 서버면 그 두 단계는 건너뛴다.
@@ -67,7 +67,7 @@ ext4 서버는 xfs 이미지 파일을 `/var/lib/docker`에 `loop,prjquota`로 m
 ```bash
 sudo apt-get install -y xfsprogs &&
 sudo systemctl stop docker docker.socket &&
-{ [ ! -e /var/lib/docker ] || sudo mv /var/lib/docker /var/lib/docker.old; } &&
+{ [ ! -e /var/lib/docker ] || { [ ! -e /var/lib/docker.old ] && sudo mv /var/lib/docker /var/lib/docker.old; }; } &&
 sudo truncate -s 60G /var/lib/docker.xfs.img &&
 sudo mkfs.xfs -q /var/lib/docker.xfs.img &&
 sudo mkdir -p /var/lib/docker &&
@@ -78,7 +78,7 @@ mount | grep 'on /var/lib/docker .*prjquota' &&
 sudo systemctl start docker
 ```
 
-중간에 멈추면 Docker는 멈춘 채로 두고 원인을 고친다. 이미 옮겼다면 `/var/lib/docker.old`가 원본이다. 60G는 Docker 전체의 천장이고, sparse 파일은 줄어들지 않는다. CI의 `workspace-quota` job이 `truncate`·`mkfs.xfs`·`mount -o loop,prjquota`를 8G 이미지로 돌린다. `/etc/fstab` 줄과 `rsync` 이전은 실행해 보지 않았다(미검증).
+`/var/lib/docker.old`가 이미 있으면 이동 단계에서 멈추니 내용을 치운 뒤 다시 한다. 중간에 멈추면 Docker는 멈춘 채로 두고 원인을 고친다. 이미 옮겼다면 `/var/lib/docker.old`가 원본이다. 60G는 Docker 전체의 천장이고, sparse 파일은 줄어들지 않는다. CI의 `workspace-quota` job이 `truncate`·`mkfs.xfs`·`mount -o loop,prjquota`를 8G 이미지로 돌린다. `/etc/fstab` 줄과 `rsync` 이전은 실행해 보지 않았다(미검증).
 
 Kubernetes 경로(chart)에는 이 조건이 없다. workspace는 세션마다 PVC이고 상한은 `worker.workspace.quotaMb`(기본 4096MiB) 요청이 전부다. 실제로 막는 것은 StorageClass이고 inode 상한은 없다. 표는 `apps/docs/content/docs/run-server/self-hosting/kubernetes.mdx`의 "workspace 저장소와 상한"에 있다.
 
