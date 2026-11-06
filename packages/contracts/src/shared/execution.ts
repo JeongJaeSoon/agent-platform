@@ -18,6 +18,9 @@ export const ENV = {
   egressCredentialUrl: "WORKER_EGRESS_CREDENTIAL_URL",
   home: "HOME",
   workspaceDir: "WORKER_WORKSPACE_DIR",
+  workspaceMountDir: "WORKER_WORKSPACE_MOUNT_DIR",
+  workspaceQuotaBytes: "WORKER_WORKSPACE_QUOTA_BYTES",
+  workspaceQuotaMode: "WORKER_WORKSPACE_QUOTA_MODE",
   // Tools read different spellings; network isolation enforces the boundary.
   httpProxy: "HTTP_PROXY",
   httpProxyLower: "http_proxy",
