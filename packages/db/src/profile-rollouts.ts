@@ -443,6 +443,14 @@ export function createPostgresProfileRolloutStore(
         // Profile writes take this lock, so no version lands mid-sweep.
         await lockWrites(tx);
         const { latest, behind } = await behindLatest(tx);
+        if (behind.length > 0) {
+          const written = await rows(
+            tx,
+            sql`SELECT 1 FROM profile_rollouts LIMIT 1`,
+          );
+          if (written.length === 0)
+            return { rollouts: 0, items: 0, held: behind.length };
+        }
         let rollouts = 0;
         let items = 0;
         // The head is the lineage's last behavior-changing rollout. When the

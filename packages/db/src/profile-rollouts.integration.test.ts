@@ -608,9 +608,46 @@ integration("profile rollouts on PostgreSQL (U3b reader)", () => {
   });
 
   describe("the sweep", () => {
+    /** A rollout of the first version, no items: the writer has been open before. */
+    async function writerOpened(caller: Caller) {
+      await db.insert(profileRollouts).values({
+        id: randomUUID(),
+        kind: "profile_update",
+        targetProfileId: "op_ops_v1",
+        createdBy: userOf(caller),
+      });
+    }
+
+    test("holds back, writing nothing, while no rollout was ever written and agents are behind; the fill then runs and the sweep finds nothing", async () => {
+      const caller = await owner();
+      await lineage(caller);
+      const behind = await follower(caller);
+
+      expect(await rollouts().sweep()).toEqual({
+        rollouts: 0,
+        items: 0,
+        held: 1,
+      });
+      expect(await db.select().from(profileRollouts)).toEqual([]);
+      expect(await db.select().from(profileRolloutItems)).toEqual([]);
+
+      const filled = await rollouts().backfill({ dryRun: false });
+      expect("refused" in filled).toBe(false);
+      expect((await agentRow(behind.agent.id))?.profileTracking).toBe("pinned");
+      expect(await rollouts().sweep()).toEqual({ rollouts: 0, items: 0 });
+    });
+
+    test("with nobody behind, an empty outbox is nothing to hold back", async () => {
+      const caller = await owner();
+      await lineage(caller);
+      await follower(caller, { profile: "op_ops_v2" });
+      expect(await rollouts().sweep()).toEqual({ rollouts: 0, items: 0 });
+    });
+
     test("puts in the agents the insert-time write missed, once, and a failed item stays failed", async () => {
       const caller = await owner();
       await lineage(caller);
+      await writerOpened(caller);
       const behind = await follower(caller);
       const pinned = await follower(caller);
       await db
@@ -663,6 +700,7 @@ integration("profile rollouts on PostgreSQL (U3b reader)", () => {
         [1, V1],
         [2, V2],
       ]);
+      await writerOpened(caller);
       const made = await follower(caller);
       await rollouts().sweep();
       await db
