@@ -261,6 +261,7 @@ jobs:
               - tests/checkpoint-pins.
               - tests/object-store-cli.
               - tests/object-store-route.
+              - tests/test-ops-bundle.
               - tests/test-ops.
               - tests/worker-checkpoint-publish.
             skips:
