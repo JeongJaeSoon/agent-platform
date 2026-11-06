@@ -11,7 +11,14 @@ import { and, asc, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { rowsOf } from "./control-unit-of-work.ts";
 import { createPostgresPushRequests } from "./push-requests.ts";
 import type { Database } from "./queries.ts";
-import { pushIntents, pushRequests, sessions, turns } from "./schema.ts";
+import {
+  pendingRequests,
+  pushIntents,
+  pushRequests,
+  sessions,
+  turnContinuations,
+  turns,
+} from "./schema.ts";
 
 type Row = typeof pushIntents.$inferSelect;
 
@@ -33,7 +40,8 @@ export function publicPushIntent(row: Row): PushIntent {
  * updated (so the session lock is held; creation takes the same lock first).
  * A turn that completed with a new checkpoint pins that revision on every
  * deferred intent of the turn; any other end cancels them, because the turn
- * left no state to push. Returns how many intents it settled.
+ * left no state to push. A parked turn is not settled here: its intents wait
+ * for the turn that carries it on. Returns how many intents it settled.
  */
 export async function settleTurnPushIntents(
   tx: Database,
@@ -236,7 +244,16 @@ export function createPostgresPushIntents(db: Database): PushIntentStore {
         FROM ${sessions} s, ${turns} t
         WHERE i.status = 'deferred'
           AND s.id = i.session_id AND t.id = i.turn_id
-          AND (t.status NOT IN ('queued', 'running', 'needs_input')
+          AND ((t.status NOT IN ('queued', 'running', 'needs_input')
+                AND NOT EXISTS (
+                  -- A parked turn whose group still waits is carried on by
+                  -- the answer, which takes the intent over.
+                  SELECT 1 FROM ${pendingRequests} p
+                  WHERE p.turn_id = t.id AND p.parked_at IS NOT NULL
+                    AND p.settled_at IS NULL
+                    AND NOT EXISTS (
+                      SELECT 1 FROM ${turnContinuations} c
+                      WHERE c.parked_turn_id = t.id)))
                OR s.admission_state = 'closed')
         RETURNING i.id`);
       return rowsOf(rows).length;

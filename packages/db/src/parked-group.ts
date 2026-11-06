@@ -27,6 +27,7 @@ import { moveToResuming } from "./resume-control.ts";
 import {
   pendingRequests,
   permissionGrants,
+  pushIntents,
   receipts,
   sessions,
   turnContinuations,
@@ -274,6 +275,11 @@ async function continueParkedTurn(
     at,
   });
   const message = continuationMessage(group.rows);
+  const [parkedTurn] = await tx
+    .select({ sequence: turns.sequence })
+    .from(turns)
+    .where(eq(turns.id, group.turnRowId));
+  const parkedSequence = parkedTurn?.sequence ?? 0;
   const [last] = await tx
     .select({ sequence: max(turns.sequence) })
     .from(turns)
@@ -293,6 +299,12 @@ async function continueParkedTurn(
   await tx
     .insert(turnContinuations)
     .values({ turnId: turn.id, parkedTurnId: group.turnRowId });
+  await carryPushIntents(tx, {
+    parkedTurnRowId: group.turnRowId,
+    continuationRowId: turn.id,
+    // A turn between the park and this one may have left its own commits.
+    intervened: (last?.sequence ?? 0) > parkedSequence,
+  });
   await enqueueWithin(tx, {
     sessionId: session.id,
     turnId: turn.id,
@@ -308,6 +320,40 @@ async function continueParkedTurn(
       })),
     );
   }
+}
+
+/**
+ * The pushes a parked turn asked to make when it ended stay deferred through
+ * the park. The turn that carries it on takes them over and pins them at its
+ * own end, whose checkpoint holds the parked turn's commits. When another
+ * turn runs first, that checkpoint would hold work the push never asked
+ * for, so they end as superseded, visible in the intent list.
+ */
+async function carryPushIntents(
+  tx: Database,
+  input: {
+    parkedTurnRowId: number;
+    continuationRowId: number;
+    intervened: boolean;
+  },
+) {
+  const held = and(
+    eq(pushIntents.turnId, input.parkedTurnRowId),
+    eq(pushIntents.status, "deferred"),
+  );
+  await tx
+    .update(pushIntents)
+    .set(
+      input.intervened
+        ? {
+            status: "cancelled",
+            refusalCode: "superseded_by_turn",
+            settledAt: sql`now()`,
+            updatedAt: sql`now()`,
+          }
+        : { turnId: input.continuationRowId, updatedAt: sql`now()` },
+    )
+    .where(held);
 }
 
 function isAllow(answer: unknown): boolean {

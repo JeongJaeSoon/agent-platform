@@ -941,6 +941,7 @@ exports[`tools/list every tool has a description of its fields and an outputSche
                       "enum": [
                         "turn_ended_without_checkpoint",
                         "turn_finalized_without_pin",
+                        "superseded_by_turn",
                         "session_closed",
                         "rejected_before",
                         "request_open",
