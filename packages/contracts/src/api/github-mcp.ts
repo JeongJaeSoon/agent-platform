@@ -1,6 +1,10 @@
 import { z } from "zod";
 
-import { type AgentGitHub, MCP_TOOL_PREFIX } from "../kollegium/agents.ts";
+import {
+  type AgentGitHub,
+  MCP_TOOL_PREFIX,
+  type PushAttached,
+} from "../kollegium/agents.ts";
 import {
   ACTION_REFUSAL_CODES,
   type ActionRefusalCode,
@@ -72,7 +76,11 @@ export const LIST_REPOSITORIES_LIMIT_MAX = 500;
  * from the path. Never a session id: the attempt token names the session.
  */
 export const GITHUB_MCP_TOOL_ARGUMENTS = {
-  request_push: createPushRequestRequestSchema,
+  // The REST body plus `source_ref`, which only the tool takes. Until the
+  // multi-branch stage it is answered `source_ref_unsupported`.
+  request_push: createPushRequestRequestSchema
+    .safeExtend({ source_ref: z.string().min(1).max(255).optional() })
+    .strict(),
   open_pull_request: openPullRequestRequestSchema.safeExtend({
     push_request_id: pushRequestIdSchema,
   }),
@@ -263,11 +271,98 @@ export const attachRepositoryReceiptResultSchema = z.object({
 });
 
 /**
+ * What kind of action a tool is, the unit a policy value is set on (design
+ * 8.1). `push` is judged per repository as `push.primary` or `push.attached`
+ * (`pushClassOf`). There is no `administration`: no tool does that.
+ */
+export const ACTION_CLASS_VALUES = [
+  "push",
+  "pull_request.write",
+  "review",
+  "workflow",
+  "repository.read",
+] as const;
+export type ActionClass = (typeof ACTION_CLASS_VALUES)[number];
+
+/**
+ * Every tool's class. A `Record` over the tool names, so a tool added to
+ * `GITHUB_MCP_TOOL_ARGUMENTS` without a class here does not typecheck, and
+ * `listedGitHubMcpTools` leaves out one that slips through at run time.
+ */
+export const GITHUB_MCP_TOOL_CLASSES: Record<GitHubMcpTool, ActionClass> = {
+  request_push: "push",
+  open_pull_request: "pull_request.write",
+  update_pull_request: "pull_request.write",
+  comment_pull_request: "pull_request.write",
+  close_pull_request: "pull_request.write",
+  reopen_pull_request: "pull_request.write",
+  dispatch_workflow: "workflow",
+  get_workflow_run: "workflow",
+  rerun_workflow: "workflow",
+  submit_review: "review",
+  list_repositories: "repository.read",
+  attach_repository: "repository.read",
+};
+
+/** The names that have a class: the only tools a session can list or call. */
+export function listedGitHubMcpTools(
+  names: readonly string[],
+  classes: Readonly<
+    Record<string, ActionClass | undefined>
+  > = GITHUB_MCP_TOOL_CLASSES,
+): GitHubMcpTool[] {
+  return names.filter(
+    (name): name is GitHubMcpTool =>
+      Object.hasOwn(classes, name) &&
+      classes[name] !== undefined &&
+      ACTION_CLASS_VALUES.includes(classes[name]),
+  );
+}
+
+/** The class a push to `repositoryId` is judged under. */
+export function pushClassOf(
+  sessionRepositoryId: string | null,
+  repositoryId: string,
+): "push.primary" | "push.attached" {
+  return repositoryId === sessionRepositoryId
+    ? "push.primary"
+    : "push.attached";
+}
+
+export type ActionPolicy = {
+  "push.primary": "allow" | "ask";
+  "push.attached": PushAttached;
+  "pull_request.write": "allow";
+  review: "allow" | "deny";
+  workflow: "allow" | "deny";
+  "repository.read": "allow";
+};
+
+/**
+ * The policy per class, computed from the effective settings; nothing is
+ * stored per class. `push.primary` is `push_approval`; `push.attached` is
+ * its own value.
+ */
+export function actionPolicyOf(
+  github: AgentGitHub,
+  pushAttached: PushAttached,
+): ActionPolicy {
+  return {
+    "push.primary": github.push_approval ? "ask" : "allow",
+    "push.attached": pushAttached,
+    "pull_request.write": "allow",
+    review: github.features.review ? "allow" : "deny",
+    workflow: github.features.actions ? "allow" : "deny",
+    "repository.read": "allow",
+  };
+}
+
+/**
  * The tools a release exposes, by the release's features alone. The server's
  * list, the egress check of a call and the worker's relay all read this.
  */
 export function githubMcpTools(github: AgentGitHub): GitHubMcpTool[] {
-  return (Object.keys(GITHUB_MCP_TOOL_FEATURES) as GitHubMcpTool[]).filter(
+  return listedGitHubMcpTools(Object.keys(GITHUB_MCP_TOOL_FEATURES)).filter(
     (tool) => {
       const feature = GITHUB_MCP_TOOL_FEATURES[tool];
       return feature === null || github.features[feature];
@@ -280,9 +375,9 @@ export function githubMcpTools(github: AgentGitHub): GitHubMcpTool[] {
  * its runtime config, and so its checkpoint fingerprint, must not follow a
  * change to them. Each call is judged instead.
  */
-export const GITHUB_MCP_FIXED_TOOLS = Object.keys(
-  GITHUB_MCP_TOOL_FEATURES,
-) as GitHubMcpTool[];
+export const GITHUB_MCP_FIXED_TOOLS = listedGitHubMcpTools(
+  Object.keys(GITHUB_MCP_TOOL_FEATURES),
+);
 
 /**
  * What each tool does, in terms of its fields. Never an instruction to the
@@ -291,7 +386,7 @@ export const GITHUB_MCP_FIXED_TOOLS = Object.keys(
  */
 export const GITHUB_MCP_TOOL_DESCRIPTIONS: Record<GitHubMcpTool, string> = {
   request_push:
-    "Request a push of the session's last checkpoint (the state at the end of the previous turn) to branch agent/<session-id>, or agent/<session-id>-<branch> when `branch` is given. `repository_id` names an attached repository; omitted, the session's own. Returns the push request, which waits for a person when the release requires approval, or `deferred` when no checkpoint exists yet.",
+    "Request a push to branch agent/<session-id>, or agent/<session-id>-<branch> when `branch` is given. `repository_id` names an attached repository; omitted, the session's own. With the installation's agent action flows on, a call inside a running turn pushes the state this turn ends with, and the answer is `deferred` with `push_intent_id` and `waits_for: turn_end`; the platform makes the push request when the turn ends. Otherwise (the flows off, or no running turn) the last checkpoint is pushed and the push request is returned, which waits for a person when the release requires approval, or `deferred` when no checkpoint exists yet. `source_ref` is not supported yet.",
   open_pull_request:
     "Open, or return the already open, pull request from the branch and commit of a pushed push request (`push_request_id`). Content fields: `title`; `summary` (what changed and why, a few sentences); `changes` (one change per item); `rationale` (the reason for the change); `testing` (how it was checked); `notes` (what a reviewer needs to know); `related` (issues: `number`, optional `repository_id`, `closes` to close it on merge). `body` is the legacy single text and cannot be combined with the fields above.",
   update_pull_request:
@@ -321,6 +416,18 @@ const requestPushResultSchema = z.union([
     .object({
       status: z.literal("deferred"),
       continuation: z.literal("after_turn"),
+    })
+    .strict(),
+  // Inside a running turn with AGENT_ACTION_FLOWS on: "push what this turn
+  // ends with". The platform makes the push request after the turn ends.
+  z
+    .object({
+      status: z.literal("deferred"),
+      push_intent_id: z.uuid(),
+      waits_for: z.literal("turn_end"),
+      repository_id: z.string(),
+      target_branch: z.string(),
+      pull_request: z.enum(["scheduled", "none"]),
     })
     .strict(),
 ]);
@@ -400,6 +507,8 @@ export const GITHUB_MCP_TOOL_REFUSALS: Record<
     "github_settings_unsupported",
     "github_refused",
     "backend_unavailable",
+    "source_ref_unsupported",
+    "no_running_turn",
   ],
   open_pull_request: PULL_REQUEST_REFUSALS,
   update_pull_request: [...PULL_REQUEST_REFUSALS, "no_pull_request"],

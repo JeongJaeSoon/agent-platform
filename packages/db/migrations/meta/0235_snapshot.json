@@ -1,5 +1,5 @@
 {
-  "id": "c5eccf15-0bab-4ba3-b627-58092b0b2048",
+  "id": "9c75c977-91dc-42fe-b8d6-01fa0128f419",
   "prevId": "da6e200f-b8ff-452e-95d5-93c317defaae",
   "version": "7",
   "dialect": "postgresql",
@@ -1226,6 +1226,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "push_attached": {
+          "name": "push_attached",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "revision": {
           "name": "revision",
           "type": "integer",
@@ -1270,6 +1276,10 @@
         "agent_github_settings_start_check": {
           "name": "agent_github_settings_start_check",
           "value": "\"agent_github_settings\".\"start_repository_id\" IS NULL OR \"agent_github_settings\".\"repositories\" ? \"agent_github_settings\".\"start_repository_id\""
+        },
+        "agent_github_settings_push_attached_check": {
+          "name": "agent_github_settings_push_attached_check",
+          "value": "\"agent_github_settings\".\"push_attached\" IS NULL OR \"agent_github_settings\".\"push_attached\" IN ('allow','ask','deny')"
         }
       },
       "isRLSEnabled": false
@@ -7185,12 +7195,6 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
-        },
-        "replaces_auth": {
-          "name": "replaces_auth",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
         },
         "disabled_at": {
           "name": "disabled_at",

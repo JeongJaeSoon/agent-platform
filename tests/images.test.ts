@@ -810,6 +810,24 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     expect(testOps.maintenance?.image).toBe(testOps.api?.image);
   });
 
+  // 94S-1422: after a host restart only services with a restart policy come
+  // back. postgres, the API and LocalStack had none, so a rebooted single
+  // server stayed down until `test-ops.sh start`.
+  test("the test-ops stack restarts postgres, the API and LocalStack with the host, the local stack does not", () => {
+    const testOps = layeredServices<ComposeService>([
+      ...TEST_OPS_LAYERS,
+      TEST_OPS_STORE_LAYERS.localstack,
+    ]);
+    for (const name of ["postgres", "api", "localstack"])
+      expect({ name, restart: testOps[name]?.restart }).toEqual({
+        name,
+        restart: "unless-stopped",
+      });
+    const local = layeredServices<ComposeService>(LOCAL_LAYERS);
+    for (const name of ["postgres", "api"])
+      expect(local[name]?.restart).toBeUndefined();
+  });
+
   test("every compose service rotates its json-file log at 50 MB × 5", () => {
     const services = layeredServices<
       ComposeService & {
@@ -2412,9 +2430,12 @@ describe("compose layers", () => {
 
   // What a layer may set on a service the core defines. Everything else —
   // users, capabilities, read-only roots, memory limits, mounts, ports,
-  // networks, restart policies, allowlists — stays in the core. The exception
-  // is EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST, whose entries are each
-  // installation's own hosts; the core's default is empty.
+  // networks, restart policies, allowlists — stays in the core. The exceptions
+  // are EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST, whose entries are each
+  // installation's own hosts (the core's default is empty), and the test-ops
+  // layer's restart policy for postgres and the API: only a single-server
+  // install must come back by itself after a host restart, and the core is
+  // shared with the local and CI stacks, which must not.
   test.each([
     [
       LOCAL_LAYERS[1],
@@ -2442,7 +2463,7 @@ describe("compose layers", () => {
     ],
     [
       TEST_OPS_LAYERS[1],
-      ["image", "environment", "volumes"],
+      ["image", "environment", "volumes", "restart"],
       [
         "WORKER_IMAGE",
         "SETTINGS_DOCUMENT",

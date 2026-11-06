@@ -34,8 +34,10 @@ import {
   createPostgresMcpEgressStore,
   createPostgresMemberStore,
   createPostgresPendingRequests,
+  createPostgresPullRequestSettingsStore,
   createPostgresPullRequests,
   createPostgresPushFollowUpStore,
+  createPostgresPushIntents,
   createPostgresPushRequests,
   createPostgresRepositoryAttachments,
   createPostgresSecretStore,
@@ -75,6 +77,7 @@ import {
   createAgentAdminService,
   createAgentGitHubService,
   createAgentIdentityService,
+  createAgentPullRequestService,
   createAgentService,
   createApiKeyService,
   createAuthorizationPolicy,
@@ -99,6 +102,7 @@ import {
   createProfileRegistry,
   createPullRequestService,
   createPushExecutor,
+  createPushIntentRunner,
   createPushRequestService,
   createRepositoryAttachmentService,
   createSessionAchievementService,
@@ -214,6 +218,7 @@ import {
 } from "./routes/achievements.ts";
 import { registerAgentGitHubRoutes } from "./routes/agent-github.ts";
 import { registerAgentIdentityRoutes } from "./routes/agent-identities.ts";
+import { registerAgentPullRequestRoutes } from "./routes/agent-pull-request.ts";
 import { registerAgentRoutes } from "./routes/agents.ts";
 import { registerApiKeyRoutes } from "./routes/api-keys.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
@@ -524,6 +529,7 @@ const sessions = createSessionService({
   catalog,
   releases: { ...agents, ...newSessionGitHubReaders(db) },
   promptRevision: platformPromptRevisionFromEnv(process.env),
+  actionFlows: () => settings.actionFlows,
   credentials: credentialBindings,
   limits,
 });
@@ -799,7 +805,8 @@ const githubRepositories = createGitHubRepositoryService({
   pins: githubAppStore === null ? null : githubPins,
   directory: githubAppDirectory,
   agents: agentStore,
-  catalog,
+  repositoryCeiling: (workspaceId) =>
+    workspaceRepositoryCeiling(db, workspaceId),
   changed: () => workspaceProfileVersions.refresh(),
 });
 const githubInstallations = createPostgresGitHubInstallationStore(db);
@@ -857,9 +864,11 @@ const githubWork = createGitHubWorkService({
 });
 const githubOAuth = createPostgresGitHubOAuthStore(db, secretKey);
 const githubCallback = githubCallbackUrl(consoleOrigin);
+const pullRequestSettings = createPostgresPullRequestSettingsStore(db);
 const githubSettings = createGitHubSettingsService({
   authorization,
   store: githubSettingsStore,
+  pullRequestSettings,
   oauth: githubOAuth,
   callbackUrl: githubCallback,
   secretsOn: secretKey !== null,
@@ -891,10 +900,17 @@ const agentGitHub = createAgentGitHubService({
     ? {}
     : { pinned: { apps: githubAppStore, pins: githubPins } }),
 });
+const agentPullRequest = createAgentPullRequestService({
+  authorization,
+  agents: agentStore,
+  settings: pullRequestSettings,
+});
 const pushStore = createPostgresPushRequests(db);
+const pushIntentStore = createPostgresPushIntents(db);
 const pushRequests = createPushRequestService({
   authorization,
   store: pushStore,
+  intents: pushIntentStore,
   source: checkpoints.pushSource,
   catalog,
 });
@@ -906,6 +922,7 @@ const pullRequests = createPullRequestService({
   gate: github,
   redact: sanitizeText,
   attribution: sessionAttribution,
+  settings: pullRequestSettings,
   consoleOrigin,
   logger,
 });
@@ -920,6 +937,7 @@ const repositoryAttachments = createRepositoryAttachmentService({
 });
 const githubMcp = createGitHubMcpServer({
   store: githubMcpStore,
+  actionFlows: () => settings.actionFlows,
   // The same fields the egress authorizer logs for a failed call: no message,
   // which can carry a connection string or GitHub's text.
   onInternalError: (error, { tool, sessionId, requestId }) =>
@@ -933,6 +951,7 @@ const githubMcp = createGitHubMcpServer({
     pushRequests: createPushRequestService({
       authorization: bound,
       store: pushStore,
+      intents: pushIntentStore,
       source: checkpoints.pushSource,
       catalog,
     }),
@@ -943,6 +962,7 @@ const githubMcp = createGitHubMcpServer({
       gate: github,
       redact: sanitizeText,
       attribution: sessionAttribution,
+      settings: pullRequestSettings,
       consoleOrigin,
       logger,
     }),
@@ -962,6 +982,15 @@ const pushExecutor = createPushExecutor({
   bundles: checkpoints.pushSource,
   pusher: createGitPusher({ maxGitMemoryBytes: checkpointGitMemoryBytes }),
   attributions: commitAttributions,
+  logger,
+}).start();
+// The control-host action-broker's intent runner starts whatever
+// AGENT_ACTION_FLOWS says: intents made while it was on are finished after it
+// is turned off. It makes push requests as the stored actor and approves
+// nothing.
+const pushIntentRunner = createPushIntentRunner({
+  store: pushIntentStore,
+  createFromIntent: (job) => pushRequests.createFromIntent(job),
   logger,
 }).start();
 // Each replica reads the state of the pull requests sessions opened; the
@@ -1035,6 +1064,8 @@ const workers = createWorkerGateway({
     store: sessionAttribution,
     ledger: commitAttributions,
     consoleOrigin,
+    sessionLink: async (workspaceId) =>
+      (await pullRequestSettings.get(workspaceId)).settings.session_link,
     appBotUserId: createAppBotUsers({ logger }),
     commitPin: {
       resolver: githubResolver,
@@ -1215,6 +1246,7 @@ const app = createApiApp({
     registerGitHubSettingsRoutes(router, githubSettings);
     registerGitHubPackagesRoutes(router, githubPackages);
     registerAgentGitHubRoutes(router, agentGitHub);
+    registerAgentPullRequestRoutes(router, agentPullRequest);
     registerSessionRoutes(router, sessions);
     registerSessionOutputRoutes(router, sessionOutputs);
     registerSessionShareRoutes(router, shares, sessions);
@@ -1336,6 +1368,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
         : [server, authorizerListener],
       [
         { name: "push-executor", close: () => pushExecutor.stop() },
+        { name: "push-intent-runner", close: () => pushIntentRunner.stop() },
         { name: "outcome-refresher", close: () => outcomeRefresher.stop() },
         { name: "achievement-judge", close: () => achievementJudge.stop() },
         { name: "event-listener", close: () => notifier.close() },

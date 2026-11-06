@@ -38,6 +38,7 @@ import {
   SessionAchievements,
   useSessionAchievements,
 } from "./session-achievements.tsx";
+import { SessionGitHubWork } from "./session-github-work.tsx";
 
 const UNITS = ["byte", "kilobyte", "megabyte", "gigabyte"] as const;
 
@@ -386,6 +387,7 @@ export function SessionOutputsTab({
       <SessionAchievements session={session} />
       <SessionAttribution session={session} />
       <SessionPullRequests session={session} outcomes={outcomes} />
+      <SessionGitHubWork session={session} />
       <SessionGitHubRefusals session={session} />
       {filesRead && pullsRead && files.length === 0 && pulls.length === 0 ? (
         outputs.error && !isApiError(outputs.error, "NOT_FOUND") ? (

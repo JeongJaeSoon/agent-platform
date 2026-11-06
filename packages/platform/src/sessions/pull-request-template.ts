@@ -1,7 +1,10 @@
 // The template is input from the repository: anyone who may write to its
 // default branch wrote it.
 
-import type { PullRequestTemplateRecord } from "@werft-ai/contracts";
+import {
+  PULL_REQUEST_TEMPLATE_MAX_BYTES,
+  type PullRequestTemplateRecord,
+} from "@werft-ai/contracts";
 import type { GitHubApi, GitTreeEntry } from "../ports/github-gate.ts";
 import { closeOpenBlocks } from "./git-attribution.ts";
 import { breakReferences, stripEngineSignatures } from "./pull-request-text.ts";
@@ -15,8 +18,15 @@ const COMMIT_PATH = /(\/commit\/)(?=[^\s])/gi;
 const COMMIT_REFERENCE = /(^|[^\w/.-])([\w.-]+\/[\w.-]+@)(?=[0-9a-f]{7})/gi;
 const COMMIT_HASH = /\b([0-9a-f]{7})(?=[0-9a-f]{33}\b)/gi;
 
+// A character reference that spells a printable ASCII character is how a
+// path or an address would be written to get past the checks below; it is
+// shown as text instead of being resolved.
+const ASCII_ENTITY =
+  /&(?=#(?:x[0-9a-f]+|\d+);|(?:sol|bsol|num|colon|commat|period);)/gi;
+
 function breakLinks(text: string): string {
   return text
+    .replace(ASCII_ENTITY, `&${ZWSP}`)
     .replace(LOCAL_REFERENCE, `$1$2${ZWSP}`)
     .replace(NUMBERED_PATH, `$1${ZWSP}`)
     .replace(COMMIT_PATH, `$1${ZWSP}`)
@@ -34,10 +44,9 @@ export const SECTION_NAMES = [
 ] as const;
 export type SectionName = (typeof SECTION_NAMES)[number];
 
-/** What a section is filled with, without its heading. Absent or empty: nothing to place. */
 export type SectionBlocks = Partial<Record<SectionName, string>>;
 
-export const TEMPLATE_MAX_BYTES = 16 * 1024;
+export const TEMPLATE_MAX_BYTES = PULL_REQUEST_TEMPLATE_MAX_BYTES;
 const ZWSP = "​";
 
 type TemplateSkip = NonNullable<PullRequestTemplateRecord["skipped"]>;
@@ -56,11 +65,9 @@ export type TemplateRead =
       commit: string | null;
       reason: TemplateSkip;
       path?: string;
-      /** Why a read failed, for the log: an error name, never a message. */
       error?: string;
     };
 
-/** The reads the detection makes; the pull request grant's `api` has them. */
 export type TemplateForge = Pick<
   GitHubApi,
   "getRepository" | "getBranchHead" | "readTree" | "readBlob"
@@ -95,7 +102,11 @@ function recordedPath(parts: readonly string[]): string {
  */
 export async function readRepositoryTemplate(
   forge: TemplateForge,
+  options: {
+    templateName?: string | null;
+  } = {},
 ): Promise<TemplateRead> {
+  const wanted = options.templateName?.toLowerCase() ?? null;
   let commit: string | null = null;
   try {
     const { defaultBranch } = await forge.getRepository();
@@ -180,13 +191,19 @@ export async function readRepositoryTemplate(
       const inside = await tree(directory.sha);
       const files = named(inside, (name) => name.endsWith(".md"));
       if (files.length === 0) continue;
-      if (files.length > 1) {
+      const matching = files.filter(
+        (file) => file.name.toLowerCase() === wanted,
+      );
+      const chosen =
+        files.length === 1
+          ? files[0]
+          : matching.length === 1
+            ? matching[0]
+            : undefined;
+      if (chosen === undefined) {
         throw new Skip("multiple", recordedPath([...here.at, directory.name]));
       }
-      return await candidate(files[0] as GitTreeEntry, [
-        ...here.at,
-        directory.name,
-      ]);
+      return await candidate(chosen, [...here.at, directory.name]);
     }
     return { kind: "none", commit: head.commitSha };
   } catch (error) {
@@ -207,7 +224,6 @@ export async function readRepositoryTemplate(
   }
 }
 
-/** What the receipt and the response record of a read, never the template's text. */
 export function templateRecord(read: TemplateRead): PullRequestTemplateRecord {
   switch (read.kind) {
     case "found":
@@ -242,13 +258,9 @@ type Part = { text: string; comment: boolean };
 
 export type TemplateRow = {
   text: string;
-  /** The row begins inside an HTML comment that began on an earlier row. */
   startsInComment: boolean;
-  /** Nothing the reader sees: blank, or only comments. */
   skippable: boolean;
-  /** `field` of a `<!-- werft:slot field -->` row that may be filled. */
   slot?: SectionName;
-  /** A heading row that may be filled: its text as the reader sees it. */
   heading?: string;
 };
 
@@ -298,6 +310,12 @@ type Scanned = {
   rejected: boolean;
 };
 
+// A fence is accepted only at the start of a line. After indentation or a
+// list or quote marker it may belong to a container, which ends where a
+// renderer decides, not where this scan does.
+const NESTED_FENCE =
+  /^(?:[ \t]+|[ \t]*(?:>[ \t]*|(?:[-*+]|\d{1,9}[.)])[ \t]+)+)(?:`{3,}|~{3,})/;
+
 function scan(text: string): Scanned {
   const rows: Scanned["rows"] = [];
   let fence: string | null = null;
@@ -311,6 +329,15 @@ function scan(text: string): Scanned {
       indent: indentOf(line),
     };
     rows.push(row);
+    // A fence inside a list item or a quote is not tracked here. Markdown reads
+    // `\/` as `/`, which would hide a path from the reference breaking.
+    if (
+      !inComment &&
+      fence === null &&
+      (NESTED_FENCE.test(line) || line.includes("\\/"))
+    ) {
+      rejected = true;
+    }
     if (!inComment) {
       const marks = FENCE_OPEN.exec(line);
       if (fence !== null) {
@@ -376,9 +403,6 @@ export function prepareTemplate(raw: string): PreparedTemplate | null {
   const scanned = scan(cleaned);
   if (scanned.rejected) return null;
 
-  // Judged as the reader gets it, a comment gone and a space where it was, so
-  // `Fixes <!-- x -->#1` is caught as well. Breaking only adds zero-width spaces, so they are put back at the same
-  // places in the original.
   const visible = scanned.rows
     .map((row) =>
       row.parts.map((part) => (part.comment ? " " : part.text)).join(""),
@@ -404,8 +428,6 @@ export function prepareTemplate(raw: string): PreparedTemplate | null {
     let line = "";
     for (const part of row.parts) {
       if (part.comment) {
-        // Hidden text is broken too: a renderer that reads the markup another
-        // way than the scan did would otherwise show it live.
         line += breakLinks(breakReferences(part.text)).replace(
           PLATFORM_COMMENT,
           `$1$2${ZWSP}$3`,
@@ -448,6 +470,25 @@ export function prepareTemplate(raw: string): PreparedTemplate | null {
     return result;
   });
   return { rows };
+}
+
+export type TemplateTextResult =
+  | { ok: true; template: PreparedTemplate }
+  | { ok: false; reason: "too_large" | "not_utf8" | "unsupported" };
+
+export function prepareTemplateText(text: string): TemplateTextResult {
+  // A lone surrogate cannot be written as UTF-8; a pair is one code point.
+  // PostgreSQL text and jsonb cannot hold NUL either.
+  if (/\p{Cs}/u.test(text) || text.includes("\u0000")) {
+    return { ok: false, reason: "not_utf8" };
+  }
+  if (new TextEncoder().encode(text).length > TEMPLATE_MAX_BYTES) {
+    return { ok: false, reason: "too_large" };
+  }
+  const template = prepareTemplate(text);
+  return template === null
+    ? { ok: false, reason: "unsupported" }
+    : { ok: true, template };
 }
 
 function isSection(name: string): name is SectionName {
@@ -538,7 +579,6 @@ const MATCHERS = SECTION_NAMES.flatMap((section) =>
   }),
 );
 
-/** The field a heading is for: the longest phrase it holds, the table's order on a tie. */
 export function sectionOfHeading(heading: string): SectionName | null {
   const norm = normalizeHeading(heading);
   let best: { section: SectionName; length: number } | null = null;
@@ -590,8 +630,6 @@ export function fillTemplate(
       if (next === undefined || !next.skippable) break;
       at += 1;
     }
-    // A row that ends a comment and goes on with markup is no place to put
-    // text before: it would land in the comment, or in what that markup opens.
     if (rows[at]?.startsInComment) return;
     put(at, name);
   });

@@ -6,12 +6,17 @@ import {
   type GitHubPolicySource,
   githubPolicyReceiptFields,
   githubPolicySourceOf,
+  OPEN_PULL_REQUEST_STAGES,
   OPEN_PUSH_REQUEST_STATES,
+  type PullRequestStage,
   type PushDecider,
   type PushReceiptResult,
   type PushRequest,
+  type PushRequestFlow,
+  type PushRequestOrigin,
   type PushRequestState,
   pushBranchFor,
+  pushClassOf,
   type ReceiptActor,
   repositoryCeilingOf,
 } from "@werft-ai/contracts";
@@ -156,6 +161,9 @@ function publicPushRequest(row: Row): PushRequest {
     resolution_receipt_id: row.decisionReceiptId,
     finished_at: row.finishedAt?.toISOString() ?? null,
     push_receipt_id: row.pushReceiptId,
+    origin: row.origin as PushRequestOrigin,
+    flow: row.flow as PushRequestFlow,
+    pr_state: (row.prState as PullRequestStage | null) ?? null,
   };
 }
 
@@ -184,6 +192,12 @@ function approvalOff(policy: EffectiveGitHubPolicy): boolean {
   );
 }
 
+// `allow` only: no settings or a shape this image does not know keeps a
+// person deciding, and so does a release session (its pin means `ask`).
+function attachedAllowed(policy: EffectiveGitHubPolicy): boolean {
+  return policy.settings !== "invalid" && policy.pushAttached === "allow";
+}
+
 const claimable = sql`${pushRequests.state} = 'approved' OR (${pushRequests.state} = 'pushing' AND (${pushRequests.leaseExpiresAt} IS NULL OR ${pushRequests.leaseExpiresAt} < now()))`;
 
 /**
@@ -197,7 +211,10 @@ async function approvalLapsed(
 ): Promise<GitHubPolicySource | null> {
   if (row.approvalBasis !== "policy") return null;
   const [session] = await tx
-    .select(githubPolicyColumns)
+    .select({
+      ...githubPolicyColumns,
+      sessionRepositoryId: sessions.repositoryId,
+    })
     .from(sessions)
     .leftJoin(agentReleases, eq(agentReleases.id, sessions.agentReleaseId))
     .leftJoin(agents, eq(agents.id, agentReleases.agentId))
@@ -206,7 +223,12 @@ async function approvalLapsed(
     .limit(1);
   if (session === undefined) return null;
   const policy = githubPolicyOfRow(session);
-  return approvalOff(policy) ? null : policy.source;
+  const stillGiven =
+    pushClassOf(session.sessionRepositoryId, row.repositoryId) ===
+    "push.attached"
+      ? attachedAllowed(policy)
+      : approvalOff(policy);
+  return stillGiven ? null : policy.source;
 }
 
 /** Back to `requested`, for a person; nothing was pushed under this claim. */
@@ -355,6 +377,15 @@ export function createPostgresPushRequests(
                 settingsRevision: policy.agentSettingsRevision,
               }
             : null,
+        pushAttached: policy.pushAttached,
+        attachedApproval:
+          attachedAllowed(policy) && row.releaseId !== null
+            ? {
+                releaseId: row.releaseId,
+                source: policy.source,
+                settingsRevision: policy.agentSettingsRevision,
+              }
+            : null,
         policyFields: githubPolicyReceiptFields(
           policy,
           row.ceilingRevision ?? 0,
@@ -427,7 +458,36 @@ export function createPostgresPushRequests(
           )
           .limit(1);
         if (open) return refuse(tx, "request_open", open);
-        if (session.checkpointRevision !== input.checkpointRevision) {
+        // The same target also waits while an earlier request's pull
+        // request is still due or opening: two pushes must not become the
+        // heads of each other's pull requests. Every creator passes here
+        // (REST, the legacy MCP path, the intent runner), all under the
+        // session row lock taken above.
+        const [pending] = await tx
+          .select()
+          .from(pushRequests)
+          .where(
+            and(
+              eq(pushRequests.sessionId, sessionId),
+              eq(pushRequests.repositoryId, input.repositoryId),
+              eq(pushRequests.targetBranch, targetBranch),
+              inArray(pushRequests.prState, [...OPEN_PULL_REQUEST_STAGES]),
+            ),
+          )
+          .limit(1);
+        if (pending) {
+          return {
+            ...(await refuse(tx, "request_open", pending)),
+            reason: "pull_request_pending",
+          };
+        }
+        // An intent request pins the revision its turn ended on, which a
+        // later turn's checkpoint may have passed; its source is verified
+        // by the caller against that revision instead.
+        if (
+          input.origin !== "intent" &&
+          session.checkpointRevision !== input.checkpointRevision
+        ) {
           return refuse(tx, "checkpoint_moved", null);
         }
         const id = randomUUID();
@@ -509,6 +569,12 @@ export function createPostgresPushRequests(
             targetBranch,
             requestedBy: input.actor,
             requestReceiptId: receiptId,
+            // An intent request is always `actions`, whatever the setting
+            // is when the runner makes it.
+            origin: input.origin ?? "direct",
+            flow:
+              input.origin === "intent" ? "actions" : (input.flow ?? "legacy"),
+            pullRequestIntent: input.pullRequestIntent ?? null,
             ...(policy === null
               ? {}
               : {
@@ -688,7 +754,11 @@ export function createPostgresPushRequests(
           const sameCommit =
             input.latest?.revision === session.checkpointRevision &&
             input.latest.gitCommit === row.gitCommit;
+          // An intent request is pinned to a past revision on purpose; the
+          // service checks that revision (`pinnedSourceValid`) before this
+          // runs, and the pointer moving is not a reason to refuse.
           if (
+            row.origin !== "intent" &&
             session.checkpointRevision !== row.checkpointRevision &&
             !sameCommit
           ) {

@@ -265,6 +265,7 @@ export function createApiCheckpoints(
       protocol: undefined,
       pushSource: {
         readPushSource: async () => disabled,
+        readPushSourceAt: async () => disabled,
         spoolPushBundles: async () => disabled,
       },
       // Without a store no checkpoint is ever committed.

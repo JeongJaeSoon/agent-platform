@@ -100,7 +100,7 @@ bucket은 `S3_BUCKET`(기본 `claude-sessions`, `infra/compose.core.yml:290`, `d
 
 ## worker 작업 공간
 
-- **작업 공간 volume** — Docker는 `ap-ws-<installation>-<session>-…` volume(`packages/adapters/execution/local-docker/src/backend.ts:277`), Kubernetes는 worker마다 PVC
+- **작업 공간 volume** — Docker는 `werft-ws-<installation>-<session>-…` volume(`packages/adapters/execution/local-docker/src/backend.ts:277`), Kubernetes는 worker마다 PVC
   - 담는 것: 저장소 checkout과 엔진이 쓰는 파일 전부.
   - 보존 기간: 세션이 멈춘 뒤 24시간(`DEFAULT_STOPPED_WORKSPACE_TTL_MS`, `packages/platform/src/scheduler/options.ts:25`, 설정 `EXECUTION_WORKSPACE_STOPPED_TTL_SEC`, `apps/control-host/src/scheduler/config.ts:110-113`). 다시 돌아오지 않을 세션의 volume은 TTL 전에도 지운다.
   - 삭제 조건: scheduler의 작업 공간 회수(`packages/platform/src/scheduler/workspaces.ts:23`). 만든 지 `EXECUTION_WORKSPACE_GC_MIN_AGE_SEC`(기본 3600초)가 지나지 않은 volume은 건드리지 않는다. 지운 뒤에도 세션은 마지막 checkpoint에서 다시 연다. 자세한 규칙은 [실행 기반과 worker 격리](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/execution/).
@@ -163,7 +163,7 @@ bucket은 `S3_BUCKET`(기본 `claude-sessions`, `infra/compose.core.yml:290`, `d
   - 열람: 그 세션을 볼 수 있는 주체만 읽는다([세션 데이터가 흐르는 길](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/session-data-flow/)).
 - **transcript object** — `sessions/<id>/transcripts/…`
   - 마스킹: 없음. 엔진이 쓴 JSONL을 그대로 올린다(`session-store.ts:255-262`). 세션을 다시 열 때 엔진에 그대로 돌려줘야 하는 원본이라서다. 그래서 이벤트에서 가려진 값도 transcript에는 남을 수 있다.
-  - 접근: worker는 자기 세션 prefix에만 쓰고 읽는다. object store 자격 증명은 API에만 있다([api-server.md](api-server.md)).
+  - 접근: worker는 자기 세션 prefix에만 쓰고 읽는다. object store 자격 증명은 API와 maintenance 컨테이너에만 있다([api-server.md](api-server.md)).
 - **로그** — 내용을 싣지 않는다
   - `sanitizeFields`가 `message`·`body`·`content`·`prompt`·`input`·`output`·`transcript` 같은 이름의 필드를 빼고, 민감한 키의 값과 비밀 모양의 문자열을 `[REDACTED]`로 바꾼다(`packages/observability/src/redaction.ts:12-31`, `54-66`).
   - worker는 예외다. 본문 필드를 빼지 않고 비밀값만 가린다(`apps/worker/src/console-logger.ts:40`). worker는 본문을 로그에 싣지 않는다는 전제이고, 빼는 규칙이 `input_id` 같은 필드까지 지우기 때문이다.

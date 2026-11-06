@@ -42,6 +42,8 @@ const NO_GITHUB = {
   github: null,
   repositoryCeiling: null,
   githubEnabled: false,
+  pushAttached: "ask" as const,
+  attachedApproval: null,
   policyFields: { policy_source: "release" as const },
 };
 const KEYS: Record<string, readonly SessionScope[]> = {
@@ -117,6 +119,9 @@ const PINNED: PushRequest = {
   resolution_receipt_id: null,
   finished_at: null,
   push_receipt_id: null,
+  origin: "direct",
+  flow: "legacy",
+  pr_state: null,
 };
 
 const CATALOG = {
@@ -194,8 +199,11 @@ function app(
     }),
     store,
     catalog: CATALOG,
+    intents: { list: async () => [] } as never,
     source: {
       readPushSource: async () =>
+        options.source ?? { status: "ready", revision: 2, gitCommit: COMMIT },
+      readPushSourceAt: async () =>
         options.source ?? { status: "ready", revision: 2, gitCommit: COMMIT },
     },
   });
@@ -337,6 +345,8 @@ describe("push request routes", () => {
       repositoryCeiling: null,
       githubEnabled: true,
       policyApproval: null,
+      pushAttached: "ask" as const,
+      attachedApproval: null,
       policyFields: {},
     };
 

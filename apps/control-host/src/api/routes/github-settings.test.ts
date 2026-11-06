@@ -3,9 +3,12 @@ import {
   apiErrorResponseSchema,
   CSRF_HEADER_NAME,
   CSRF_HEADER_VALUE,
+  DEFAULT_PULL_REQUEST_SETTINGS,
   GITHUB_CEILING_NONE,
   type GitHubCeiling,
   githubSettingsResponseSchema,
+  type PullRequestSettings,
+  putGitHubPullRequestSettingsResponseSchema,
   REQUEST_BODY_MAX_BYTES,
   WEB_SESSION_COOKIE_NAME,
 } from "@werft-ai/contracts";
@@ -18,6 +21,8 @@ import {
   type GitHubSettingsStore,
   type IdentityStore,
   type MembershipRole,
+  type PullRequestSettingsRead,
+  type PullRequestSettingsStore,
   type ResolvedWebSession,
 } from "@werft-ai/platform";
 import { fakeGitHubClientSecret } from "@werft-ai/platform/testing/github";
@@ -104,7 +109,31 @@ function memoryStore() {
       return { outcome: "stored", settings: held };
     },
   };
-  return { store, writes, held: () => held };
+  let layout: PullRequestSettingsRead = {
+    settings: DEFAULT_PULL_REQUEST_SETTINGS,
+    revision: 0,
+  };
+  const layoutWrites: PullRequestSettings[] = [];
+  const pullRequestSettings: Pick<PullRequestSettingsStore, "get" | "put"> = {
+    async get() {
+      return layout;
+    },
+    async put(input) {
+      if (input.revision !== layout.revision) {
+        return { outcome: "revision_conflict" };
+      }
+      layout = { settings: input.settings, revision: layout.revision + 1 };
+      layoutWrites.push(input.settings);
+      return { outcome: "stored", ...layout, receiptId: crypto.randomUUID() };
+    },
+  };
+  return {
+    store,
+    pullRequestSettings,
+    writes,
+    layoutWrites,
+    held: () => held,
+  };
 }
 
 function appWith(
@@ -129,6 +158,7 @@ function appWith(
         createGitHubSettingsService({
           authorization: createAuthorizationPolicy({}),
           store: memory.store,
+          pullRequestSettings: memory.pullRequestSettings,
           oauth: {
             status: async () => ({
               authorApp: options.authorApp ?? false,
@@ -325,6 +355,8 @@ describe("the GitHub settings API", () => {
     expect(githubSettingsResponseSchema.parse(read.json)).toEqual({
       ceiling: GITHUB_CEILING_NONE,
       revision: 0,
+      pull_request: DEFAULT_PULL_REQUEST_SETTINGS,
+      pull_request_revision: 0,
       agents_using: {
         workflows: 0,
         actions: 2,
@@ -441,6 +473,138 @@ describe("the GitHub settings API", () => {
     for (const method of ["GET", "PUT"] as const) {
       expect((await call(method)).status).toBe(401);
     }
+  });
+});
+
+describe("PUT the pull request settings", () => {
+  const LAYOUT = {
+    formatting: "off",
+    default_template: "## Summary\n",
+    template_mode: "override",
+    session_link: "id",
+  } as const;
+  const path = "/pull-request";
+
+  test("a body past the request limit is 413", async () => {
+    const { call } = appWith();
+    const response = await call("PUT", {
+      cookie: cookieFor("owner"),
+      path,
+      body: { pad: "a".repeat(REQUEST_BODY_MAX_BYTES) },
+    });
+    expect(response.status).toBe(413);
+  });
+
+  test("an owner saves them at their own revision; the ceiling's does not move", async () => {
+    const { call, memory } = appWith();
+    const owner = cookieFor("owner");
+    const put = await call("PUT", {
+      cookie: owner,
+      path,
+      body: { pull_request: LAYOUT, revision: 0 },
+    });
+    expect(put.status).toBe(200);
+    expect(putGitHubPullRequestSettingsResponseSchema.parse(put.json)).toEqual({
+      pull_request: LAYOUT,
+      pull_request_revision: 1,
+      receipt_id: expect.any(String),
+    });
+    expect(memory.layoutWrites).toEqual([LAYOUT]);
+    const read = githubSettingsResponseSchema.parse(
+      (await call("GET", { cookie: owner })).json,
+    );
+    expect(read.pull_request).toEqual(LAYOUT);
+    expect(read.pull_request_revision).toBe(1);
+    expect(read.revision).toBe(0);
+    expect(memory.writes).toEqual([]);
+  });
+
+  test("a stale revision is 409 REVISION_CONFLICT", async () => {
+    const { call, memory } = appWith();
+    await call("PUT", {
+      cookie: cookieFor("owner"),
+      path,
+      body: { pull_request: LAYOUT, revision: 0 },
+    });
+    const stale = await call("PUT", {
+      cookie: cookieFor("admin"),
+      path,
+      body: {
+        pull_request: { ...LAYOUT, formatting: "on" },
+        revision: 0,
+      },
+    });
+    expect(stale.status).toBe(409);
+    expect(code(stale.json).code).toBe("REVISION_CONFLICT");
+    expect(memory.layoutWrites).toHaveLength(1);
+  });
+
+  test("a template the platform would not use is 400 with its reason", async () => {
+    const { call, memory } = appWith();
+    const owner = cookieFor("owner");
+    for (const [text, reason] of [
+      ["# S\n<!-- open", "template_unsupported"],
+      ["a".repeat(16 * 1024), null],
+    ] as const) {
+      const put = await call("PUT", {
+        cookie: owner,
+        path,
+        body: {
+          pull_request: { ...LAYOUT, default_template: text },
+          revision: 0,
+        },
+      });
+      expect(put.status).toBe(reason === null ? 200 : 400);
+      if (reason !== null) {
+        expect(code(put.json).details).toMatchObject({ reason_code: reason });
+      }
+    }
+    // 16 KiB and one byte more never reaches the service: the schema stops it.
+    const over = await call("PUT", {
+      cookie: owner,
+      path,
+      body: {
+        pull_request: {
+          ...LAYOUT,
+          default_template: "a".repeat(16 * 1024 + 1),
+        },
+        revision: 1,
+      },
+    });
+    expect(over.status).toBe(400);
+    expect(memory.layoutWrites).toHaveLength(1);
+  });
+
+  test("a member, an API key and another workspace are refused; a malformed body is 400", async () => {
+    const { call, memory } = appWith();
+    const body = { pull_request: LAYOUT, revision: 0 };
+    expect(
+      (await call("PUT", { cookie: cookieFor("member"), path, body })).status,
+    ).toBe(403);
+    expect((await call("PUT", { key: true, path, body })).status).toBe(403);
+    expect(
+      (
+        await call("PUT", {
+          cookie: cookieFor("owner", OTHER_WORKSPACE),
+          path,
+          body,
+        })
+      ).status,
+    ).toBe(404);
+    expect((await call("PUT", { path, body })).status).toBe(401);
+    const owner = cookieFor("owner");
+    for (const bad of [
+      { pull_request: LAYOUT },
+      { pull_request: { ...LAYOUT, session_link: "host" }, revision: 0 },
+      { pull_request: { ...LAYOUT, formatting: "inherit" }, revision: 0 },
+      { pull_request: { ...LAYOUT, extra: 1 }, revision: 0 },
+      { pull_request: LAYOUT, revision: 0, extra: 1 },
+    ]) {
+      expect(
+        (await call("PUT", { cookie: owner, path, body: bad })).status,
+      ).toBe(400);
+    }
+    expect(memory.layoutWrites).toEqual([]);
   });
 });
 

@@ -30,6 +30,7 @@ import {
   agentGitHubResponseSchema,
   agentIdentityParamsSchema,
   agentIdParamsSchema,
+  agentPullRequestResponseSchema,
   apiErrorResponseSchema,
   apiKeyIdParamsSchema,
   apiRootResponseSchema,
@@ -185,12 +186,18 @@ import {
   pushRequestSchema,
   putAgentGitHubEnabledRequestSchema,
   putAgentGitHubEnabledResponseSchema,
+  putAgentGitHubSettingsRequestSchema,
+  putAgentGitHubSettingsResponseSchema,
+  putAgentPullRequestSettingsRequestSchema,
+  putAgentPullRequestSettingsResponseSchema,
   putGitHubAppRequestSchema,
   putGitHubAppResponseSchema,
   putGitHubOAuthClientSecretRequestSchema,
   putGitHubOAuthClientSecretResponseSchema,
   putGitHubPackagesAllowlistRequestSchema,
   putGitHubPackagesTokenRequestSchema,
+  putGitHubPullRequestSettingsRequestSchema,
+  putGitHubPullRequestSettingsResponseSchema,
   putGitHubRepositoryAppPinRequestSchema,
   putGitHubRepositoryAppPinResponseSchema,
   putGitHubSettingsRequestSchema,
@@ -360,11 +367,15 @@ const requestComponents = {
   RerunWorkflowRequest: rerunWorkflowRequestSchema,
   SubmitPullRequestReviewRequest: submitPullRequestReviewRequestSchema,
   PutGitHubSettingsRequest: putGitHubSettingsRequestSchema,
+  PutAgentPullRequestSettingsRequest: putAgentPullRequestSettingsRequestSchema,
+  PutGitHubPullRequestSettingsRequest:
+    putGitHubPullRequestSettingsRequestSchema,
   PutGitHubOAuthClientSecretRequest: putGitHubOAuthClientSecretRequestSchema,
   PutGitHubPackagesTokenRequest: putGitHubPackagesTokenRequestSchema,
   PutGitHubPackagesAllowlistRequest: putGitHubPackagesAllowlistRequestSchema,
   GitHubLinkCallbackRequest: githubLinkCallbackRequestSchema,
   PutAgentGitHubEnabledRequest: putAgentGitHubEnabledRequestSchema,
+  PutAgentGitHubSettingsRequest: putAgentGitHubSettingsRequestSchema,
   BootstrapRequest: bootstrapRequestSchema,
   LoginRequest: loginRequestSchema,
   PasswordResetRequest: passwordResetRequestSchema,
@@ -474,6 +485,7 @@ const responseComponents = {
   ReviewAchievementResponse: reviewAchievementResponseSchema,
   AgentGitHubResponse: agentGitHubResponseSchema,
   PutAgentGitHubEnabledResponse: putAgentGitHubEnabledResponseSchema,
+  PutAgentGitHubSettingsResponse: putAgentGitHubSettingsResponseSchema,
   AgentGitHubActivityResponse: agentGitHubActivityResponseSchema,
   ReceiptAcceptedResponse: receiptAcceptedResponseSchema,
   TerminateSessionResponse: terminateSessionResponseSchema,
@@ -501,6 +513,11 @@ const responseComponents = {
   DeleteGitHubAppResponse: deleteGitHubAppResponseSchema,
   ListGitHubAppsResponse: listGitHubAppsResponseSchema,
   PutGitHubUserLinkAppResponse: putGitHubUserLinkAppResponseSchema,
+  AgentPullRequestResponse: agentPullRequestResponseSchema,
+  PutAgentPullRequestSettingsResponse:
+    putAgentPullRequestSettingsResponseSchema,
+  PutGitHubPullRequestSettingsResponse:
+    putGitHubPullRequestSettingsResponseSchema,
   GetGitHubRepositoryAppPinsResponse: getGitHubRepositoryAppPinsResponseSchema,
   PutGitHubRepositoryAppPinResponse: putGitHubRepositoryAppPinResponseSchema,
   ListGitHubRepositoriesResponse: listGitHubRepositoriesResponseSchema,
@@ -780,6 +797,13 @@ const EXAMPLE_GITHUB_INSTALLATION_SUMMARY = {
   permissions: { contents: "write", pull_requests: "write", metadata: "read" },
   repository_count: 1,
 };
+
+const EXAMPLE_PULL_REQUEST_SETTINGS = {
+  formatting: "on",
+  default_template: null,
+  template_mode: "repository_first",
+  session_link: "url",
+} as const;
 
 const EXAMPLE_GITHUB_CONNECTION = {
   connection_id: "019a0000-0000-7000-8000-0000000000b1",
@@ -2252,6 +2276,8 @@ export const API_ROUTE_DECLARATIONS = [
           callback_url:
             "https://console.example.com/settings/linked-accounts/github",
         },
+        pull_request: EXAMPLE_PULL_REQUEST_SETTINGS,
+        pull_request_revision: 0,
         connections: [EXAMPLE_GITHUB_CONNECTION],
         apps: {
           author: {
@@ -2314,8 +2340,49 @@ export const API_ROUTE_DECLARATIONS = [
           callback_url:
             "https://console.example.com/settings/linked-accounts/github",
         },
+        pull_request: EXAMPLE_PULL_REQUEST_SETTINGS,
+        pull_request_revision: 0,
         connections: [EXAMPLE_GITHUB_CONNECTION],
         apps: { author: { permissions: null }, reviewer: null },
+      },
+    },
+    errors: [400, 401, 403, 404, 409, 413, 503],
+    errorCodes: { 409: ["REVISION_CONFLICT"] },
+    idempotent: false,
+  },
+  {
+    method: "put",
+    path: "/v1/workspaces/{id}/github-settings/pull-request",
+    operationId: "putGitHubPullRequestSettings",
+    tag: "Workspace settings",
+    summary:
+      "Change how the workspace's pull request bodies are laid out (owner or admin)",
+    description:
+      "Replaces `formatting` (`off` leaves every template out, so the fields land on the platform's default layout), `template_mode` (`repository_first`: the repository's template, else `default_template`; `override`: `default_template` always, the repository's is not read), `default_template` (markdown up to 16 KiB, or null for the platform's default) and `session_link` (`id` leaves the console's address out of the pull request tail and the `Agent-Session` trailer). `revision` is `pull_request_revision` as last read; a stale one is 409 `REVISION_CONFLICT` and nothing changes. It is separate from the ceiling's `revision`. A template the platform will not lay text around is 400 with `reason_code` `template_too_large`, `template_not_utf8` or `template_unsupported`. A change reaches pull requests opened or updated afterwards and commits made after a worker's next claim; text already on GitHub is not rewritten. Writes a `set_github_pull_request_settings` receipt with the values before and after (a template as its size and hash, never its text); `receipt_id` is null when nothing changed. API keys are refused.",
+    auth: "session",
+    body: "PutGitHubPullRequestSettingsRequest",
+    requestExample: {
+      pull_request: {
+        formatting: "on",
+        default_template: null,
+        template_mode: "repository_first",
+        session_link: "id",
+      },
+      revision: 0,
+    },
+    success: {
+      status: 200,
+      schema: "PutGitHubPullRequestSettingsResponse",
+      description: "Stored; the settings and their new revision.",
+      example: {
+        pull_request: {
+          formatting: "on",
+          default_template: null,
+          template_mode: "repository_first",
+          session_link: "id",
+        },
+        pull_request_revision: 1,
+        receipt_id: EXAMPLE_RECEIPT_ID,
       },
     },
     errors: [400, 401, 403, 404, 409, 413, 503],
@@ -4683,12 +4750,12 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "Release a version against a runtime profile",
     description:
-      "The release id is a hash of the card, the profile's digest and the resolved runtime settings; releasing the same content again returns the stored release with `created: false`. The optional `note` (trimmed, 1 to 200 characters) is stored with the release but is not part of its id, so a re-release keeps the note it was first made with. A card tool outside the profile, a different model or an unknown profile answers 422. `repository_id` names the catalog repository the release's sessions work on (`GET /v1/profiles`, `repository_ids`): required when the profile's `repository_mode` is `required` (422 `repository_id: Profile <id> needs a repository: send repository_id`), refused when it is `none`, and 422 when the catalog has no such repository or it does not allow the profile. Slack sessions and API sessions that send no `repository_id` work on it. A profile the operator blocked, or one over a blocked base, answers 409 PROFILE_BLOCKED. Releasing approves and activates nothing.",
+      "The release id is a hash of the card, the profile's digest and the resolved runtime settings; releasing the same content again returns the stored release with `created: false`. The optional `note` (trimmed, 1 to 200 characters) is stored with the release but is not part of its id, so a re-release keeps the note it was first made with. A card tool outside the profile, a different model or an unknown profile answers 422. `repository_id` names the catalog repository the release's sessions work on (`GET /v1/profiles`, `repository_ids`): required when the profile's `repository_mode` is `required` (422 `repository_id: Profile <id> needs a repository: send repository_id`), refused when it is `none`, and 422 when the catalog has no such repository or it does not allow the profile. Slack sessions and API sessions that send no `repository_id` work on it. A profile the operator blocked, or one over a blocked base, answers 409 PROFILE_BLOCKED. A request carrying `github` for an agent that already has GitHub settings answers 409 ALREADY_EXISTS with `reason_code: github_settings_exist`: those are saved with `PUT /v1/agents/{id}/github/settings`. Releasing approves and activates nothing.",
     auth: "session",
     body: "CreateAgentReleaseRequest",
     success: { status: 200, schema: "CreateAgentReleaseResponse" },
     errors: [400, 401, 403, 404, 409, 413, 422, 503],
-    errorCodes: { 409: ["PROFILE_BLOCKED"] },
+    errorCodes: { 409: ["PROFILE_BLOCKED", "ALREADY_EXISTS"] },
     idempotent: false,
   },
   {
@@ -4950,7 +5017,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "The agent's GitHub switch, settings and what may be turned on",
     description:
-      "`enabled` is the switch that applies at once (`PUT …/github/enabled`). `github` is the active release's GitHub settings; null before one is saved, when `legacy_defaults` is what a first save starts from (the release's repository, push approval off, nothing optional; the release itself keeps asking a person before each push until settings are saved) and the release meanwhile runs on every repository its profile allows. Settings are saved as a new release (`POST /v1/agents/{id}/releases` with `github`). `unsavable` says why none can be: `no_active_release` or `repository_none` (the release names no repository). `options.repositories` lists the catalog's GitHub repositories with why one cannot be picked (`repository_not_allowed` by the release's profile), and `installed`: whether the author and the reviewer App are installed on each, as GitHub answers now (null when there is no such App or no answer). `options.features` says, per optional permission, why it cannot be turned on: `github_host_unsupported` (every chosen repository is on a GitHub Enterprise host), `over_workspace_ceiling`, `no_reviewer_app`, or `app_permission_missing` (the App's permissions as last read lack it; the token request decides). Whoever manages the agent reads it, and so do the live members of its managing team.",
+      "`enabled` is the switch that applies at once (`PUT …/github/enabled`). `github` is the agent's own GitHub settings, or the active release's pin while the agent has none; null when neither exists, when `legacy_defaults` is what a first save starts from (no repository, push approval off, nothing optional; the release itself keeps asking a person before each push until settings are saved). `settings_revision` is the row's revision (null without a row) and `start_repository_id` the repository a session naming none starts on. `push_attached` (`allow`, `ask` or `deny`) says whether a push to a repository the session attached needs a person: the row's value, `ask` for a row saved before the field existed, and `allow` while there is no row (what a first save writes). Settings are saved with `PUT …/github/settings`, never as a release. `options.repositories` lists the catalog's GitHub repositories with why one cannot be picked (`repository_not_allowed` by the workspace's repository ceiling; `repository_ceiling_unset` is true while the workspace has none yet, and the list is then judged against the default the first save writes, without writing it on this read), and `installed`: whether the author and the reviewer App are installed on each, as GitHub answers now (null when there is no such App or no answer). `options.features` says, per optional permission, why it cannot be turned on: `github_host_unsupported` (every chosen repository is on a GitHub Enterprise host), `over_workspace_ceiling`, `no_reviewer_app`, or `app_permission_missing` (the App's permissions as last read lack it; the token request decides). Whoever manages the agent reads it, and so do the live members of its managing team.",
     auth: "session",
     success: {
       status: 200,
@@ -4959,7 +5026,9 @@ export const API_ROUTE_DECLARATIONS = [
       example: {
         enabled: true,
         active_release_id: "rel_example",
-        release_repository_id: "werft-sandbox",
+        settings_revision: 3,
+        start_repository_id: "werft-sandbox",
+        push_attached: "allow",
         github: {
           repositories: ["werft-sandbox"],
           push_approval: true,
@@ -4973,8 +5042,8 @@ export const API_ROUTE_DECLARATIONS = [
           actions_allow: [{ workflow: "ci.yml", ref: "release/*" }],
         },
         legacy_defaults: null,
-        unsavable: null,
         options: {
+          repository_ceiling_unset: false,
           repositories: [
             {
               id: "werft-sandbox",
@@ -5003,7 +5072,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "A page of the author App's repositories, to pick for the agent",
     description:
-      "The repositories one installation of the author App reaches, a page at a time, as `GET /v1/workspaces/{id}/github-repositories` pages them (its failures too), with `catalog_id` set on those a pick resolved already; `installations` lists only the author Apps'. With several author connections, `installation_id` is required (400 `installation_required`). Only when the active release's installation profile ceiling runs on every App repository (`github_app_repositories: installed`); otherwise `unavailable` is `ceiling_listed` (pick among `options.repositories` of `GET /v1/agents/{id}/github`) or `no_active_release`, and the page is empty. Whoever manages the agent reads it.",
+      "The repositories one installation of the author App reaches, a page at a time, as `GET /v1/workspaces/{id}/github-repositories` pages them (its failures too), with `catalog_id` set on those a pick resolved already; `installations` lists only the author Apps'. With several author connections, `installation_id` is required (400 `installation_required`). Only when the workspace's `repository_ceiling` runs on every App repository (`github_app_repositories: installed`); otherwise `unavailable` is `ceiling_listed` (pick among `options.repositories` of `GET /v1/agents/{id}/github`), and the page is empty. Whoever manages the agent reads it.",
     auth: "session",
     query: "GitHubRepositoryPageQuery",
     success: {
@@ -5039,9 +5108,9 @@ export const API_ROUTE_DECLARATIONS = [
     path: "/v1/agents/{id}/github/repositories",
     operationId: "pickAgentGitHubRepository",
     tag: "Agents",
-    summary: "Resolve an App repository to the catalog id a release names",
+    summary: "Resolve an App repository to the catalog id the settings name",
     description:
-      "Takes a repository from `GET …/github/repositories` and returns the catalog id to put in `github.repositories` of the next release (`POST /v1/agents/{id}/releases`); the release itself is unchanged. The server reads the repository by its GitHub id and checks that the named installation covers it, then takes its URL and default branch from GitHub. The same repository always resolves to the same id, by its GitHub id: the first pick writes a `resolve_repository` receipt (`receipt_id`), and so does a pick after a rename on GitHub, which moves the row to the new name and URL; other picks return null. A repository with no author pin yet is pinned to the connection whose App holds the installation (a `set_repository_github_app` receipt), and `connection_id` names the author connection it is pinned to; a pin made before stays. 400 `details.reason_code`: `repository_not_allowed` (the active release's ceiling does not run on App repositories, or there is no active release), `no_author_app`, `not_installed` (the author App has no such installation, or it does not cover the repository), or `name_held` (another row has that name: another GitHub repository's, whose pick after its rename frees the name, or one not yet tied to a GitHub id). GitHub not answering is 502 `GITHUB_UNAVAILABLE`, and an installation GitHub dropped while it was read is 404 `installation_not_found`; nothing stored changed. A signed-in manager of the agent; API keys are refused.",
+      "Takes a repository from `GET …/github/repositories` and returns the catalog id to put in `settings.repositories` of the next `PUT /v1/agents/{id}/github/settings`; nothing about the agent's settings or releases changes. The server reads the repository by its GitHub id and checks that the named installation covers it, then takes its URL and default branch from GitHub. The same repository always resolves to the same id, by its GitHub id: the first pick writes a `resolve_repository` receipt (`receipt_id`), and so does a pick after a rename on GitHub, which moves the row to the new name and URL; other picks return null. A repository with no author pin yet is pinned to the connection whose App holds the installation (a `set_repository_github_app` receipt), and `connection_id` names the author connection it is pinned to; a pin made before stays. 400 `details.reason_code`: `repository_not_allowed` (the workspace's ceiling does not run on App repositories), `no_author_app`, `not_installed` (the author App has no such installation, or it does not cover the repository), or `name_held` (another row has that name: another GitHub repository's, whose pick after its rename frees the name, or one not yet tied to a GitHub id). GitHub not answering is 502 `GITHUB_UNAVAILABLE`, and an installation GitHub dropped while it was read is 404 `installation_not_found`; nothing stored changed. A signed-in manager of the agent; API keys are refused.",
     auth: "session",
     body: "PickAgentGitHubRepositoryRequest",
     requestExample: { installation_id: 4242, github_repository_id: 123456789 },
@@ -5054,6 +5123,103 @@ export const API_ROUTE_DECLARATIONS = [
     },
     errors: [400, 401, 403, 404, 413, 502, 503],
     errorCodes: { 502: ["GITHUB_UNAVAILABLE"] },
+    idempotent: false,
+  },
+  {
+    method: "put",
+    path: "/v1/agents/{id}/github/settings",
+    operationId: "putAgentGitHubSettings",
+    tag: "Agents",
+    summary: "Save the agent's GitHub settings",
+    description:
+      "Replaces the agent's whole settings row in one transaction and makes no release: a new session reads it at once, and a change that narrows reaches running sessions too. `expected_revision` is `settings_revision` as read (null when there was no row); another value answers 409 `REVISION_CONFLICT`. `push_attached` is optional: left out, a first save writes `allow` and a later save keeps the row's value. `updated_by` is always the caller, so the first save of an agent also fixes the rollback floor at the snapshot-reading image. Only repositories the save adds are checked against the catalog and the workspace's repository ceiling, and features it turns on against the feature ceiling (400 with `reason_code`). Writes a `set_agent_github` receipt with `result.change = \"settings\"` and the values before and after; `receipt_id` is null when a person's row already held them. Agent managers with a web session only; API keys are refused.",
+    auth: "session",
+    body: "PutAgentGitHubSettingsRequest",
+    requestExample: {
+      expected_revision: 3,
+      settings: {
+        repositories: ["werft-sandbox"],
+        push_approval: true,
+        features: {
+          workflows: false,
+          actions: true,
+          checks: false,
+          issues: false,
+          review: false,
+        },
+        actions_allow: [{ workflow: "ci.yml" }],
+      },
+      start_repository_id: "werft-sandbox",
+      push_attached: "allow",
+    },
+    success: {
+      status: 200,
+      schema: "PutAgentGitHubSettingsResponse",
+      description: "Saved.",
+      example: { settings_revision: 4, receipt_id: EXAMPLE_RECEIPT_ID },
+    },
+    errors: [400, 401, 403, 404, 409, 413, 503],
+    errorCodes: { 409: ["REVISION_CONFLICT"] },
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/agents/{id}/github/pull-request",
+    operationId: "getAgentPullRequestSettings",
+    tag: "Agents",
+    summary: "How the agent's pull request bodies differ from the workspace's",
+    description:
+      "`pull_request` holds `formatting` (`inherit` follows the workspace; `on` or `off` overrides it), `template` (markdown up to 16 KiB that stands in for the workspace's `default_template`; null uses the workspace's) and `template_name` (which file of a repository's `.github/PULL_REQUEST_TEMPLATE/` directory to use when it holds several; matched to the names found there, never used as a path). An agent with nothing saved reads as `inherit`, no template, no name, with `pull_request_revision` 0. Kept apart from the agent's GitHub settings: saving it does not make the agent's sessions follow those instead of their release. Whoever manages the agent reads it, and so do the live members of its managing team.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "AgentPullRequestResponse",
+      description: "The agent's values and the revision that guards them.",
+      example: {
+        pull_request: {
+          formatting: "inherit",
+          template: null,
+          template_name: "feature.md",
+        },
+        pull_request_revision: 2,
+      },
+    },
+    errors: [401, 403, 404, 503],
+  },
+  {
+    method: "put",
+    path: "/v1/agents/{id}/github/pull-request",
+    operationId: "putAgentPullRequestSettings",
+    tag: "Agents",
+    summary: "Change how the agent's pull request bodies are laid out",
+    description:
+      "Replaces the three values. `revision` is `pull_request_revision` as last read (0 when none was saved); a stale one is 409 `REVISION_CONFLICT` and nothing changes. A template the platform will not lay text around is 400 with `reason_code` `template_too_large`, `template_not_utf8` or `template_unsupported`. A change reaches pull requests the agent's sessions open or update afterwards; text already on GitHub is not rewritten. Writes a `set_agent_pull_request_settings` receipt with the values before and after (a template as its size and hash, never its text); `receipt_id` is null when nothing changed. Agent managers with a web session only; API keys are refused.",
+    auth: "session",
+    body: "PutAgentPullRequestSettingsRequest",
+    requestExample: {
+      pull_request: {
+        formatting: "inherit",
+        template: null,
+        template_name: "feature.md",
+      },
+      revision: 0,
+    },
+    success: {
+      status: 200,
+      schema: "PutAgentPullRequestSettingsResponse",
+      description: "Stored; the values and their new revision.",
+      example: {
+        pull_request: {
+          formatting: "inherit",
+          template: null,
+          template_name: "feature.md",
+        },
+        pull_request_revision: 1,
+        receipt_id: EXAMPLE_RECEIPT_ID,
+      },
+    },
+    errors: [400, 401, 403, 404, 409, 413, 503],
+    errorCodes: { 409: ["REVISION_CONFLICT"] },
     idempotent: false,
   },
   {

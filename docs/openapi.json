@@ -1565,6 +1565,113 @@
         ],
         "additionalProperties": false
       },
+      "PutAgentPullRequestSettingsRequest": {
+        "type": "object",
+        "properties": {
+          "pull_request": {
+            "type": "object",
+            "properties": {
+              "formatting": {
+                "type": "string",
+                "enum": [
+                  "inherit",
+                  "on",
+                  "off"
+                ]
+              },
+              "template": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "template_name": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100,
+                    "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "formatting",
+              "template",
+              "template_name"
+            ],
+            "additionalProperties": false
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "pull_request",
+          "revision"
+        ],
+        "additionalProperties": false
+      },
+      "PutGitHubPullRequestSettingsRequest": {
+        "type": "object",
+        "properties": {
+          "pull_request": {
+            "type": "object",
+            "properties": {
+              "formatting": {
+                "type": "string",
+                "enum": [
+                  "on",
+                  "off"
+                ]
+              },
+              "default_template": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "template_mode": {
+                "type": "string",
+                "enum": [
+                  "repository_first",
+                  "override"
+                ]
+              },
+              "session_link": {
+                "type": "string",
+                "enum": [
+                  "url",
+                  "id"
+                ]
+              }
+            },
+            "required": [
+              "formatting",
+              "default_template",
+              "template_mode",
+              "session_link"
+            ],
+            "additionalProperties": false
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "pull_request",
+          "revision"
+        ],
+        "additionalProperties": false
+      },
       "PutGitHubOAuthClientSecretRequest": {
         "type": "object",
         "properties": {
@@ -1701,6 +1808,122 @@
         },
         "required": [
           "enabled"
+        ],
+        "additionalProperties": false
+      },
+      "PutAgentGitHubSettingsRequest": {
+        "type": "object",
+        "properties": {
+          "expected_revision": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "settings": {
+            "type": "object",
+            "properties": {
+              "repositories": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                }
+              },
+              "push_approval": {
+                "type": "boolean"
+              },
+              "features": {
+                "type": "object",
+                "properties": {
+                  "workflows": {
+                    "type": "boolean"
+                  },
+                  "actions": {
+                    "type": "boolean"
+                  },
+                  "checks": {
+                    "type": "boolean"
+                  },
+                  "issues": {
+                    "type": "boolean"
+                  },
+                  "review": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "workflows",
+                  "actions",
+                  "checks",
+                  "issues",
+                  "review"
+                ],
+                "additionalProperties": false
+              },
+              "actions_allow": {
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "workflow": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9._-]+\\.ya?ml$"
+                    },
+                    "ref": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 255
+                    }
+                  },
+                  "required": [
+                    "workflow"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "repositories",
+              "push_approval",
+              "features",
+              "actions_allow"
+            ],
+            "additionalProperties": false
+          },
+          "start_repository_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "push_attached": {
+            "type": "string",
+            "enum": [
+              "allow",
+              "ask",
+              "deny"
+            ]
+          }
+        },
+        "required": [
+          "expected_revision",
+          "settings",
+          "start_repository_id"
         ],
         "additionalProperties": false
       },
@@ -8853,6 +9076,42 @@
                 "type": "null"
               }
             ]
+          },
+          "origin": {
+            "default": "direct",
+            "type": "string",
+            "enum": [
+              "direct",
+              "intent"
+            ]
+          },
+          "flow": {
+            "default": "legacy",
+            "type": "string",
+            "enum": [
+              "legacy",
+              "actions"
+            ]
+          },
+          "pr_state": {
+            "default": null,
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "due",
+                  "opening",
+                  "opened",
+                  "closed_unrecorded",
+                  "uncertain",
+                  "failed",
+                  "cancelled"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -8871,7 +9130,10 @@
           "request_receipt_id",
           "resolution_receipt_id",
           "finished_at",
-          "push_receipt_id"
+          "push_receipt_id",
+          "origin",
+          "flow",
+          "pr_state"
         ],
         "additionalProperties": false
       },
@@ -8883,10 +9145,101 @@
             "items": {
               "$ref": "#/components/schemas/PushRequest"
             }
+          },
+          "intents": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "session_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "repository_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "target_branch": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "deferred",
+                    "pinned",
+                    "requested",
+                    "failed",
+                    "cancelled"
+                  ]
+                },
+                "refusal_code": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "turn_ended_without_checkpoint",
+                        "turn_finalized_without_pin",
+                        "session_closed",
+                        "rejected_before",
+                        "request_open",
+                        "github_disabled",
+                        "over_workspace_ceiling",
+                        "repository_not_allowed",
+                        "checkpoint_unavailable",
+                        "source_missing",
+                        "attribution_mismatch",
+                        "uncommitted_changes",
+                        "pinned_source_invalid"
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "push_request_id": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                }
+              },
+              "required": [
+                "id",
+                "session_id",
+                "repository_id",
+                "target_branch",
+                "status",
+                "refusal_code",
+                "push_request_id",
+                "created_at"
+              ],
+              "additionalProperties": false
+            }
           }
         },
         "required": [
-          "items"
+          "items",
+          "intents"
         ],
         "additionalProperties": false
       },
@@ -9354,6 +9707,50 @@
               "callback_url"
             ],
             "additionalProperties": false
+          },
+          "pull_request": {
+            "type": "object",
+            "properties": {
+              "formatting": {
+                "type": "string",
+                "enum": [
+                  "on",
+                  "off"
+                ]
+              },
+              "default_template": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "template_mode": {
+                "type": "string",
+                "enum": [
+                  "repository_first",
+                  "override"
+                ]
+              },
+              "session_link": {
+                "type": "string",
+                "enum": [
+                  "url",
+                  "id"
+                ]
+              }
+            },
+            "required": [
+              "formatting",
+              "default_template",
+              "template_mode",
+              "session_link"
+            ],
+            "additionalProperties": false
+          },
+          "pull_request_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
           },
           "connections": {
             "type": "array",
@@ -9823,6 +10220,8 @@
           "revision",
           "agents_using",
           "oauth",
+          "pull_request",
+          "pull_request_revision",
           "connections",
           "apps"
         ],
@@ -11702,12 +12101,6 @@
               "null"
             ]
           },
-          "release_repository_id": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "github": {
             "anyOf": [
               {
@@ -11788,14 +12181,38 @@
               }
             ]
           },
+          "settings_revision": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "start_repository_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "push_attached": {
+            "type": "string",
+            "enum": [
+              "allow",
+              "ask",
+              "deny"
+            ]
+          },
           "legacy_defaults": {
             "anyOf": [
               {
                 "type": "object",
                 "properties": {
                   "repositories": {
-                    "minItems": 1,
-                    "maxItems": 32,
                     "type": "array",
                     "items": {
                       "type": "string",
@@ -11870,21 +12287,6 @@
               }
             ]
           },
-          "unsavable": {
-            "anyOf": [
-              {
-                "type": "string",
-                "enum": [
-                  "no_active_release",
-                  "repository_none",
-                  "app_required"
-                ]
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
           "options": {
             "type": "object",
             "properties": {
@@ -11948,6 +12350,9 @@
                   ],
                   "additionalProperties": false
                 }
+              },
+              "repository_ceiling_unset": {
+                "type": "boolean"
               },
               "features": {
                 "type": "object",
@@ -12110,6 +12515,7 @@
             },
             "required": [
               "repositories",
+              "repository_ceiling_unset",
               "features"
             ],
             "additionalProperties": false
@@ -12118,10 +12524,11 @@
         "required": [
           "enabled",
           "active_release_id",
-          "release_repository_id",
           "github",
+          "settings_revision",
+          "start_repository_id",
+          "push_attached",
           "legacy_defaults",
-          "unsavable",
           "options"
         ],
         "additionalProperties": false
@@ -12147,6 +12554,33 @@
         },
         "required": [
           "enabled",
+          "receipt_id"
+        ],
+        "additionalProperties": false
+      },
+      "PutAgentGitHubSettingsResponse": {
+        "type": "object",
+        "properties": {
+          "settings_revision": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "receipt_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "settings_revision",
           "receipt_id"
         ],
         "additionalProperties": false
@@ -12294,6 +12728,8 @@
               "delete_github_app",
               "mint_github_token",
               "set_github_ceiling",
+              "set_github_pull_request_settings",
+              "set_agent_pull_request_settings",
               "add_repository",
               "set_repository_branch",
               "remove_repository",
@@ -14684,6 +15120,192 @@
         "required": [
           "receipt_id",
           "oauth"
+        ],
+        "additionalProperties": false
+      },
+      "AgentPullRequestResponse": {
+        "type": "object",
+        "properties": {
+          "pull_request": {
+            "type": "object",
+            "properties": {
+              "formatting": {
+                "type": "string",
+                "enum": [
+                  "inherit",
+                  "on",
+                  "off"
+                ]
+              },
+              "template": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "template_name": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100,
+                    "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "formatting",
+              "template",
+              "template_name"
+            ],
+            "additionalProperties": false
+          },
+          "pull_request_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "pull_request",
+          "pull_request_revision"
+        ],
+        "additionalProperties": false
+      },
+      "PutAgentPullRequestSettingsResponse": {
+        "type": "object",
+        "properties": {
+          "pull_request": {
+            "type": "object",
+            "properties": {
+              "formatting": {
+                "type": "string",
+                "enum": [
+                  "inherit",
+                  "on",
+                  "off"
+                ]
+              },
+              "template": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "template_name": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100,
+                    "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "formatting",
+              "template",
+              "template_name"
+            ],
+            "additionalProperties": false
+          },
+          "pull_request_revision": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "receipt_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "pull_request",
+          "pull_request_revision",
+          "receipt_id"
+        ],
+        "additionalProperties": false
+      },
+      "PutGitHubPullRequestSettingsResponse": {
+        "type": "object",
+        "properties": {
+          "pull_request": {
+            "type": "object",
+            "properties": {
+              "formatting": {
+                "type": "string",
+                "enum": [
+                  "on",
+                  "off"
+                ]
+              },
+              "default_template": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "template_mode": {
+                "type": "string",
+                "enum": [
+                  "repository_first",
+                  "override"
+                ]
+              },
+              "session_link": {
+                "type": "string",
+                "enum": [
+                  "url",
+                  "id"
+                ]
+              }
+            },
+            "required": [
+              "formatting",
+              "default_template",
+              "template_mode",
+              "session_link"
+            ],
+            "additionalProperties": false
+          },
+          "pull_request_revision": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "receipt_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "pull_request",
+          "pull_request_revision",
+          "receipt_id"
         ],
         "additionalProperties": false
       },
@@ -34182,6 +34804,13 @@
                     "client_secret_set": true,
                     "callback_url": "https://console.example.com/settings/linked-accounts/github"
                   },
+                  "pull_request": {
+                    "formatting": "on",
+                    "default_template": null,
+                    "template_mode": "repository_first",
+                    "session_link": "url"
+                  },
+                  "pull_request_revision": 0,
                   "connections": [
                     {
                       "connection_id": "019a0000-0000-7000-8000-0000000000b1",
@@ -34484,6 +35113,13 @@
                     "client_secret_set": true,
                     "callback_url": "https://console.example.com/settings/linked-accounts/github"
                   },
+                  "pull_request": {
+                    "formatting": "on",
+                    "default_template": null,
+                    "template_mode": "repository_first",
+                    "session_link": "url"
+                  },
+                  "pull_request_revision": 0,
                   "connections": [
                     {
                       "connection_id": "019a0000-0000-7000-8000-0000000000b1",
@@ -34542,6 +35178,377 @@
                 },
                 "schema": {
                   "$ref": "#/components/schemas/GitHubSettingsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "- `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BAD_REQUEST"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "- `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "UNAUTHORIZED"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "- `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "FORBIDDEN"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "- `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "NOT_FOUND"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "- `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`).",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "REQUEST_TIMEOUT"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "- `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "REVISION_CONFLICT"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "- `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "PAYLOAD_TOO_LARGE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "description": "- `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BACKEND_UNAVAILABLE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/workspaces/{id}/github-settings/pull-request": {
+      "put": {
+        "operationId": "putGitHubPullRequestSettings",
+        "tags": [
+          "Workspace settings"
+        ],
+        "summary": "Change how the workspace's pull request bodies are laid out (owner or admin)",
+        "description": "Replaces `formatting` (`off` leaves every template out, so the fields land on the platform's default layout), `template_mode` (`repository_first`: the repository's template, else `default_template`; `override`: `default_template` always, the repository's is not read), `default_template` (markdown up to 16 KiB, or null for the platform's default) and `session_link` (`id` leaves the console's address out of the pull request tail and the `Agent-Session` trailer). `revision` is `pull_request_revision` as last read; a stale one is 409 `REVISION_CONFLICT` and nothing changes. It is separate from the ceiling's `revision`. A template the platform will not lay text around is 400 with `reason_code` `template_too_large`, `template_not_utf8` or `template_unsupported`. A change reaches pull requests opened or updated afterwards and commits made after a worker's next claim; text already on GitHub is not rewritten. Writes a `set_github_pull_request_settings` receipt with the values before and after (a template as its size and hash, never its text); `receipt_id` is null when nothing changed. API keys are refused.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "security": [
+          {
+            "cookieSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          {
+            "name": "X-Requested-With",
+            "in": "header",
+            "required": false,
+            "description": "Required with a cookie session: the literal `werft-web`.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "werft-web"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "pull_request": {
+                  "formatting": "on",
+                  "default_template": null,
+                  "template_mode": "repository_first",
+                  "session_link": "id"
+                },
+                "revision": 0
+              },
+              "schema": {
+                "$ref": "#/components/schemas/PutGitHubPullRequestSettingsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Stored; the settings and their new revision.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "example": {
+                  "pull_request": {
+                    "formatting": "on",
+                    "default_template": null,
+                    "template_mode": "repository_first",
+                    "session_link": "id"
+                  },
+                  "pull_request_revision": 1,
+                  "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/PutGitHubPullRequestSettingsResponse"
                 }
               }
             }
@@ -58926,7 +59933,7 @@
           "Agents"
         ],
         "summary": "Release a version against a runtime profile",
-        "description": "The release id is a hash of the card, the profile's digest and the resolved runtime settings; releasing the same content again returns the stored release with `created: false`. The optional `note` (trimmed, 1 to 200 characters) is stored with the release but is not part of its id, so a re-release keeps the note it was first made with. A card tool outside the profile, a different model or an unknown profile answers 422. `repository_id` names the catalog repository the release's sessions work on (`GET /v1/profiles`, `repository_ids`): required when the profile's `repository_mode` is `required` (422 `repository_id: Profile <id> needs a repository: send repository_id`), refused when it is `none`, and 422 when the catalog has no such repository or it does not allow the profile. Slack sessions and API sessions that send no `repository_id` work on it. A profile the operator blocked, or one over a blocked base, answers 409 PROFILE_BLOCKED. Releasing approves and activates nothing.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "The release id is a hash of the card, the profile's digest and the resolved runtime settings; releasing the same content again returns the stored release with `created: false`. The optional `note` (trimmed, 1 to 200 characters) is stored with the release but is not part of its id, so a re-release keeps the note it was first made with. A card tool outside the profile, a different model or an unknown profile answers 422. `repository_id` names the catalog repository the release's sessions work on (`GET /v1/profiles`, `repository_ids`): required when the profile's `repository_mode` is `required` (422 `repository_id: Profile <id> needs a repository: send repository_id`), refused when it is `none`, and 422 when the catalog has no such repository or it does not allow the profile. Slack sessions and API sessions that send no `repository_id` work on it. A profile the operator blocked, or one over a blocked base, answers 409 PROFILE_BLOCKED. A request carrying `github` for an agent that already has GitHub settings answers 409 ALREADY_EXISTS with `reason_code: github_settings_exist`: those are saved with `PUT /v1/agents/{id}/github/settings`. Releasing approves and activates nothing.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
@@ -59158,7 +60165,7 @@
             }
           },
           "409": {
-            "description": "- `PROFILE_BLOCKED`: The operator blocked the installation profile named, or the one the workspace profile named narrows. `error.details.reason_code` is `blocked` (the profile named) or `base_blocked` (its base), and `error.details.profile_id` is the profile named. Nothing new runs on it until the operator unblocks it.",
+            "description": "- `PROFILE_BLOCKED`: The operator blocked the installation profile named, or the one the workspace profile named narrows. `error.details.reason_code` is `blocked` (the profile named) or `base_blocked` (its base), and `error.details.profile_id` is the profile named. Nothing new runs on it until the operator unblocks it.\n- `ALREADY_EXISTS`: A resource with the same identity already exists; the operation names which field must be unique.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -59180,7 +60187,8 @@
                             "code": {
                               "type": "string",
                               "enum": [
-                                "PROFILE_BLOCKED"
+                                "PROFILE_BLOCKED",
+                                "ALREADY_EXISTS"
                               ]
                             }
                           }
@@ -63095,7 +64103,7 @@
           "Agents"
         ],
         "summary": "The agent's GitHub switch, settings and what may be turned on",
-        "description": "`enabled` is the switch that applies at once (`PUT …/github/enabled`). `github` is the active release's GitHub settings; null before one is saved, when `legacy_defaults` is what a first save starts from (the release's repository, push approval off, nothing optional; the release itself keeps asking a person before each push until settings are saved) and the release meanwhile runs on every repository its profile allows. Settings are saved as a new release (`POST /v1/agents/{id}/releases` with `github`). `unsavable` says why none can be: `no_active_release` or `repository_none` (the release names no repository). `options.repositories` lists the catalog's GitHub repositories with why one cannot be picked (`repository_not_allowed` by the release's profile), and `installed`: whether the author and the reviewer App are installed on each, as GitHub answers now (null when there is no such App or no answer). `options.features` says, per optional permission, why it cannot be turned on: `github_host_unsupported` (every chosen repository is on a GitHub Enterprise host), `over_workspace_ceiling`, `no_reviewer_app`, or `app_permission_missing` (the App's permissions as last read lack it; the token request decides). Whoever manages the agent reads it, and so do the live members of its managing team.\n\n**Auth:** cookie session only; no scope.",
+        "description": "`enabled` is the switch that applies at once (`PUT …/github/enabled`). `github` is the agent's own GitHub settings, or the active release's pin while the agent has none; null when neither exists, when `legacy_defaults` is what a first save starts from (no repository, push approval off, nothing optional; the release itself keeps asking a person before each push until settings are saved). `settings_revision` is the row's revision (null without a row) and `start_repository_id` the repository a session naming none starts on. `push_attached` (`allow`, `ask` or `deny`) says whether a push to a repository the session attached needs a person: the row's value, `ask` for a row saved before the field existed, and `allow` while there is no row (what a first save writes). Settings are saved with `PUT …/github/settings`, never as a release. `options.repositories` lists the catalog's GitHub repositories with why one cannot be picked (`repository_not_allowed` by the workspace's repository ceiling; `repository_ceiling_unset` is true while the workspace has none yet, and the list is then judged against the default the first save writes, without writing it on this read), and `installed`: whether the author and the reviewer App are installed on each, as GitHub answers now (null when there is no such App or no answer). `options.features` says, per optional permission, why it cannot be turned on: `github_host_unsupported` (every chosen repository is on a GitHub Enterprise host), `over_workspace_ceiling`, `no_reviewer_app`, or `app_permission_missing` (the App's permissions as last read lack it; the token request decides). Whoever manages the agent reads it, and so do the live members of its managing team.\n\n**Auth:** cookie session only; no scope.",
         "security": [
           {
             "cookieSession": []
@@ -63126,7 +64134,9 @@
                 "example": {
                   "enabled": true,
                   "active_release_id": "rel_example",
-                  "release_repository_id": "werft-sandbox",
+                  "settings_revision": 3,
+                  "start_repository_id": "werft-sandbox",
+                  "push_attached": "allow",
                   "github": {
                     "repositories": [
                       "werft-sandbox"
@@ -63147,8 +64157,8 @@
                     ]
                   },
                   "legacy_defaults": null,
-                  "unsavable": null,
                   "options": {
+                    "repository_ceiling_unset": false,
                     "repositories": [
                       {
                         "id": "werft-sandbox",
@@ -63347,7 +64357,7 @@
           "Agents"
         ],
         "summary": "A page of the author App's repositories, to pick for the agent",
-        "description": "The repositories one installation of the author App reaches, a page at a time, as `GET /v1/workspaces/{id}/github-repositories` pages them (its failures too), with `catalog_id` set on those a pick resolved already; `installations` lists only the author Apps'. With several author connections, `installation_id` is required (400 `installation_required`). Only when the active release's installation profile ceiling runs on every App repository (`github_app_repositories: installed`); otherwise `unavailable` is `ceiling_listed` (pick among `options.repositories` of `GET /v1/agents/{id}/github`) or `no_active_release`, and the page is empty. Whoever manages the agent reads it.\n\n**Auth:** cookie session only; no scope.",
+        "description": "The repositories one installation of the author App reaches, a page at a time, as `GET /v1/workspaces/{id}/github-repositories` pages them (its failures too), with `catalog_id` set on those a pick resolved already; `installations` lists only the author Apps'. With several author connections, `installation_id` is required (400 `installation_required`). Only when the workspace's `repository_ceiling` runs on every App repository (`github_app_repositories: installed`); otherwise `unavailable` is `ceiling_listed` (pick among `options.repositories` of `GET /v1/agents/{id}/github`), and the page is empty. Whoever manages the agent reads it.\n\n**Auth:** cookie session only; no scope.",
         "security": [
           {
             "cookieSession": []
@@ -63663,8 +64673,8 @@
         "tags": [
           "Agents"
         ],
-        "summary": "Resolve an App repository to the catalog id a release names",
-        "description": "Takes a repository from `GET …/github/repositories` and returns the catalog id to put in `github.repositories` of the next release (`POST /v1/agents/{id}/releases`); the release itself is unchanged. The server reads the repository by its GitHub id and checks that the named installation covers it, then takes its URL and default branch from GitHub. The same repository always resolves to the same id, by its GitHub id: the first pick writes a `resolve_repository` receipt (`receipt_id`), and so does a pick after a rename on GitHub, which moves the row to the new name and URL; other picks return null. A repository with no author pin yet is pinned to the connection whose App holds the installation (a `set_repository_github_app` receipt), and `connection_id` names the author connection it is pinned to; a pin made before stays. 400 `details.reason_code`: `repository_not_allowed` (the active release's ceiling does not run on App repositories, or there is no active release), `no_author_app`, `not_installed` (the author App has no such installation, or it does not cover the repository), or `name_held` (another row has that name: another GitHub repository's, whose pick after its rename frees the name, or one not yet tied to a GitHub id). GitHub not answering is 502 `GITHUB_UNAVAILABLE`, and an installation GitHub dropped while it was read is 404 `installation_not_found`; nothing stored changed. A signed-in manager of the agent; API keys are refused.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "summary": "Resolve an App repository to the catalog id the settings name",
+        "description": "Takes a repository from `GET …/github/repositories` and returns the catalog id to put in `settings.repositories` of the next `PUT /v1/agents/{id}/github/settings`; nothing about the agent's settings or releases changes. The server reads the repository by its GitHub id and checks that the named installation covers it, then takes its URL and default branch from GitHub. The same repository always resolves to the same id, by its GitHub id: the first pick writes a `resolve_repository` receipt (`receipt_id`), and so does a pick after a rename on GitHub, which moves the row to the new name and URL; other picks return null. A repository with no author pin yet is pinned to the connection whose App holds the installation (a `set_repository_github_app` receipt), and `connection_id` names the author connection it is pinned to; a pin made before stays. 400 `details.reason_code`: `repository_not_allowed` (the workspace's ceiling does not run on App repositories), `no_author_app`, `not_installed` (the author App has no such installation, or it does not cover the repository), or `name_held` (another row has that name: another GitHub repository's, whose pick after its rename frees the name, or one not yet tied to a GitHub id). GitHub not answering is 502 `GITHUB_UNAVAILABLE`, and an installation GitHub dropped while it was read is 404 `installation_not_found`; nothing stored changed. A signed-in manager of the agent; API keys are refused.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
@@ -63975,6 +64985,950 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "- `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BACKEND_UNAVAILABLE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/agents/{id}/github/settings": {
+      "put": {
+        "operationId": "putAgentGitHubSettings",
+        "tags": [
+          "Agents"
+        ],
+        "summary": "Save the agent's GitHub settings",
+        "description": "Replaces the agent's whole settings row in one transaction and makes no release: a new session reads it at once, and a change that narrows reaches running sessions too. `expected_revision` is `settings_revision` as read (null when there was no row); another value answers 409 `REVISION_CONFLICT`. `push_attached` is optional: left out, a first save writes `allow` and a later save keeps the row's value. `updated_by` is always the caller, so the first save of an agent also fixes the rollback floor at the snapshot-reading image. Only repositories the save adds are checked against the catalog and the workspace's repository ceiling, and features it turns on against the feature ceiling (400 with `reason_code`). Writes a `set_agent_github` receipt with `result.change = \"settings\"` and the values before and after; `receipt_id` is null when a person's row already held them. Agent managers with a web session only; API keys are refused.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "security": [
+          {
+            "cookieSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          {
+            "name": "X-Requested-With",
+            "in": "header",
+            "required": false,
+            "description": "Required with a cookie session: the literal `werft-web`.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "werft-web"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "expected_revision": 3,
+                "settings": {
+                  "repositories": [
+                    "werft-sandbox"
+                  ],
+                  "push_approval": true,
+                  "features": {
+                    "workflows": false,
+                    "actions": true,
+                    "checks": false,
+                    "issues": false,
+                    "review": false
+                  },
+                  "actions_allow": [
+                    {
+                      "workflow": "ci.yml"
+                    }
+                  ]
+                },
+                "start_repository_id": "werft-sandbox",
+                "push_attached": "allow"
+              },
+              "schema": {
+                "$ref": "#/components/schemas/PutAgentGitHubSettingsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Saved.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "example": {
+                  "settings_revision": 4,
+                  "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/PutAgentGitHubSettingsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "- `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BAD_REQUEST"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "- `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "UNAUTHORIZED"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "- `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "FORBIDDEN"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "- `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "NOT_FOUND"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "- `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`).",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "REQUEST_TIMEOUT"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "- `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "REVISION_CONFLICT"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "- `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "PAYLOAD_TOO_LARGE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "description": "- `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BACKEND_UNAVAILABLE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/agents/{id}/github/pull-request": {
+      "get": {
+        "operationId": "getAgentPullRequestSettings",
+        "tags": [
+          "Agents"
+        ],
+        "summary": "How the agent's pull request bodies differ from the workspace's",
+        "description": "`pull_request` holds `formatting` (`inherit` follows the workspace; `on` or `off` overrides it), `template` (markdown up to 16 KiB that stands in for the workspace's `default_template`; null uses the workspace's) and `template_name` (which file of a repository's `.github/PULL_REQUEST_TEMPLATE/` directory to use when it holds several; matched to the names found there, never used as a path). An agent with nothing saved reads as `inherit`, no template, no name, with `pull_request_revision` 0. Kept apart from the agent's GitHub settings: saving it does not make the agent's sessions follow those instead of their release. Whoever manages the agent reads it, and so do the live members of its managing team.\n\n**Auth:** cookie session only; no scope.",
+        "security": [
+          {
+            "cookieSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The agent's values and the revision that guards them.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "example": {
+                  "pull_request": {
+                    "formatting": "inherit",
+                    "template": null,
+                    "template_name": "feature.md"
+                  },
+                  "pull_request_revision": 2
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/AgentPullRequestResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "- `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "UNAUTHORIZED"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "- `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "FORBIDDEN"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "- `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "NOT_FOUND"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "description": "- `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BACKEND_UNAVAILABLE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "putAgentPullRequestSettings",
+        "tags": [
+          "Agents"
+        ],
+        "summary": "Change how the agent's pull request bodies are laid out",
+        "description": "Replaces the three values. `revision` is `pull_request_revision` as last read (0 when none was saved); a stale one is 409 `REVISION_CONFLICT` and nothing changes. A template the platform will not lay text around is 400 with `reason_code` `template_too_large`, `template_not_utf8` or `template_unsupported`. A change reaches pull requests the agent's sessions open or update afterwards; text already on GitHub is not rewritten. Writes a `set_agent_pull_request_settings` receipt with the values before and after (a template as its size and hash, never its text); `receipt_id` is null when nothing changed. Agent managers with a web session only; API keys are refused.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "security": [
+          {
+            "cookieSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          {
+            "name": "X-Requested-With",
+            "in": "header",
+            "required": false,
+            "description": "Required with a cookie session: the literal `werft-web`.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "werft-web"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "pull_request": {
+                  "formatting": "inherit",
+                  "template": null,
+                  "template_name": "feature.md"
+                },
+                "revision": 0
+              },
+              "schema": {
+                "$ref": "#/components/schemas/PutAgentPullRequestSettingsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Stored; the values and their new revision.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "example": {
+                  "pull_request": {
+                    "formatting": "inherit",
+                    "template": null,
+                    "template_name": "feature.md"
+                  },
+                  "pull_request_revision": 1,
+                  "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/PutAgentPullRequestSettingsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "- `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BAD_REQUEST"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "- `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "UNAUTHORIZED"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "- `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "FORBIDDEN"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "- `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "NOT_FOUND"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "- `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`).",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "REQUEST_TIMEOUT"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "- `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "REVISION_CONFLICT"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "- `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "PAYLOAD_TOO_LARGE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
           },
           "503": {
             "description": "- `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`.",

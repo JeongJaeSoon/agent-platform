@@ -71,6 +71,7 @@ export const agentSettingsColumns = {
   settingsFeatures: agentGitHubSettings.features,
   settingsActionsAllow: agentGitHubSettings.actionsAllow,
   settingsStartRepositoryId: agentGitHubSettings.startRepositoryId,
+  settingsPushAttached: agentGitHubSettings.pushAttached,
   settingsRevision: agentGitHubSettings.revision,
   settingsUpdatedBy: agentGitHubSettings.updatedBy,
 };
@@ -92,6 +93,7 @@ export function agentGitHubSettingsRowOf(row: {
   settingsFeatures: unknown;
   settingsActionsAllow: unknown;
   settingsStartRepositoryId: string | null;
+  settingsPushAttached: string | null;
   settingsRevision: number | null;
   settingsUpdatedBy: string | null;
 }): AgentGitHubSettingsRow | null {
@@ -104,6 +106,7 @@ export function agentGitHubSettingsRowOf(row: {
     features: row.settingsFeatures,
     actionsAllow: row.settingsActionsAllow,
     startRepositoryId: row.settingsStartRepositoryId,
+    pushAttached: row.settingsPushAttached,
     revision: row.settingsRevision,
     updatedBy: row.settingsUpdatedBy,
   };
@@ -191,6 +194,45 @@ export async function ensureInstalledRepositoryCeiling(
 }
 
 /**
+ * First use of a workspace that has no repository ceiling yet (a null or
+ * unreadable one allows nothing): writes the default one and returns it.
+ * A ceiling that reads is returned as it is, never widened.
+ */
+export async function ensureRepositoryCeilingWhenUnset(
+  db: Database,
+  workspaceId: string,
+): Promise<RepositoryCeiling> {
+  return db.transaction(async (tx) => {
+    await tx
+      .insert(githubWorkspaceSettings)
+      .values({ workspaceId, ceiling: GITHUB_CEILING_NONE })
+      .onConflictDoNothing();
+    // Judged under the row lock, so a ceiling written meanwhile is kept.
+    const [held] = await tx
+      .select({ repositoryCeiling: githubWorkspaceSettings.repositoryCeiling })
+      .from(githubWorkspaceSettings)
+      .where(eq(githubWorkspaceSettings.workspaceId, workspaceId))
+      .limit(1)
+      .for("update");
+    const current = repositoryCeilingOf(held?.repositoryCeiling);
+    if (current !== null) return current;
+    const written: RepositoryCeiling = {
+      repository_ids: [],
+      github_app_repositories: "installed",
+    };
+    await tx
+      .update(githubWorkspaceSettings)
+      .set({
+        repositoryCeiling: written,
+        revision: sql`${githubWorkspaceSettings.revision} + 1`,
+        updatedAt: sql`now()`,
+      })
+      .where(eq(githubWorkspaceSettings.workspaceId, workspaceId));
+    return written;
+  });
+}
+
+/**
  * The snapshot an `agent` session starts with, read inside the transaction
  * that creates it. The settings row is locked FOR SHARE, so a save waits for
  * the session to exist instead of landing between the read and the insert.
@@ -236,6 +278,7 @@ export async function captureGitHubPolicyStart(
     enabled: row.enabled,
     revision: read.agentSettingsRevision,
     settings: read.settings,
+    push_attached: read.pushAttached,
   };
 }
 
@@ -251,6 +294,7 @@ export async function agentGitHubSettingsOf(
       features: agentGitHubSettings.features,
       actionsAllow: agentGitHubSettings.actionsAllow,
       startRepositoryId: agentGitHubSettings.startRepositoryId,
+      pushAttached: agentGitHubSettings.pushAttached,
       revision: agentGitHubSettings.revision,
       updatedBy: agentGitHubSettings.updatedBy,
     })

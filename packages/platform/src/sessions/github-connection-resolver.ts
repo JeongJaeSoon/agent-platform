@@ -1,5 +1,5 @@
 import type { GitHubAppRole } from "@werft-ai/contracts";
-import type { RepoRef } from "../ports/forge.ts";
+import { type RepoRef, repoKeyOf } from "../ports/forge.ts";
 import type {
   ClaimPinAudit,
   GitHubPinStore,
@@ -225,6 +225,112 @@ export function createGitHubConnectionResolver(deps: {
       const reached = await reaching(source.candidates, repo);
       if (reached === "lookup_failed") return null;
       return reached.length === 0 ? false : reached.length === 1 ? true : null;
+    },
+
+    /**
+     * `installed` for several repositories of one role, asking each
+     * connection once about all the repositories that can reach it. The same
+     * answers as `installed`; a connection GitHub did not answer for leaves
+     * its repositories null, and no repository falls back to a lookup of its
+     * own.
+     */
+    async installedMany(
+      role: GitHubAppRole,
+      items: readonly { repositoryId: string; repo: RepoRef }[],
+    ): Promise<Map<string, boolean | null>> {
+      type Plan =
+        | { kind: "answer"; answer: boolean | null }
+        | { kind: "one"; connection: GitHubConnection }
+        | {
+            kind: "candidates";
+            candidates: readonly RegisteredGitHubConnection[];
+          };
+      const plans = new Map<string, Plan>();
+      const asked = new Map<GitHubConnection, RepoRef[]>();
+      const ask = (connection: GitHubConnection, repo: RepoRef) =>
+        asked.set(connection, [...(asked.get(connection) ?? []), repo]);
+      for (const { repositoryId, repo } of items) {
+        const source = connections(repositoryId, role);
+        if (source === null) {
+          plans.set(repositoryId, { kind: "answer", answer: null });
+        } else if (source.kind === "fixed") {
+          ask(source.connection, repo);
+          plans.set(repositoryId, {
+            kind: "one",
+            connection: source.connection,
+          });
+        } else {
+          const pin = pins === null ? null : await pins.get(repositoryId, role);
+          if (pin !== null) {
+            const found =
+              pin.connectionId === null
+                ? undefined
+                : source.candidates.find(({ id }) => id === pin.connectionId);
+            if (pin.connectionId === null) {
+              plans.set(repositoryId, { kind: "answer", answer: false });
+            } else if (found === undefined || found.appId !== pin.appId) {
+              plans.set(repositoryId, { kind: "answer", answer: null });
+            } else {
+              ask(found.connection, repo);
+              plans.set(repositoryId, {
+                kind: "one",
+                connection: found.connection,
+              });
+            }
+          } else if (source.candidates.length === 0) {
+            plans.set(repositoryId, { kind: "answer", answer: null });
+          } else {
+            for (const candidate of source.candidates) {
+              ask(candidate.connection, repo);
+            }
+            plans.set(repositoryId, {
+              kind: "candidates",
+              candidates: source.candidates,
+            });
+          }
+        }
+      }
+      const replies = new Map<
+        GitHubConnection,
+        ReadonlyMap<string, boolean | null> | null
+      >();
+      await Promise.all(
+        [...asked].map(async ([connection, repos]) =>
+          replies.set(
+            connection,
+            await connection.installedOn(repos).catch(() => null),
+          ),
+        ),
+      );
+      const replyFor = (connection: GitHubConnection, repo: RepoRef) =>
+        replies.get(connection)?.get(repoKeyOf(repo)) ?? null;
+      const result = new Map<string, boolean | null>();
+      for (const { repositoryId, repo } of items) {
+        const plan = plans.get(repositoryId);
+        if (plan === undefined || plan.kind === "answer") {
+          result.set(repositoryId, plan?.answer ?? null);
+        } else if (plan.kind === "one") {
+          result.set(repositoryId, replyFor(plan.connection, repo));
+        } else {
+          const answers = plan.candidates.map((candidate) =>
+            replyFor(candidate.connection, repo),
+          );
+          // One connection GitHub did not answer for might be the one
+          // reaching it, as in `reaching`.
+          const reached = answers.filter((answer) => answer === true).length;
+          result.set(
+            repositoryId,
+            answers.includes(null)
+              ? null
+              : reached === 0
+                ? false
+                : reached === 1
+                  ? true
+                  : null,
+          );
+        }
+      }
+      return result;
     },
   };
 }

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   apiErrorResponseSchema,
   commentPullRequestResponseSchema,
+  DEFAULT_PULL_REQUEST_SETTINGS,
   GITHUB_CEILING_NONE,
   openPullRequestResponseSchema,
   type PullRequest,
@@ -142,6 +143,10 @@ function app(
     kind: "app",
     githubCom: true,
     appId: 101,
+    installedOn: async (repos) =>
+      new Map(
+        repos.map((repo) => [`${repo.owner}/${repo.name}`.toLowerCase(), true]),
+      ),
     quotaKey: () => {
       throw new Error("not used");
     },
@@ -185,6 +190,13 @@ function app(
     gate,
     redact: (line) => line,
     attribution: { attribution: async () => null },
+    settings: {
+      get: async () => ({
+        settings: DEFAULT_PULL_REQUEST_SETTINGS,
+        revision: 0,
+      }),
+      agentOfSession: async () => null,
+    },
     consoleOrigin: null,
     logger: { warn: () => {} },
     store: {

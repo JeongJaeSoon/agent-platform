@@ -391,7 +391,10 @@ describe("PendingRequestRegistry", () => {
         "the first pending-control poll",
       );
       for (const poll of harness.gateway.pollRequests) {
-        expect(poll.capabilities).toEqual({ approval_remember: true });
+        expect(poll.capabilities).toEqual({
+          approval_remember: true,
+          platform_tool_trust: true,
+        });
       }
     });
   });

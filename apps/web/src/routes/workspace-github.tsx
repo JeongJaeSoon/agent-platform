@@ -69,6 +69,7 @@ import {
   NewKeyDialog,
 } from "./workspace-github-app-dialogs.tsx";
 import { githubNavigation } from "./workspace-github-new-app.tsx";
+import { PullRequestSettingsCard } from "./workspace-github-pull-request.tsx";
 import {
   defaultInstallation,
   outsideInstallations,
@@ -145,6 +146,13 @@ export function WorkspaceGitHubScreen() {
           <GitHubCard settings={settings.data} onOutcome={setOutcome} />
           {connected ? (
             <FeaturesCard settings={settings} onOutcome={setOutcome} />
+          ) : null}
+          {connected ? (
+            <PullRequestSettingsCard
+              key={settings.data.pull_request_revision}
+              settings={settings.data}
+              onOutcome={setOutcome}
+            />
           ) : null}
           {connected ? (
             <GitHubUserLinkRow settings={settings} onOutcome={setOutcome} />

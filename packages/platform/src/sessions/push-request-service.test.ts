@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   GITHUB_CEILING_NONE,
   type Principal,
+  type PushAttached,
   type PushRequest,
 } from "@werft-ai/contracts";
 import { testCaller } from "@werft-ai/testkit";
@@ -58,8 +59,10 @@ function service() {
       authorization: createAuthorizationPolicy(),
       store,
       catalog: CATALOG,
+      intents: {} as never,
       source: {
         readPushSource: async () => ({ status: "none" }),
+        readPushSourceAt: async () => ({ status: "none" }),
       },
     }),
   };
@@ -154,11 +157,13 @@ describe("push request decisions", () => {
         },
       } as unknown as PushRequestStore,
       catalog: CATALOG,
+      intents: {} as never,
       source: {
         readPushSource: async (sessionId) => {
           read.push(sessionId);
           return { status: "none" };
         },
+        readPushSourceAt: async () => ({ status: "none" }),
       },
     });
     const actor = {
@@ -202,13 +207,15 @@ describe("push request decisions", () => {
           sessions: { visibleTo: async () => true, originOf: async () => null },
         }),
         store: {
+          get: async () => null,
           decide: async (input: { latest?: unknown }) => {
             decided.push(input);
             return { outcome: "conflict" };
           },
         } as unknown as PushRequestStore,
         catalog: CATALOG,
-        source: { readPushSource },
+        intents: {} as never,
+        source: { readPushSource, readPushSourceAt: readPushSource },
       })
         .decide(
           {
@@ -282,13 +289,18 @@ describe("push request decisions", () => {
           refusals.push(input);
           return "receipt-self";
         },
+        get: async () => null,
         decide: async (input: { deciderKey?: unknown; actor?: unknown }) => {
           decided.push(input);
           return { outcome: "conflict" };
         },
       } as unknown as PushRequestStore,
       catalog: CATALOG,
-      source: { readPushSource: async () => ({ status: "none" }) },
+      intents: {} as never,
+      source: {
+        readPushSource: async () => ({ status: "none" }),
+        readPushSourceAt: async () => ({ status: "none" }),
+      },
     });
     const actorOf = (id: string) => {
       const principal: Principal = {
@@ -377,9 +389,14 @@ describe("push request decisions", () => {
     const push = createPushRequestService({
       authorization: hidden,
       store,
+      intents: {} as never,
       source: {
         readPushSource: async () => {
           touched.push("readPushSource");
+          return { status: "none" };
+        },
+        readPushSourceAt: async () => {
+          touched.push("readPushSourceAt");
           return { status: "none" };
         },
       },
@@ -457,6 +474,10 @@ describe("a push to another repository", () => {
       revision: 3,
       gitCommit: "a".repeat(40),
     },
+    attachedPolicy: {
+      pushAttached: PushAttached;
+      attachedApproval: PushPolicyApproval | null;
+    } = { pushAttached: "ask", attachedApproval: null },
   ) {
     const created: CreatePushRequestInput[] = [];
     const refusals: PushRefusalRecord[] = [];
@@ -481,6 +502,7 @@ describe("a push to another repository", () => {
           },
           githubEnabled: true,
           policyApproval,
+          ...attachedPolicy,
           policyFields: { policy_source: "release" },
         }),
         recordRefusal: async (input: PushRefusalRecord) => {
@@ -493,7 +515,11 @@ describe("a push to another repository", () => {
         },
       } as unknown as PushRequestStore,
       catalog: MULTI,
-      source: { readPushSource: async () => pinned },
+      intents: {} as never,
+      source: {
+        readPushSource: async () => pinned,
+        readPushSourceAt: async () => pinned,
+      },
     });
     const actor = {
       caller: testCaller("owner-a"),
@@ -663,6 +689,91 @@ describe("a push to another repository", () => {
     ]);
   });
 
+  describe("push.attached: allow, ask, deny", () => {
+    const own: PushPolicyApproval = {
+      releaseId: "019a0000-0000-7000-8000-0000000000d1",
+      source: "agent",
+      settingsRevision: 4,
+    };
+    const attachedApproval: PushPolicyApproval = {
+      ...own,
+      settingsRevision: 7,
+    };
+
+    test("allow approves an attached repository by policy, with no card; the own repository follows push_approval alone", async () => {
+      const { to, created } = pushing(
+        ["docs"],
+        "sample-app",
+        undefined,
+        null,
+        undefined,
+        { pushAttached: "allow", attachedApproval },
+      );
+      expect(await to("docs")).toBeNull();
+      expect(await to("sample-app")).toBeNull();
+      expect(
+        created.map((input) => [input.repositoryId, input.policyApproval]),
+      ).toEqual([
+        ["docs", attachedApproval],
+        // Own repository: approval is still on (policyApproval is null).
+        ["sample-app", null],
+      ]);
+    });
+
+    test("ask leaves an attached repository to a person, as before the column", async () => {
+      const { to, created } = pushing(
+        ["docs"],
+        "sample-app",
+        undefined,
+        own,
+        undefined,
+        { pushAttached: "ask", attachedApproval: null },
+      );
+      expect(await to("docs")).toBeNull();
+      expect(created.map((input) => input.policyApproval)).toEqual([null]);
+    });
+
+    test("deny refuses an attached repository as repository_not_allowed and records the refusal", async () => {
+      const { to, created, refusals } = pushing(
+        ["docs"],
+        "sample-app",
+        undefined,
+        own,
+        undefined,
+        { pushAttached: "deny", attachedApproval: null },
+      );
+      const error = (await to("docs")) as SessionServiceError;
+      expect(error).toBeInstanceOf(SessionServiceError);
+      expect(error.details).toEqual({
+        refusal: "repository_not_allowed",
+        receipt_id: "receipt-1",
+      });
+      expect(refusals.at(-1)?.result).toMatchObject({
+        repository_id: "docs",
+        refusal: "repository_not_allowed",
+      });
+      expect(created).toEqual([]);
+      // The session's own repository is not an attached one: deny leaves it be.
+      expect(await to("sample-app")).toBeNull();
+      expect(created.map((input) => input.repositoryId)).toEqual([
+        "sample-app",
+      ]);
+    });
+
+    test("with no repository of its own, every repository is attached, so deny refuses them all", async () => {
+      const { to, created } = pushing(
+        ["docs"],
+        null,
+        undefined,
+        null,
+        undefined,
+        { pushAttached: "deny", attachedApproval: null },
+      );
+      expect(await to("docs")).toBeInstanceOf(SessionServiceError);
+      expect(created).toEqual([]);
+    });
+  });
+
   test("without an attached list, every repository the release lists", async () => {
     const { to, created } = pushing(null);
     expect(await to("tools")).toBeNull();
@@ -745,12 +856,17 @@ describe("a release with push_approval off", () => {
             request_receipt_id: "019a0000-0000-7000-8000-0000000000e1",
             finished_at: null,
             push_receipt_id: null,
+            origin: "direct" as const,
+            flow: "legacy" as const,
+            pr_state: null,
           };
           return { outcome: "written", request };
         },
       } as unknown as PushRequestStore,
       catalog: CATALOG,
+      intents: {} as never,
       source: {
+        readPushSourceAt: async () => ({ status: "none" }),
         readPushSource: async () => ({
           status: "ready",
           revision: 3,

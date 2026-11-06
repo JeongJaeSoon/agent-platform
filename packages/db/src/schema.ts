@@ -22,7 +22,12 @@ import {
   OPEN_PUSH_REQUEST_STATES,
   PERMISSION_MODE_VALUES,
   type PlatformPrompt,
+  PULL_REQUEST_STAGE_VALUES,
   PUSH_APPROVAL_BASIS_VALUES,
+  PUSH_INTENT_REFUSAL_VALUES,
+  PUSH_INTENT_STATUS_VALUES,
+  PUSH_REQUEST_FLOW_VALUES,
+  PUSH_REQUEST_ORIGIN_VALUES,
   PUSH_REQUEST_STATE_VALUES,
   RECEIPT_STATUS_VALUES,
   REPOSITORY_SCOPE_VALUES,
@@ -676,6 +681,10 @@ export const githubWorkspaceSettings = pgTable("github_workspace_settings", {
   // The repositories agent sessions and `repository_scope = workspace`
   // profiles may reach. Null allows none. `revision` covers it.
   repositoryCeiling: jsonb("repository_ceiling").$type<unknown>(),
+  // How pull request bodies are laid out. Null reads as the defaults. Its
+  // own revision keeps a save here from conflicting with one of the ceiling.
+  pullRequest: jsonb("pull_request").$type<unknown>(),
+  pullRequestRevision: integer("pull_request_revision").notNull().default(0),
   oauthClientSecretSet: boolean("oauth_client_secret_set")
     .notNull()
     .default(false),
@@ -2275,8 +2284,32 @@ export const pushRequests = pgTable(
     // approval is judged again before it runs; a person's stands.
     approvalBasis: text("approval_basis"),
     approvalSettingsRevision: integer("approval_settings_revision"),
+    // `intent`: made by the intent runner from a revision a finished turn
+    // pinned, so the latest-checkpoint rules do not apply to it.
+    origin: text().notNull().default("direct"),
+    // Fixed at creation; the install setting never decides it later.
+    flow: text().notNull().default("legacy"),
+    // Filled and run by the pull-request drain; the same-target check reads
+    // `pr_state` here so a later push waits for an unfinished PR stage.
+    pullRequestIntent: jsonb("pull_request_intent"),
+    prState: text("pr_state"),
   },
   (table) => [
+    check(
+      "push_requests_origin_check",
+      sql`${table.origin} IN (${sql.raw(sqlList(PUSH_REQUEST_ORIGIN_VALUES))})`,
+    ),
+    check(
+      "push_requests_flow_check",
+      sql`${table.flow} IN (${sql.raw(sqlList(PUSH_REQUEST_FLOW_VALUES))})`,
+    ),
+    check(
+      "push_requests_pr_state_check",
+      sql`${table.prState} IS NULL OR ${table.prState} IN (${sql.raw(sqlList(PULL_REQUEST_STAGE_VALUES))})`,
+    ),
+    index("push_requests_pr_open_idx")
+      .on(table.sessionId, table.repositoryId, table.targetBranch)
+      .where(sql`${table.prState} IN ('due','opening')`),
     check(
       "push_requests_approval_basis_check",
       sql`${table.approvalBasis} IS NULL OR ${table.approvalBasis} IN (${sql.raw(sqlList(PUSH_APPROVAL_BASIS_VALUES))})`,
@@ -2318,6 +2351,73 @@ export const pushRequests = pgTable(
     index("push_requests_pushing_lease_idx")
       .on(table.leaseExpiresAt)
       .where(sql`${table.state} = 'pushing'`),
+  ],
+);
+
+// What a `request_push` made inside a running turn asked for: "push what this
+// turn ends with". The control-host's action-broker pins the turn's final
+// checkpoint revision in the finalize transaction; the intent runner then
+// makes the push request from that revision. The actor, approval basis and
+// policy source are stored so the runner acts with the requester's authority
+// and judges the gates again, never with more.
+export const pushIntents = pgTable(
+  "push_intents",
+  {
+    id: uuid().primaryKey(),
+    ownerId: text("owner_id").notNull(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => sessions.id),
+    turnId: bigint("turn_id", { mode: "number" })
+      .notNull()
+      .references(() => turns.id, { onDelete: "cascade" }),
+    attemptId: text("attempt_id").notNull(),
+    repositoryId: text("repository_id").notNull(),
+    targetBranch: text("target_branch").notNull(),
+    status: text().notNull().default("deferred"),
+    pinnedRevision: integer("pinned_revision"),
+    pushRequestId: uuid("push_request_id").references(() => pushRequests.id),
+    refusalCode: text("refusal_code"),
+    actor: jsonb().notNull(),
+    // `push.primary` or `push.attached`, and who the policy was at creation.
+    approvalBasis: text("approval_basis"),
+    policySource: text("policy_source"),
+    pullRequest: jsonb("pull_request"),
+    // The runner's lease: a claim token fences writes of a dropped claim.
+    claimToken: uuid("claim_token"),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    settledAt: timestamp("settled_at", { withTimezone: true }),
+  },
+  (table) => [
+    check(
+      "push_intents_status_check",
+      sql`${table.status} IN (${sql.raw(sqlList(PUSH_INTENT_STATUS_VALUES))})`,
+    ),
+    check(
+      "push_intents_refusal_check",
+      sql`${table.refusalCode} IS NULL OR ${table.refusalCode} IN (${sql.raw(sqlList(PUSH_INTENT_REFUSAL_VALUES))})`,
+    ),
+    check(
+      "push_intents_shape_check",
+      sql`(${table.status} NOT IN ('pinned','requested') OR ${table.pinnedRevision} IS NOT NULL) AND ((${table.status} = 'requested') = (${table.pushRequestId} IS NOT NULL)) AND ((${table.status} IN ('failed','cancelled')) = (${table.refusalCode} IS NOT NULL))`,
+    ),
+    // One intent per turn and target: the same call again is the same row.
+    uniqueIndex("push_intents_turn_target_idx").on(
+      table.turnId,
+      table.repositoryId,
+      table.targetBranch,
+    ),
+    index("push_intents_session_idx").on(table.sessionId, table.createdAt),
+    // The runner and the keep-set read the unfinished ones only.
+    index("push_intents_open_idx")
+      .on(table.status, table.createdAt)
+      .where(sql`${table.status} IN ('deferred','pinned')`),
   ],
 );
 
@@ -3210,6 +3310,11 @@ export const agentGitHubSettings = pgTable(
     actionsAllow: jsonb("actions_allow").$type<unknown[]>().notNull(),
     // A session named no repository starts on this one.
     startRepositoryId: text("start_repository_id"),
+    // `allow` | `ask` | `deny` for a push to an attached repository. Null on
+    // a row saved before the column, which reads as `ask`; no column default,
+    // because the save writes the value and a default would also rewrite what
+    // those rows mean.
+    pushAttached: text("push_attached"),
     revision: integer().notNull().default(1),
     /** No foreign key: the row outlives the account. */
     updatedBy: uuid("updated_by"),
@@ -3230,6 +3335,42 @@ export const agentGitHubSettings = pgTable(
     check(
       "agent_github_settings_start_check",
       sql`${table.startRepositoryId} IS NULL OR ${table.repositories} ? ${table.startRepositoryId}`,
+    ),
+    check(
+      "agent_github_settings_push_attached_check",
+      sql`${table.pushAttached} IS NULL OR ${table.pushAttached} IN ('allow','ask','deny')`,
+    ),
+  ],
+);
+
+// How an agent's pull request bodies differ from the workspace's. Apart from
+// `agent_github_settings`: a row there makes the agent's sessions follow it
+// instead of their release, and saving a template must not do that. No row:
+// the workspace's values apply. `template` is never read back into a receipt.
+export const agentPullRequestSettings = pgTable(
+  "agent_pull_request_settings",
+  {
+    agentId: uuid("agent_id").primaryKey(),
+    workspaceId: uuid("workspace_id").notNull(),
+    formatting: text().notNull(),
+    template: text(),
+    templateName: text("template_name"),
+    revision: integer().notNull().default(1),
+    /** No foreign key: the row outlives the account. */
+    updatedBy: uuid("updated_by"),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: "agent_pull_request_settings_agent_fk",
+      columns: [table.workspaceId, table.agentId],
+      foreignColumns: [agents.workspaceId, agents.id],
+    }),
+    check(
+      "agent_pull_request_settings_formatting_check",
+      sql`${table.formatting} IN ('inherit', 'on', 'off')`,
     ),
   ],
 );

@@ -17,7 +17,13 @@
 x-test-ops-api-url: ${TEST_OPS_API_URL:-http://127.0.0.1:${TEST_OPS_API_PORT:-3000}}
 
 services:
+  # A host restart brings back only what has a restart policy. The core layer
+  # gives it to the services that keep no state; postgres and the API get it
+  # here so that a reboot does not leave the installation half up. A stopped
+  # stack stays down: compose down removes the containers, and
+  # unless-stopped never restarts one the operator stopped.
   postgres:
+    restart: unless-stopped
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set for test-ops}
   migrate:
@@ -27,6 +33,7 @@ services:
     volumes:
       - ${PLATFORM_SETTINGS_DOCUMENT:?PLATFORM_SETTINGS_DOCUMENT must name the settings document}:/settings/installation.json:ro
   api:
+    restart: unless-stopped
     image: ${API_IMAGE:?API_IMAGE must name the released control-host image}
     environment:
       EGRESS_AUTHORIZER_TOKEN: ${EGRESS_AUTHORIZER_TOKEN:?EGRESS_AUTHORIZER_TOKEN must be set for test-ops}

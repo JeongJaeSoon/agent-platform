@@ -34,12 +34,28 @@ export type AdapterConformanceHarness = {
     environment: Readonly<Record<string, string | undefined>>;
     rest: unknown;
   };
+  /**
+   * Starts a run whose `platform` MCP server marks `trusted` tools, has the
+   * model call `tool`, and says who judged the call:
+   *   skipped  the engine ran it with no judgment of its own (no person, no
+   *            classifier)
+   *   engine   the engine's permission stage judged it, as for any tool
+   *   refused  the adapter refused it before running
+   * `admission: "fails"` is a host whose checkpoint admission guard throws.
+   */
+  toolJudgment(call: {
+    allowlist: readonly string[];
+    trusted: readonly string[];
+    tool: string;
+    permissionMode: PermissionMode;
+    admission: "ok" | "fails";
+  }): Promise<"skipped" | "engine" | "refused">;
 };
 
 export type AdapterConformanceItem = {
   name: string;
   /** Throws when the adapter breaks the promise. */
-  check(harness: AdapterConformanceHarness): void;
+  check(harness: AdapterConformanceHarness): void | Promise<void>;
 };
 
 export const ADAPTER_CONFORMANCE: readonly AdapterConformanceItem[] = [
@@ -104,6 +120,59 @@ export const ADAPTER_CONFORMANCE: readonly AdapterConformanceItem[] = [
       } finally {
         rmSync(root, { recursive: true, force: true });
       }
+    },
+  },
+  {
+    name: "3. a trusted tool of a platform server runs with no judgment of the engine's, after the allowlist and the admission guard; every other tool goes through the permission stage",
+    async check(harness) {
+      const trusted = "mcp__github__request_push";
+      const other = "mcp__github__submit_review";
+      const allowlist = ["Bash", trusted, other];
+      const judged = async (
+        tool: string,
+        over: Partial<Parameters<AdapterConformanceHarness["toolJudgment"]>[0]>,
+      ) =>
+        harness.toolJudgment({
+          allowlist,
+          trusted: [trusted],
+          tool,
+          permissionMode: "default",
+          admission: "ok",
+          ...over,
+        });
+      // `plan` promises no side effects, so it is not in this list.
+      for (const permissionMode of PERMISSION_MODE_VALUES.filter(
+        (mode) => mode !== "plan",
+      )) {
+        deepStrictEqual(
+          {
+            permissionMode,
+            trusted: await judged(trusted, { permissionMode }),
+            other: await judged(other, { permissionMode }),
+            builtin: await judged("Bash", { permissionMode }),
+          },
+          {
+            permissionMode,
+            trusted: "skipped",
+            other: "engine",
+            builtin: "engine",
+          },
+        );
+      }
+      deepStrictEqual(
+        {
+          outsideAllowlist: await judged(trusted, {
+            allowlist: ["Bash", other],
+          }),
+          guardFails: await judged(trusted, { admission: "fails" }),
+          nothingTrusted: await judged(trusted, { trusted: [] }),
+        },
+        {
+          outsideAllowlist: "refused",
+          guardFails: "refused",
+          nothingTrusted: "engine",
+        },
+      );
     },
   },
 ];

@@ -97,6 +97,7 @@ function setup(
     agentSettings?: AgentGitHubSettingsRow;
     repositoryCeiling?: RepositoryCeiling;
     promptRevision?: PlatformPromptRevision;
+    actionFlows?: boolean;
     /** Who promptIdentity finds; absent, the dep is left out. */
     identity?: AgentPromptIdentity | null;
   } = {},
@@ -144,6 +145,9 @@ function setup(
     ...(options.promptRevision === undefined
       ? {}
       : { promptRevision: options.promptRevision }),
+    ...(options.actionFlows === undefined
+      ? {}
+      : { actionFlows: () => options.actionFlows === true }),
     inputs: {
       async acceptInputAtomic(input) {
         accepted.push(input);
@@ -297,6 +301,20 @@ describe("a session pinned to an agent release", () => {
         language: "ko",
         repository: "acme/app",
       });
+    });
+
+    test("a session created while the action flows are on is snapshotted at revision 2, and with them off or the prompt off it is not", async () => {
+      expect(
+        (await create({ promptRevision: 1, identity, actionFlows: true }))
+          ?.prompt_revision,
+      ).toBe(2);
+      expect(
+        (await create({ promptRevision: 1, identity, actionFlows: false }))
+          ?.prompt_revision,
+      ).toBe(1);
+      expect(
+        await create({ promptRevision: 0, identity, actionFlows: true }),
+      ).toBeUndefined();
     });
 
     test("GitHub settings change nothing in it, and a blank description is none", async () => {
@@ -826,6 +844,7 @@ describe("which policy a new session runs on", () => {
     features: { ...GITHUB_CEILING_NONE },
     actionsAllow: [],
     startRepositoryId: "app",
+    pushAttached: null,
     revision: 2,
     updatedBy: null,
   };

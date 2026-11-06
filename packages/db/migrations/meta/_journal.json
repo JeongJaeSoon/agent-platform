@@ -1013,8 +1013,29 @@
     {
       "idx": 235,
       "version": "7",
-      "when": 1793902813182,
-      "tag": "0235_connection_replaces_auth",
+      "when": 1793884485577,
+      "tag": "0235_agent_github_push_attached",
+      "breakpoints": true
+    },
+    {
+      "idx": 236,
+      "version": "7",
+      "when": 1793886455188,
+      "tag": "0236_pull_request_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 237,
+      "version": "7",
+      "when": 1793894608956,
+      "tag": "0237_push_intents",
+      "breakpoints": true
+    },
+    {
+      "idx": 238,
+      "version": "7",
+      "when": 1793939985522,
+      "tag": "0238_connection_replaces_auth",
       "breakpoints": true
     }
   ]

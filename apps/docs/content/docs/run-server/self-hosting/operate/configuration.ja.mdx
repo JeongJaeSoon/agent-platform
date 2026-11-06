@@ -70,6 +70,7 @@ APIは、インストール上限のほかに、次の値を起動時に1つのp
 | `HEARTBEAT_TTL_SEC` | 30 | 20を超え86400以下。workerはleaseが切れる10秒前にleaseを手放し(`WORKER_LEASE_SAFETY_MARGIN_SEC`)、5秒ごとにheartbeatを送ります(`WORKER_HEARTBEAT_INTERVAL_SEC`。以前のバージョンのworkerは10秒)。マージンと10秒の合計以下だと、以前のバージョンのworkerのattemptが最初のheartbeatのころにleaseを失います。launcherは2つのworker値を渡さないので、既定値を基準に判定します |
 | `PENDING_REQUEST_TTL_SEC` | 1800 | 整数1–604800。承認・質問のリクエストを受け付ける期間です。登録されたリクエストを、workerはこの値だけ待ちます。workerの`QUESTION_TIMEOUT_SEC`は、gatewayが登録を確認する前にだけ適用されます。turnの実時間`MAX_TURN_SECONDS`には待ち時間も含まれるので、待ちはその上限を超えられません |
 | `SSE_MAX_STREAMS` · `SSE_MAX_STREAMS_PER_OWNER` · `SSE_REPLAY_MAX_BYTES` | 256 · 8 · 1 MiB | 正の整数 |
+| `AGENT_ACTION_FLOWS` | `false` | `true`・`false`(それ以外の値は起動を拒否します)。有効にすると、実行中のturnの`request_push`はリクエストの代わりに「turnの終了時にpushする」意図を残し、続きのturnなしで、そのturnの最後のcheckpointをpushリクエストにします。無効にすると新しい意図は作らず、従来の流れ(リクエストのあと続きのturn)に戻ります。すでに残った意図は処理され続けます。有効にする前に、checkpoint GCとセッション保管のCronJobを含むすべての構成要素をこのビルドにしてください。手順はリポジトリの`docs/operator/api-server.md`にあります |
 | `LOG_LEVEL` | `info` | `debug`・`info`・`warn`・`error`(大文字小文字は無関係、空は`info`)。schedulerとreconcilerのloop、egress-proxyも、同じ規則で起動を拒否します。workerはschedulerの値を受け取ります |
 | `WEB_DIST_DIR` | なし(Webコンソールを配信しません)。control-hostイメージは`/app/apps/web/dist` | `index.html`のある絶対パス。Webコンソール(`apps/web`)のビルド結果です |
 
@@ -108,7 +109,7 @@ GitHub Packagesのbot token([決定](https://github.com/JeongJaeSoon/werft/blob/
 
 ## scheduler・workerコンテナ・egressの設定
 
-schedulerがworkerコンテナを作るときに読む値です。なければ既定値を使い、形式が誤っていれば起動しません。user、HOMEとworkspaceのパス、tmpfsのサイズ、credentialのポート、stop timeoutは、`agent-platform.isolation`のフィンガープリントに入ります([実行基盤とworkerの隔離](/run-server/self-hosting/operate/execution#reconcilerschedulerとworkerの隔離))。そのため、変えると実行中のworkerが入れ替わります。CPU・メモリ・PIDの上限は、次のlaunchから適用されます。
+schedulerがworkerコンテナを作るときに読む値です。なければ既定値を使い、形式が誤っていれば起動しません。user、HOMEとworkspaceのパス、tmpfsのサイズ、credentialのポート、stop timeoutは、`werft.isolation`のフィンガープリントに入ります([実行基盤とworkerの隔離](/run-server/self-hosting/operate/execution#reconcilerschedulerとworkerの隔離))。そのため、変えると実行中のworkerが入れ替わります。CPU・メモリ・PIDの上限は、次のlaunchから適用されます。
 
 `WORKER_MEMORY_MB`は、transcript上限(`MAX_TRANSCRIPT_BYTES`)と一緒に決めた値です。2つの関係、実測、ノードあたりのセッション数、変え方は[容量管理](/run-server/self-hosting/operate/capacity)にあります。
 

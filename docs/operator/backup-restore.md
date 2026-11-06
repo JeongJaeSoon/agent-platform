@@ -41,7 +41,7 @@ macOS에서 Homebrew bash 5.3.9가 PATH 앞에 있으면 1 KB가 넘는 here-str
 ## 백업
 
 ```bash
-scripts/backup.sh                       # project agent-platform → backups/backup-<ts>/
+scripts/backup.sh                       # project werft → backups/backup-<ts>/
 scripts/backup.sh --project ap125 --out /somewhere --bucket claude-sessions
 scripts/backup.sh --project ap-ops --object-store env --bucket ap-ops-checkpoints   # AWS_* 는 셸에서
 ```
@@ -73,7 +73,7 @@ backup-20260923T101500Z/
 주의:
 
 - 로컬 compose의 S3는 SeaweedFS이며 객체·메타데이터·암호화 키를 `local-s3-data` named volume에 보존한다. Docker 재시작과 `docker compose down`(`-v` 없이) 뒤에도 남는다. 보존하며 내릴 때는 `scripts/local.sh down --keep-volumes`를 쓴다. 옵션 없는 `scripts/local.sh down`과 `reset`은 데이터까지 지우므로 보존할 때 쓰지 않는다. 이전 휘발성 LocalStack 설치에서 전환할 때는 **pull 전 옛 checkout에서 백업**하고, pull 뒤 사용한 적 없는 새 project에 restore한다. 이미 유실된 checkpoint는 백업으로 되살릴 수 없으며 [전환 안내](../quickstart.md#재부팅이나-docker-재시작-뒤)의 명시적 복구 결정을 따른다.
-- `pg_dump`는 자체로 일관되지만 object는 그 뒤에 복사한다. 백업 중 checkpoint가 커밋되면 pointer만 있고 object가 없는 행이 생길 수 있다. 그래서 writer가 돌고 있으면 백업은 아무것도 쓰지 않고 exit 1로 거부한다. writer는 compose 서비스 api·scheduler·reconciler·maintenance·worker와, scheduler가 띄운 worker 컨테이너다. worker 컨테이너는 `agent-platform.installation=<scheduler 컨테이너의 EXECUTION_INSTALLATION_ID>` 라벨로 찾는다. scheduler 컨테이너가 없으면 설치 id를 알 수 없으므로 `agent-platform.installation` 라벨이 붙은 컨테이너는 어느 설치 것이든 writer로 센다. 서비스는 compose 라벨로 찾으므로 `apps` profile 밖에서도 보인다. docker가 답하지 않으면 거부한다. `--allow-running-writers`를 주면 경고만 하고 진행한다.
+- `pg_dump`는 자체로 일관되지만 object는 그 뒤에 복사한다. 백업 중 checkpoint가 커밋되면 pointer만 있고 object가 없는 행이 생길 수 있다. 그래서 writer가 돌고 있으면 백업은 아무것도 쓰지 않고 exit 1로 거부한다. writer는 compose 서비스 api·scheduler·reconciler·maintenance·worker와, scheduler가 띄운 worker 컨테이너다. worker 컨테이너는 `werft.installation=<scheduler 컨테이너의 EXECUTION_INSTALLATION_ID>` 라벨로 찾는다. scheduler 컨테이너가 없으면 설치 id를 알 수 없으므로 `werft.installation` 라벨이 붙은 컨테이너는 어느 설치 것이든 writer로 센다. 서비스는 compose 라벨로 찾으므로 `apps` profile 밖에서도 보인다. docker가 답하지 않으면 거부한다. `--allow-running-writers`를 주면 경고만 하고 진행한다.
 - checkpoint GC(`apps/control-host/src/api/checkpoint-gc.ts`)는 백업 중에 돌리지 않는다. GC는 더 이상 복원될 수 없는 revision의 행에 `collected_at`을 적은 뒤 그 객체를 지운다. capture와 repin은 이렇게 표시된 행을 건너뛴다. 그런데 `pg_dump` 뒤에 GC가 행을 표시하면, 덤프에는 표시가 없는 행이 남고 그 객체는 백업에 없다. 그러면 restore의 repin이 실패한다. 그래서 `backup.sh`는 객체 복사를 마친 뒤 `pg_dump` 시작 1분 전 이후에 `collected_at`이 적힌 행이 있는지 확인하고, 있으면 백업을 실패로 끝낸다. GC를 멈추고 다시 백업한다.
 - object 복사(`object-store-cli.ts download`)는 각 key의 **현재** 객체만 받는다. 그 뒤 `checkpoint-pins-cli.ts capture`가 `collected_at`이 비어 있는 `checkpoints` 행을 모두 읽고 다음을 확인한다.
   - manifest는 `manifest_version`으로, 그 안의 모든 ref는 자기 `version`으로 읽는다. incremental checkpoint의 `workspace.baseBundles`도 ref다. base bundle은 앞 checkpoint의 디렉터리에 있지만, 그 checkpoint가 GC로 빠졌어도 이 checkpoint의 ref로서 백업된다. version이 없는 행(`unversioned`로 커밋된 행)은 key로 읽는다.
@@ -94,7 +94,7 @@ scripts/restore.sh <dir> --into <project> --check-only   # 검사만, 아무것�
 scripts/restore.sh <dir> --into ap-drill-1 --object-store env --bucket ap-drill-1-checkpoints   # 새 빈 bucket
 ```
 
-`localstack`이면 새 project의 로컬 S3에 백업의 bucket 이름으로 복원한다. `env`면 `--bucket`이 필수이고, 새 project에는 로컬 S3를 띄우지 않는다. 대상 bucket은 운영자가 미리 만든다. versioning, Object Lock, 기본 암호화 SSE-S3(`AES256`)를 켜고, 아무것도 없는 상태여야 한다. Object Lock 기본 보존 기간(default retention)은 두지 않는다. checkpoint는 legal hold로만 지키고, 기본 보존이 있으면 restore가 거부한다. Object Lock은 bucket을 만들 때만 켤 수 있다.
+`localstack`이면 새 project의 로컬 S3에 백업의 bucket 이름으로 복원한다. `env`면 `--bucket`이 필수이고, 새 project에는 로컬 S3를 띄우지 않는다. 대상 bucket은 운영자가 미리 만든다. versioning, Object Lock, 기본 암호화 SSE-S3(`AES256`)를 켜고, 아무것도 없는 상태여야 한다. Object Lock 기본 보존 기간(default retention)은 두지 않는다. checkpoint는 legal hold로만 지키고, 기본 보존이 있으면 restore가 거부한다. Object Lock은 bucket을 만들 때만 켤 수 있다. AWS CLI가 없는 로컬 S3 호환 저장소(SeaweedFS)에서는 `AWS_*`를 셸에 두고 `S3_BUCKET=ap-drill-1-checkpoints bun run scripts/lib/object-store-cli.ts check-target --create`가 이 조건으로 bucket을 만들고 검사한다.
 
 순서와 거부 조건:
 
@@ -144,7 +144,7 @@ restore와 같은 `--object-store`와 bucket을 준다. restore가 끝에 출력
 `checkpoints`의 모든 행을 확인한다. 단, GC가 `collected_at`을 적은 행은 뺀다. 확인하는 내용은 다음과 같다.
 
 1. `manifest_ref`를 **`manifest_version`으로** 내려받아 sha256 = `manifest_sha256`인지 본다. 행의 `versions_held`는 true여야 한다.
-2. manifest 안의 transcript part(root·subagent), untracked 파일, workspace bundle 사슬(`workspace.baseBundles`와 `workspace.bundle`)을 **각자의 `version`으로** 내려받아 sha256과 크기를 대조한다. version이 없는 ref는 재고정되지 않은 것이므로 FAIL이다.
+2. manifest 안의 transcript part(root·subagent), untracked 파일, 저장된 결과물(`outputs`), workspace bundle 사슬(`workspace.baseBundles`와 `workspace.bundle`)을 **각자의 `version`으로** 내려받아 sha256과 크기를 대조하고 legal hold가 ON인지 본다. version이 없는 ref는 재고정되지 않은 것이므로 FAIL이다. 크기 제한으로 생략된 output(`omitted`)은 object가 없어 건너뛴다. restore plan의 artifact 목록에는 outputs가 없으므로, API restore plan 검사(아래)도 manifest의 저장된 outputs를 plan의 object와 같은 방식으로 읽고 hold를 확인한다.
 3. 1과 2의 모든 version에 대해 HEAD의 `ObjectLockLegalHoldStatus`가 `ON`인지 본다.
 4. 행마다 빈 bare 저장소를 새로 만들고, bundle 사슬을 `baseBundles`의 오래된 것부터 `workspace.bundle`까지 순서대로 `git bundle verify`한 뒤 fetch해 쌓는다. incremental bundle은 앞 bundle이 가진 커밋을 전제로 하므로 혼자서는 verify되지 않는다. 마지막 bundle의 `refs/checkpoint/worktree`를 커밋까지 벗겨 `workspace.gitCommit`과 같은지 확인한다. 복원이 checkout하는 것이 이 ref다. 앞 checkpoint 뒤 바뀐 것이 없는 capture는 앞 bundle이 가진 커밋 위에 annotated tag만 싣기 때문에, bundle 헤더에는 커밋 대신 tag가 나온다. 순서가 틀리거나 한 고리가 빠지면 FAIL이다(`unbundle_chain`, `scripts/lib/backup-lib.sh`). finalize와 워커 복원이 bundle ref에 적용하는 규칙 전체는 runtime-core의 `checkpointBundleRefs`에 있다. 스크립트는 그 가운데 worktree 부분만 본다.
 
@@ -179,7 +179,7 @@ checkpoint manifest와 pointer는 S3 object **version**을 가리킨다. 복원�
 재고정은 다음 규칙을 지킨다. Codex와 합의했다.
 
 - **key는 그대로 둔다.** manifest는 원래 key(`manifestRefFor(session, revision, attempt)`)에 다시 쓴다. 복원 sync가 그 key를 뺐으므로 새 bucket에서는 이것이 첫 create-only 쓰기다. 그래서 finalize의 key 규칙과 `putImmutable` 규칙이 그대로 성립한다.
-- **바뀌는 것은 version과 manifest digest다.** manifest 안 각 object ref(transcript part, bundle, base bundle, untracked)의 `version` 필드만 바뀐다. 한 key는 복원 bucket에서 version 하나만 가지므로, 뒤 revision의 `baseBundles`는 앞 revision의 `workspace.bundle`과 같은 새 version을 가리킨다. 그래서 복원된 pointer 위에서 다음 finalize가 요구하는 사슬 일치(`baseBundles` = 앞 checkpoint의 사슬)도 그대로 성립한다. 최상위 schema `version`(2)은 그대로다. transcript part-list digest(`digestParts`)는 version을 덮지 않으므로 그대로 유효하다. 행의 `manifest_sha256`·`manifest_version`은 새 값이 된다.
+- **바뀌는 것은 version과 manifest digest다.** manifest 안 각 object ref(transcript part, bundle, base bundle, untracked, 저장된 outputs)의 `version` 필드만 바뀐다. 크기 제한으로 생략된 output은 object ref가 없으므로 그대로 둔다. 한 key는 복원 bucket에서 version 하나만 가지므로, 뒤 revision의 `baseBundles`는 앞 revision의 `workspace.bundle`과 같은 새 version을 가리킨다. 그래서 복원된 pointer 위에서 다음 finalize가 요구하는 사슬 일치(`baseBundles` = 앞 checkpoint의 사슬)도 그대로 성립한다. 최상위 schema `version`(2)은 그대로다. transcript part-list digest(`digestParts`)는 version을 덮지 않으므로 그대로 유효하다. 행의 `manifest_sha256`·`manifest_version`은 새 값이 된다.
 - **`versions_held=true`는 모든 검증을 마친 뒤에만 쓴다.** 재고정 도구는 DB와 bucket 권한을 모두 가진 신뢰된 발급자다. locked finalize와 똑같이 모든 version을 version 단위로 해시하고 hold를 건 뒤에만 true로 둔다. false로 남기면 `getRestorePlan`이 이 값을 올리지 않으므로, 매 복원마다 transcript 전체를 다시 해시하게 된다.
 - **`turns.result_json`의 finalize digest는 원래 요청 그대로 둔다.** 원래 요청의 replay는 계속 맞고, 재고정한 필드로 온 요청은 충돌한다. 복원본에는 원래 worker가 없으므로 실제로 오는 요청은 없다.
 - **백업 원본은 바뀌지 않는다.** `objects/`의 manifest는 원래 바이트 그대로 남는다.
@@ -217,7 +217,7 @@ engine session id는 manifest의 `resume`에만 있다. `sessions.claude_session
 위 e2e는 worker가 실제로 커밋한 checkpoint로 돈다. 세션을 돌리지 않은 설치에서 스크립트만 시험할 때는 `scripts/dev/seed-checkpoint.ts`를 쓴다. 이 스크립트는 워커와 같은 계약으로 세션 하나와 커밋된 checkpoint 하나를 어느 설치에든 심는다. 이 checkpoint는 locked finalize가 남기는 모양이다. 모든 ref와 `manifest_version`이 version을 싣고, 모든 version에 hold가 걸려 있으며, `versions_held=true`다. 그래서 bucket은 versioning과 Object Lock이 켜져 있어야 한다(compose 기본값).
 
 ```bash
-# 1. 원본 설치(예: agent-platform 프로젝트)에 fixture 심기
+# 1. 원본 설치(예: werft 프로젝트)에 fixture 심기
 DATABASE_URL=postgresql://postgres:dev@127.0.0.1:5432/sessions \
 AWS_ENDPOINT_URL=http://127.0.0.1:4566 AWS_REGION=ap-northeast-1 \
 AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test S3_BUCKET=claude-sessions \
@@ -225,7 +225,8 @@ bun run scripts/dev/seed-checkpoint.ts
 
 # 2. 백업 → 복원 → 검증. writer(api·scheduler·reconciler·maintenance)가 돌면 backup이 거부한다
 docker compose stop api scheduler reconciler maintenance
-dir=$(scripts/backup.sh --project agent-platform)
+docker ps --filter label=werft.installation --format '{{.Names}}'   # scheduler가 띄운 worker. 남아 있으면 docker stop <이름>
+dir=$(scripts/backup.sh --project werft)
 scripts/restore.sh "$dir" --into ap-restore-1 --port-base 25432
 scripts/verify-restore.sh --project ap-restore-1   # 마지막 줄들: bucket PASS, "<session>@<rev> plan: ready under locked"
 

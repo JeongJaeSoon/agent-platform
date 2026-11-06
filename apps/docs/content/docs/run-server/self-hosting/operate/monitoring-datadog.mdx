@@ -11,7 +11,7 @@ description: Datadog Agent가 수집하는 신호, 초기 monitor 임계, DB 점
 
 Agent는 선택형 [`infra/compose.datadog.yml`](https://github.com/JeongJaeSoon/werft/blob/main/infra/compose.datadog.yml)에서만 생긴다. 이 파일을 지정하지 않는 기본 stack에는 Agent, mount, label, 필수 환경 변수가 하나도 추가되지 않는다. Agent image는 `gcr.io/datadoghq/agent:7.83.3`으로 고정한다.
 
-`DD_API_KEY`와 Datadog용 PostgreSQL password는 저장소나 shell history에 넣지 않는다. 서버에서 운영자가 `/etc/agent-platform/datadog.env`를 만들고 mode 600을 확인한다. 다른 절대 경로를 써야 할 때만 `DATADOG_ENV_FILE`로 바꾸며, 값은 예시 자리표시자이므로 실제 값을 문서·티켓·로그에 복사하지 않는다.
+`DD_API_KEY`와 Datadog용 PostgreSQL password는 저장소나 shell history에 넣지 않는다. 서버에서 운영자가 `/etc/werft/datadog.env`를 만들고 mode 600을 확인한다. 다른 절대 경로를 써야 할 때만 `DATADOG_ENV_FILE`로 바꾸며, 값은 예시 자리표시자이므로 실제 값을 문서·티켓·로그에 복사하지 않는다.
 
 ```dotenv
 DD_API_KEY=<operator-supplied>
@@ -22,9 +22,9 @@ DD_POSTGRES_PASSWORD=<read-only-role-password>
 ```
 
 ```bash
-sudo chown root:root /etc/agent-platform/datadog.env
-sudo chmod 600 /etc/agent-platform/datadog.env
-stat -c '%a %U:%G' /etc/agent-platform/datadog.env
+sudo chown root:root /etc/werft/datadog.env
+sudo chmod 600 /etc/werft/datadog.env
+stat -c '%a %U:%G' /etc/werft/datadog.env
 ```
 
 Agent service는 이 절대 경로를 `env_file`로만 읽는다. compose YAML에는 `DD_API_KEY`의 이름이나 값 interpolation이 없으므로 ambient `DD_API_KEY`로 우회할 수 없다. `DD_ENV`와 `DD_VERSION`은 같은 파일을 compose의 `--env-file`로 읽어 product container의 unified tags에 쓴다.
@@ -43,7 +43,7 @@ GRANT SELECT ON TABLE queue_messages, sessions, turns, attempts, provider_usage 
 
 ```bash
 docker compose \
-  --env-file /etc/agent-platform/datadog.env \
+  --env-file /etc/werft/datadog.env \
   -f infra/compose.yml \
   -f infra/compose.datadog.yml \
   --profile apps up -d
@@ -96,6 +96,6 @@ Agent는 Docker socket과 container log directory를 read-only로 mount하고 ho
 서버 배포에서 다음을 확인한다.
 
 1. 기본 stack을 overlay 없이 render·기동했을 때 service 목록과 설정이 이전과 같다.
-2. overlay를 더한 `docker compose config`가 `DD_ENV`·`DD_VERSION` 누락을 거부하고, Agent의 Docker socket mount가 `ro`이며 `/etc/agent-platform/datadog.env`만 읽는다.
+2. overlay를 더한 `docker compose config`가 `DD_ENV`·`DD_VERSION` 누락을 거부하고, Agent의 Docker socket mount가 `ro`이며 `/etc/werft/datadog.env`만 읽는다.
 3. Agent status에서 Docker log, `http_check:werft-readyz`, PostgreSQL custom query가 모두 성공한다.
 4. `/readyz`를 잠깐 실패시켜 service check가 바뀌고 복구되는지 서버에서 확인한다. 실제 장기 stack 실행과 monitor notification 전달은 로컬 검증 증거로 대체하지 않는다.
