@@ -490,6 +490,30 @@ describe("the workspace's page of App installations", () => {
     ceilingHeld = null;
     expect((await agentPage()).unavailable).toBeNull();
   });
+
+  test("an installed ceiling with named ids still lets the picker run on every App repository", async () => {
+    const { agentPage, pick, resolved } = serviceWith({
+      async installationRepositoriesPage() {
+        return { repositories: [], totalCount: 0 };
+      },
+      async repositoryById() {
+        return repository(7, "not-in-ids");
+      },
+      async installationFor() {
+        return { id: INSTALLATION, permissions: {} };
+      },
+    });
+    ceilingHeld = {
+      repository_ids: ["named"],
+      github_app_repositories: "installed",
+    };
+    expect((await agentPage()).unavailable).toBeNull();
+    expect(await pick(7)).toEqual({
+      catalog_id: "not-in-ids",
+      receipt_id: expect.any(String),
+    });
+    expect(resolved).toEqual(["acme/not-in-ids"]);
+  });
 });
 
 const reasonOf = async (promise: Promise<unknown>) => {
