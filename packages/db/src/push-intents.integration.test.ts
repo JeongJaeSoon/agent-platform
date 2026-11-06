@@ -16,7 +16,7 @@ import { Pool } from "pg";
 import { createPostgresPushIntents } from "./push-intents.ts";
 import { createPostgresPushRequests } from "./push-requests.ts";
 import * as schema from "./schema.ts";
-import { pushRequests, sessions, turns } from "./schema.ts";
+import { pushIntents, pushRequests, sessions, turns } from "./schema.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -145,6 +145,39 @@ integration("push intents and the same-target rules on PostgreSQL", () => {
     expect(await intents.list(OWNER, s.sessionId)).toHaveLength(1);
     // The first target is still the same row when asked again.
     expect(await ask(s)).toMatchObject({ outcome: "existing" });
+  });
+
+  test("rows stored before the rule: asking for the second stored target is still that row", async () => {
+    const s = await runningTurn();
+    const first = await ask(s);
+    if (first.outcome !== "created") throw new Error("expected created");
+    const secondTarget = `agent/${s.sessionId}-docs`;
+    // Written the way the code before the rule did: a second target row.
+    const [seeded] = await db
+      .insert(pushIntents)
+      .values({
+        id: crypto.randomUUID(),
+        ownerId: OWNER,
+        sessionId: s.sessionId,
+        turnId: s.turnId,
+        attemptId: "attempt-1",
+        repositoryId: "sample-app",
+        targetBranch: secondTarget,
+        actor: ACTOR,
+        approvalBasis: "push.primary",
+        policySource: "agent",
+      })
+      .returning({ id: pushIntents.id });
+    if (!seeded) throw new Error("no seeded row");
+    const again = await ask(s, secondTarget);
+    expect(again).toMatchObject({ outcome: "existing" });
+    if (again.outcome !== "existing") throw new Error("unreachable");
+    expect(again.intent.id).toBe(seeded.id);
+    // A third target is still refused, naming the oldest row.
+    expect(await ask(s, `agent/${s.sessionId}-extra`)).toEqual({
+      outcome: "turn_target_taken",
+      targetBranch: `agent/${s.sessionId}`,
+    });
   });
 
   test("another repository of the same turn is its own intent", async () => {
