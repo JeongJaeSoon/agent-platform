@@ -2019,7 +2019,7 @@ integration("parked pending requests on PostgreSQL", () => {
     await executionGone(worker);
     await answer(owner, sessionId, requestId);
     const [first] = await continuations(parkedRowId);
-    expect((await intentOf(sessionId)).turnId).toBe(first?.id);
+    expect((await intentOf(sessionId)).turnId === first?.id).toBe(true);
 
     const now = new Date();
     await revokeExecutionAtomic(db, {
