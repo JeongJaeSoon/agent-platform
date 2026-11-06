@@ -45,6 +45,7 @@ import type {
   WorkerScope,
 } from "@werft-ai/contracts";
 import {
+  DEFAULT_WORKSPACE_ENFORCE,
   ENGINE_COAUTHOR_EMAILS,
   GITHUB_MCP_SERVER,
   githubPolicySourceOf,
@@ -252,6 +253,7 @@ type ToolConfigs = {
 };
 
 export type WorkerGatewayOptions = {
+  workspaceEnforce?: "warn" | "fail" | "off";
   /** How long a heartbeat extends the lease. */
   leaseTtlMs: number;
   /** SESSION_COST_LIMIT_USD: past it a session is dispatched nothing new. */
@@ -1742,6 +1744,8 @@ export function createWorkerGateway(deps: {
             remaining_budget_usd: binding.unmetered
               ? null
               : Math.max(0, deps.options.sessionCostLimitUsd - binding.costUsd),
+            workspace_enforce:
+              deps.options.workspaceEnforce ?? DEFAULT_WORKSPACE_ENFORCE,
             ...(binding.grants === undefined || binding.grants.length === 0
               ? {}
               : {

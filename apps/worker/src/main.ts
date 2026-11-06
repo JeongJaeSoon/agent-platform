@@ -1,9 +1,12 @@
 import { lstat, mkdir } from "node:fs/promises";
 import { WORKER_EXIT_LEASE_LOST } from "@werft-ai/contracts";
+import { DEFAULT_WORKSPACE_QUOTA_MB } from "@werft-ai/contracts/execution";
 
 import { createWorkerHost } from "./composition.ts";
 import { type WorkerEnvironment, workerConfigFromEnv } from "./config.ts";
+import { consoleLogger } from "./console-logger.ts";
 import type { WorkerHost, WorkerRunSummary } from "./worker-host.ts";
+import { WorkspaceObserver } from "./workspace-observer.ts";
 
 const DRAIN_SIGNALS = ["SIGTERM", "SIGINT"] as const;
 
@@ -17,12 +20,47 @@ export async function main(
 ): Promise<WorkerRunSummary> {
   const config = workerConfigFromEnv(environment);
   await verifyWorkspace(config.runtime.cwd);
-  const host = createWorkerHost(config);
+  const requestedBytes = Number(environment.WORKER_WORKSPACE_QUOTA_BYTES);
+  const quotaMode = environment.WORKER_WORKSPACE_QUOTA_MODE;
+  const pvcCapacityBytes = Number(
+    environment.WORKER_WORKSPACE_PVC_CAPACITY_BYTES,
+  );
+  const observer = new WorkspaceObserver(
+    {
+      root: environment.WORKER_WORKSPACE_MOUNT_DIR ?? config.runtime.cwd,
+      evidence: {
+        ...(Number.isSafeInteger(pvcCapacityBytes) && pvcCapacityBytes > 0
+          ? { pvcCapacityBytes }
+          : {}),
+        ...(Number.isSafeInteger(requestedBytes) && requestedBytes > 0
+          ? { requestedBytes }
+          : {}),
+        ...(quotaMode === "enforced" || quotaMode === "off"
+          ? { localQuota: quotaMode }
+          : {}),
+      },
+    },
+    consoleLogger,
+  );
+  observer.start();
+  const host = createWorkerHost(config, {
+    workspaceQuota: {
+      observer,
+      limits: {
+        bytes:
+          Number.isSafeInteger(requestedBytes) && requestedBytes > 0
+            ? requestedBytes
+            : DEFAULT_WORKSPACE_QUOTA_MB * 1024 * 1024,
+        inodes: 1_000_000,
+      },
+    },
+  });
   const release = drainOnSignals(host);
   try {
     return await host.runLoop();
   } finally {
     release();
+    observer.stop();
   }
 }
 

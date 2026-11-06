@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
   type FinalizeRequest,
   TURN_BUDGET_EXCEEDED_REASON,
+  TURN_WORKSPACE_QUOTA_EXCEEDED_REASON,
   type WorkerScope,
 } from "@werft-ai/contracts";
 import {
@@ -618,6 +619,47 @@ integration("installation limits on PostgreSQL", () => {
         .where(eq(providerUsage.exchangeId, exchangeId));
       expect(rows).toEqual([{ inferenceGeo: "us", costUsd: 0.0275 }]);
       expect(await sessionCost(session.session_id)).toBe(0.0275);
+    });
+
+    test("workspace quota fails its receipt without blocking the session's next turn", async () => {
+      const { session, claimed } = await bound();
+      expect(claimed.workspace_enforce).toBe("warn");
+      await append(session, "cleanup");
+      await gateway.nextInput(principalOf(claimed), scopeOf(claimed));
+      await finalize(claimed, "1", {
+        terminal: {
+          status: "failed",
+          reason: TURN_WORKSPACE_QUOTA_EXCEEDED_REASON,
+          result: null,
+          usage: null,
+          cost_usd: 0,
+        },
+      });
+      const rows = await db
+        .select({ status: receipts.status, error: receipts.error })
+        .from(receipts)
+        .where(
+          and(
+            sql`${receipts.targetRef}->>'session_id' = ${session.session_id}`,
+            eq(receipts.status, "failed"),
+          ),
+        );
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        status: "failed",
+        error: {
+          code: "WORKSPACE_QUOTA_EXCEEDED",
+          message: "workspace_quota_exceeded",
+        },
+      });
+      expect(
+        await gateway.nextInput(principalOf(claimed), scopeOf(claimed)),
+      ).toMatchObject({ input: { message: "cleanup" } });
+      const [stored] = await db
+        .select({ state: sessions.admissionState })
+        .from(sessions)
+        .where(eq(sessions.id, session.session_id));
+      expect(stored?.state).toBe("active");
     });
 
     test("a turn the engine cut on its budget says why, and the metered sum is what holds the next poll", async () => {

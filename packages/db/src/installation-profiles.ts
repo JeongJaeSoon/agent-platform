@@ -15,7 +15,7 @@ import { installationProfiles, receipts } from "./schema.ts";
 
 // Imports and console saves take the same lock, so a version number and an
 // id are decided by one writer at a time.
-const lockWrites = async (tx: Database) => {
+export const lockWrites = async (tx: Database) => {
   await tx.execute(
     sql`SELECT pg_advisory_xact_lock(hashtext('profiles:import'))`,
   );

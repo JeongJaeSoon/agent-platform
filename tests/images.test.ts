@@ -975,6 +975,23 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       }
     });
 
+    test("only the build job writes the layer cache, and never for a pull request", () => {
+      for (const name of ["publish", "publish-main"]) {
+        const build = jobs[name]?.steps.find((step) =>
+          step.uses?.startsWith("docker/build-push-action@"),
+        );
+        expect(build?.with?.["cache-to"]).toBeUndefined();
+      }
+      const build = jobs.build?.steps.find((step) =>
+        step.uses?.startsWith("docker/build-push-action@"),
+      );
+      expect(build?.with?.["cache-to"]).toBe(
+        expression(
+          "github.event_name != 'pull_request' && format('type=gha,scope=images-{0}-{1},mode=max', matrix.app, matrix.arch) || ''",
+        ),
+      );
+    });
+
     test("nothing of one arch overwrites the other's", () => {
       const perArch = `${expression("matrix.app")}-${expression("matrix.arch")}`;
       const uploads = (job: Job | undefined) =>

@@ -52,6 +52,7 @@ export const PLATFORM_SYSTEM_SUBTYPE_VALUES = [
   "execution_restored",
   "recovery_decision",
   "transcript_limit_reached",
+  "workspace_limit_mode",
 ] as const;
 // `parked` when a park commits, `expired` when a parked group's last
 // requests expire, `lost` when the worker that held them went away first.

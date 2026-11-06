@@ -1,3 +1,9 @@
+import { z } from "zod";
+
+export const workspaceEnforceSchema = z.enum(["warn", "fail", "off"]);
+export type WorkspaceEnforce = z.infer<typeof workspaceEnforceSchema>;
+export const DEFAULT_WORKSPACE_ENFORCE: WorkspaceEnforce = "warn";
+
 export const DEFAULT_WORKER_USER = "1000:1000";
 export const DEFAULT_INSTALLATION_ID = "local";
 export const DEFAULT_WORKSPACE_QUOTA_MB = 4096;
@@ -18,6 +24,10 @@ export const ENV = {
   egressCredentialUrl: "WORKER_EGRESS_CREDENTIAL_URL",
   home: "HOME",
   workspaceDir: "WORKER_WORKSPACE_DIR",
+  workspaceMountDir: "WORKER_WORKSPACE_MOUNT_DIR",
+  workspaceQuotaBytes: "WORKER_WORKSPACE_QUOTA_BYTES",
+  workspacePvcCapacityBytes: "WORKER_WORKSPACE_PVC_CAPACITY_BYTES",
+  workspaceQuotaMode: "WORKER_WORKSPACE_QUOTA_MODE",
   // Tools read different spellings; network isolation enforces the boundary.
   httpProxy: "HTTP_PROXY",
   httpProxyLower: "http_proxy",
