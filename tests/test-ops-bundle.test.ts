@@ -332,9 +332,17 @@ exit 1
     () => {
       const copy = join(work, "copy-all-verbs");
       cpSync(unpacked, copy, { recursive: true });
-      // A changed helper (the bundle's own code), then a symlink SHA256SUMS does
-      // not list.
-      writeFileSync(join(copy, "scripts/lib/test-ops.ts"), "process.exit(0);\n");
+      // A changed helper and a changed sourced library (the bundle's own code):
+      // the library's added line must never run, the check comes first.
+      writeFileSync(
+        join(copy, "scripts/lib/test-ops.ts"),
+        "process.exit(0);\n",
+      );
+      const lib = join(copy, "scripts/lib/backup-lib.sh");
+      writeFileSync(
+        lib,
+        `echo LIBRARY_RAN_BEFORE_CHECK >&2\n${readFileSync(lib, "utf8")}`,
+      );
       const before = existsSync(calls) ? readFileSync(calls, "utf8") : "";
       const result = (verb: string[]) =>
         sh(["bash", join(copy, "scripts/test-ops.sh"), ...verb], {
@@ -343,7 +351,9 @@ exit 1
         });
       for (const verb of [
         ["stop"],
+        ["start"],
         ["status"],
+        ["key", "list"],
         ["preflight", join(work, "none.json")],
         ["deploy", join(work, "none.json")],
         ["reset", "--yes"],
@@ -351,12 +361,18 @@ exit 1
         const run = result(verb);
         expect(run.exitCode).not.toBe(0);
         expect(run.stderr).toContain("differs from SHA256SUMS");
+        expect(run.stderr).not.toContain("LIBRARY_RAN_BEFORE_CHECK");
       }
       cpSync(
         join(unpacked, "scripts/lib/test-ops.ts"),
         join(copy, "scripts/lib/test-ops.ts"),
       );
-      symlinkSync("/etc/hosts", join(copy, "infra/extra-link"));
+      cpSync(
+        join(unpacked, "scripts/lib/backup-lib.sh"),
+        join(copy, "scripts/lib/backup-lib.sh"),
+      );
+      // An unlisted file named SHA256SUMS below the root is still unlisted.
+      symlinkSync("/etc/hosts", join(copy, "infra/SHA256SUMS"));
       expect(result(["stop"]).stderr).toContain("does not list");
       const after = existsSync(calls) ? readFileSync(calls, "utf8") : "";
       expect(after).toBe(before);
@@ -457,14 +473,13 @@ describe("a checkout is never a bundle", () => {
     });
 
   test("a BUNDLE file in a git work tree does not turn the bundle checks on", () => {
-    expect(upgrade(tree(true)).stderr).not.toContain(
-      "is not in the release bundle",
-    );
+    const stderr = upgrade(tree(true)).stderr;
+    expect(stderr).not.toContain("is not in the release bundle");
+    expect(stderr).not.toContain("the bundle is incomplete");
   });
 
+  // The tree has no SHA256SUMS, so the bundle check refuses it before any verb.
   test("the same tree outside git is a bundle", () => {
-    expect(upgrade(tree(false)).stderr).toContain(
-      "is not in the release bundle",
-    );
+    expect(upgrade(tree(false)).stderr).toContain("the bundle is incomplete");
   });
 });

@@ -46,6 +46,32 @@
 # the host the API refuses to start until reseed or reset
 # (docs/operator/test-ops.md).
 set -euo pipefail
+
+# A release bundle is a tree that carries BUNDLE and is not a git work tree of
+# its own; a checkout never takes this path, whatever files it holds. The bundle
+# must be what its SHA256SUMS lists and nothing else before any of it runs: the
+# libraries sourced below and the helper image both come from the bundle.
+# SHA256SUMS catches damage and stray files, not a forged bundle, so fetch it
+# from the GitHub Release (docs/operator/test-ops.md).
+check_bundle_files() {
+  local root="$1" listed actual
+  [ -r "${root}/release-manifest.json" ] && [ -r "${root}/SHA256SUMS" ] \
+    || { echo "error: the bundle is incomplete: release-manifest.json or SHA256SUMS is missing" >&2; exit 1; }
+  (cd "$root" && if command -v sha256sum >/dev/null 2>&1; then sha256sum -c --quiet SHA256SUMS; else shasum -a 256 -c --quiet SHA256SUMS; fi) >&2 \
+    || { echo "error: a bundle file differs from SHA256SUMS (above); download the bundle again" >&2; exit 1; }
+  listed="$(awk '{print $2}' "${root}/SHA256SUMS" | sort)"
+  actual="$(cd "$root" && find . ! -type d ! -path ./SHA256SUMS | sed 's|^\./||' | sort)"
+  [ "$listed" = "$actual" ] \
+    || { echo "error: the bundle holds files SHA256SUMS does not list, or lacks listed ones; download it again" >&2; exit 1; }
+}
+BUNDLE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+MODE=checkout
+if [ -e "${BUNDLE_ROOT}/BUNDLE" ] \
+  && [ "$(git -C "$BUNDLE_ROOT" rev-parse --show-toplevel 2>/dev/null || true)" != "$(cd "$BUNDLE_ROOT" && pwd -P)" ]; then
+  MODE=bundle
+  check_bundle_files "$BUNDLE_ROOT"
+fi
+
 source "$(dirname "${BASH_SOURCE[0]}")/lib/backup-lib.sh"
 
 ENV_FILE="${TEST_OPS_ENV_FILE:-/etc/werft/test-ops.env}"
@@ -64,15 +90,7 @@ PREVIOUS_WORKER="${STATE_DIR}/previous-worker"
 # Each worker image's runtime combination, by digest.
 RUNTIMES_DIR="${STATE_DIR}/worker-runtimes"
 HELPER="${REPO_ROOT}/scripts/lib/test-ops.ts"
-# A release bundle is a tree that carries BUNDLE and is not a git work tree of
-# its own. A checkout never takes the bundle path, whatever files it holds.
-BUNDLE_MARKER="${REPO_ROOT}/BUNDLE"
 RELEASE_MANIFEST="${REPO_ROOT}/release-manifest.json"
-MODE=checkout
-if [ -e "$BUNDLE_MARKER" ] \
-  && [ "$(git -C "$REPO_ROOT" rev-parse --show-toplevel 2>/dev/null || true)" != "$(cd "$REPO_ROOT" && pwd -P)" ]; then
-  MODE=bundle
-fi
 MIN_ENGINE_MAJOR=28
 # 2.24.6: the restore drill's overlay over an include (compose.restore.yml).
 MIN_COMPOSE=2.24.6
@@ -388,21 +406,6 @@ version_at_least() {
     want_part=${want[i]:-0}
     [ "${have_part:-0}" -eq "$want_part" ] || { [ "${have_part:-0}" -gt "$want_part" ]; return; }
   done
-}
-
-# The bundle is what its SHA256SUMS lists and nothing else. This runs for every
-# verb before anything in the bundle executes (the helper image comes from the
-# bundle's own manifest). SHA256SUMS catches damage and stray files, not a forged
-# bundle, so fetch it from the GitHub Release (docs/operator/test-ops.md).
-check_bundle_files() {
-  local listed actual
-  [ -r "$RELEASE_MANIFEST" ] && [ -r "${REPO_ROOT}/SHA256SUMS" ] \
-    || die "the bundle is incomplete: release-manifest.json or SHA256SUMS is missing"
-  (cd "$REPO_ROOT" && if command -v sha256sum >/dev/null 2>&1; then sha256sum -c --quiet SHA256SUMS; else shasum -a 256 -c --quiet SHA256SUMS; fi) >&2 \
-    || die "a bundle file differs from SHA256SUMS (above); download the bundle again"
-  listed="$(awk '{print $2}' "${REPO_ROOT}/SHA256SUMS" | sort)"
-  actual="$(cd "$REPO_ROOT" && find . ! -type d ! -name SHA256SUMS | sed 's|^\./||' | sort)"
-  [ "$listed" = "$actual" ] || die "the bundle holds files SHA256SUMS does not list, or lacks listed ones; download it again"
 }
 
 # The loaded manifest names this release's commit and exactly its three images.
@@ -941,7 +944,6 @@ if [ "$VERB" = manifest ]; then
   exit 0
 fi
 
-[ "$MODE" = bundle ] && check_bundle_files
 check_env_file
 # Deploy takes TEST_OPS_OBJECT_STORE (localstack by default) and records it;
 # after that, the recorded one is the installation's.
