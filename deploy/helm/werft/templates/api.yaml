@@ -31,6 +31,8 @@ spec:
             - name: authorizer
               containerPort: 3100
           env:
+            - name: WORKSPACE_ENFORCE
+              value: {{ .Values.api.workspaceEnforce | quote }}
             {{- include "ap.secretEnv" (dict "root" . "key" "DATABASE_URL") | nindent 12 }}
             {{- include "ap.secretEnv" (dict "root" . "key" "EGRESS_AUTHORIZER_TOKEN") | nindent 12 }}
             {{- range .Values.secrets.catalogEnv }}

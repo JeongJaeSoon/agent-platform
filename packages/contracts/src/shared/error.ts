@@ -16,6 +16,7 @@ export const API_ERROR_CODE_VALUES = [
   // A turn the engine ended because the session's cost budget ran out while
   // it was running.
   "BUDGET_EXCEEDED",
+  "WORKSPACE_QUOTA_EXCEEDED",
   "INTERNAL_ERROR",
   "REVISION_CONFLICT",
   "IDEMPOTENCY_CONFLICT",

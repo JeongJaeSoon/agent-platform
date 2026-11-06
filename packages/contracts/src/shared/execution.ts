@@ -1,3 +1,9 @@
+import { z } from "zod";
+
+export const workspaceEnforceSchema = z.enum(["warn", "fail", "off"]);
+export type WorkspaceEnforce = z.infer<typeof workspaceEnforceSchema>;
+export const DEFAULT_WORKSPACE_ENFORCE: WorkspaceEnforce = "warn";
+
 export const DEFAULT_WORKER_USER = "1000:1000";
 export const DEFAULT_INSTALLATION_ID = "local";
 export const DEFAULT_WORKSPACE_QUOTA_MB = 4096;

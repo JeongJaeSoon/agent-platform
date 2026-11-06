@@ -45,6 +45,8 @@ import {
   type WorkerLogger,
 } from "./worker-host.ts";
 import { GitWorkspace, type WorkspacePreparer } from "./workspace.ts";
+import type { WorkspaceObserver } from "./workspace-observer.ts";
+import type { WorkspaceQuotaLimits } from "./workspace-quota.ts";
 
 export type WorkerComposition = {
   checkpoints?: WorkerCheckpointPort;
@@ -54,6 +56,10 @@ export type WorkerComposition = {
   objectStore?: CheckpointObjectStore;
   runtimes?: RuntimeRegistry;
   workspace?: WorkspacePreparer;
+  workspaceQuota?: {
+    observer: WorkspaceObserver;
+    limits: WorkspaceQuotaLimits;
+  };
 };
 
 /**
@@ -153,6 +159,9 @@ export function createWorkerHost(
     runtimes: overrides.runtimes ?? workerRuntimeRegistry(config, engines),
     timeouts: config.timeouts,
     workspace,
+    ...(overrides.workspaceQuota === undefined
+      ? {}
+      : { workspaceQuota: overrides.workspaceQuota }),
   });
   return host;
 }
