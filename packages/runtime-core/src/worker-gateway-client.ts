@@ -119,6 +119,8 @@ export class WorkerGatewayRequestError extends Error {
     readonly code: WorkerGatewayErrorCode | null,
     message: string,
     readonly retryable: boolean,
+    /** The error body's `details`, as the gateway sent it. */
+    readonly details?: unknown,
   ) {
     super(message);
     this.name = "WorkerGatewayRequestError";

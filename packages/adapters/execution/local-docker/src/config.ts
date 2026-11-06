@@ -98,6 +98,17 @@ export type LocalDockerBackendConfig = {
   workspaceGcMinAgeMs: number;
   workspaceQuota: WorkspaceQuota;
   /**
+   * The key prefix of the labels on workspace volumes (`<ns>.managed`, ...).
+   * A volume's labels cannot be edited after it is created, so an install
+   * whose volumes carry another prefix sets it here instead of copying them.
+   */
+  volumeLabelNamespace: string;
+  /**
+   * The name prefix of workspace volumes, trailing `-` included. Names are
+   * likewise fixed at creation, and the name-derived lookups use this too.
+   */
+  volumeNamePrefix: string;
+  /**
    * Installation limits the worker enforces itself, handed to it as
    * `WORKER_MAX_TURN_SEC` and `WORKER_PROVIDER_MAX_RETRIES`. The scheduler
    * always sets them; a worker launched without the retries refuses to
@@ -139,6 +150,8 @@ export type LocalDockerBackendEnvironment = {
   EXECUTION_WORKSPACE_QUOTA?: string | undefined;
   EXECUTION_WORKSPACE_QUOTA_MB?: string | undefined;
   EXECUTION_WORKSPACE_QUOTA_INODES?: string | undefined;
+  EXECUTION_VOLUME_LABEL_NAMESPACE?: string | undefined;
+  EXECUTION_VOLUME_NAME_PREFIX?: string | undefined;
   S3_BUCKET?: string | undefined;
   WORKER_GATEWAY_URL?: string | undefined;
   /** The worker image, and what the workspace inode helper runs from. */
@@ -155,6 +168,11 @@ export {
 } from "@werft-ai/contracts/execution";
 
 const INSTALLATION_ID = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$/;
+export const DEFAULT_VOLUME_LABEL_NAMESPACE = "werft";
+export const DEFAULT_VOLUME_NAME_PREFIX = "werft-ws-";
+// Label keys are `<ns>.<name>`; a Docker volume name is [a-zA-Z0-9][a-zA-Z0-9_.-]*.
+const VOLUME_LABEL_NAMESPACE = /^[a-z0-9]([a-z0-9.-]{0,60}[a-z0-9])?$/;
+const VOLUME_NAME_PREFIX = /^[a-z0-9][a-z0-9.-]{0,30}-$/;
 /**
  * The settings of the shared worker network that per-execution networks
  * replaced. Set, they mean an operator expects a network this host
@@ -179,7 +197,7 @@ export function localDockerConfigFromEnv(
       throw new Error(
         `${name} is no longer read: every worker now gets an internal network of its own, ` +
           "created and removed by the scheduler, and the egress proxy is found by its " +
-          "agent-platform.egress-proxy label. Remove the setting and label the proxy container.",
+          "werft.egress-proxy label. Remove the setting and label the proxy container.",
       );
     }
   }
@@ -228,6 +246,12 @@ export function localDockerConfigFromEnv(
         default: DEFAULT_WORKSPACE_GC_MIN_AGE_SEC,
       }) * 1_000,
     workspaceQuota: workspaceQuotaFromEnv(environment),
+    volumeLabelNamespace:
+      environment.EXECUTION_VOLUME_LABEL_NAMESPACE?.trim() ||
+      DEFAULT_VOLUME_LABEL_NAMESPACE,
+    volumeNamePrefix:
+      environment.EXECUTION_VOLUME_NAME_PREFIX?.trim() ||
+      DEFAULT_VOLUME_NAME_PREFIX,
   });
 }
 
@@ -402,6 +426,16 @@ export function validateLocalDockerConfig(
     config.workspaceGcMinAgeMs < 0
   ) {
     throw new Error("workspaceGcMinAgeMs must be a non-negative integer");
+  }
+  if (!VOLUME_LABEL_NAMESPACE.test(config.volumeLabelNamespace)) {
+    throw new Error(
+      `EXECUTION_VOLUME_LABEL_NAMESPACE ${config.volumeLabelNamespace} must be lowercase letters, digits, "." or "-"`,
+    );
+  }
+  if (!VOLUME_NAME_PREFIX.test(config.volumeNamePrefix)) {
+    throw new Error(
+      `EXECUTION_VOLUME_NAME_PREFIX ${config.volumeNamePrefix} must be lowercase letters, digits, "." or "-" and end with "-"`,
+    );
   }
   const { objectStore } = config;
   // Names only in these messages, never the values: they end up in logs.

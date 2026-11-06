@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { DEFAULT_PULL_REQUEST_SETTINGS } from "@werft-ai/contracts";
 import { createAuthorizationPolicy } from "../musterrolle/policy.ts";
 import type { ForgePullRequestWithBody } from "../ports/forge.ts";
 import { ForgeCredentialError } from "../ports/forge.ts";
@@ -96,6 +97,9 @@ function harness(
     upsertComment: unused,
     dispatchWorkflow: unused,
     getWorkflowRun: unused,
+    getBranchHead: unused,
+    readTree: unused,
+    readBlob: unused,
     rerunWorkflow: unused,
     submitReview: unused,
     findPullRequestForBranch: unused,
@@ -157,6 +161,13 @@ function harness(
     gate,
     redact: (line) => line,
     attribution: { attribution: async () => null },
+    settings: {
+      get: async () => ({
+        settings: DEFAULT_PULL_REQUEST_SETTINGS,
+        revision: 1,
+      }),
+      agentOfSession: async () => null,
+    },
     consoleOrigin: "https://console.example.com",
     logger: { warn: () => {} },
   });

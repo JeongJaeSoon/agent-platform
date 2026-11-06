@@ -150,6 +150,16 @@ export function createPostgresPushIntents(db: Database): PushIntentStore {
                 isNull(pushIntents.leaseExpiresAt),
                 lt(pushIntents.leaseExpiresAt, sql`now()`),
               ),
+              // One target is pushed in turn order: an older intent that is
+              // still deferred or pinned goes first, even on another replica.
+              sql`NOT EXISTS (
+                SELECT 1 FROM push_intents earlier
+                WHERE earlier.session_id = ${pushIntents.sessionId}
+                  AND earlier.repository_id = ${pushIntents.repositoryId}
+                  AND earlier.target_branch = ${pushIntents.targetBranch}
+                  AND earlier.status IN ('deferred', 'pinned')
+                  AND (earlier.created_at, earlier.id)
+                    < (${pushIntents.createdAt}, ${pushIntents.id}))`,
               // Held sessions stay pinned; a closed one is claimed so the
               // runner can cancel it.
               or(
@@ -269,6 +279,25 @@ export function createPostgresPushIntents(db: Database): PushIntentStore {
             .where(eq(pushIntents.id, job.id));
           return { outcome: "ended", code };
         };
+        // The session may have closed or been held since the claim: a closed
+        // one cancels the intent, a held one keeps it pinned for later.
+        const [held] = await tx
+          .select({
+            admission: sessions.admissionState,
+            takeover: sessions.takeoverRequiredAt,
+          })
+          .from(sessions)
+          .where(eq(sessions.id, job.sessionId));
+        if (held === undefined || held.admission === "closed") {
+          return end("cancelled", "session_closed");
+        }
+        if (held.admission !== "active" || held.takeover !== null) {
+          await tx
+            .update(pushIntents)
+            .set({ claimToken: null, leaseExpiresAt: null })
+            .where(eq(pushIntents.id, job.id));
+          return { outcome: "waiting" };
+        }
         // A person already turned this commit down for this target.
         const [rejected] = await tx
           .select({ id: pushRequests.id })

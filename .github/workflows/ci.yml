@@ -35,22 +35,68 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 3
+    outputs:
+      tests: ${{ steps.plan.outputs.tests }}
+      product: ${{ steps.plan.outputs.product }}
+      site: ${{ steps.plan.outputs.site }}
+      quickstart: ${{ steps.plan.outputs.quickstart }}
+      docs_only: ${{ steps.plan.outputs.docs_only }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+      - id: plan
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: bash .github/scripts/ci-plan.sh
+
+  static:
+    name: check (static)
+    if: contains(fromJSON('["all","check"]'), github.event.inputs.only || 'all')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/bun-setup
+        with:
+          save-cache: "true"
+      - id: install
+        run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - if: '!cancelled() && steps.install.outcome == ''success'''
+        run: bun run lint
+      - if: '!cancelled() && steps.install.outcome == ''success'''
+        run: bun scripts/third-party-notices.ts --check
+
+  docs-checks:
+    needs: changes
+    if: >-
+      needs.changes.outputs.docs_only == 'true'
+      && contains(fromJSON('["all","check"]'), github.event.inputs.only || 'all')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/bun-setup
+      - run: bun install --frozen-lockfile
+      - name: Repository policy and documentation tests
+        run: bun test ./tests
+
   # Fast feedback: no service containers and no opt-in variables, so the tests
   # gated on those skip here and run in `integration`. Suites that need nothing
   # external — the SDK adapter against a local fake Messages API, for one — do
   # run here despite the `integration` in their file names.
-  #
-  # Split by role across runners: `bun run check` ran typecheck, lint
-  # and the suite one after another in 5m10s (1m, 1s and 4m10s), which made it
-  # the longest path of every PR run. Each part is now its own job, and the
-  # suite is cut once more along the repo layout — packages/ in one part,
-  # everything else in the other — because one bun process over it was still
-  # longer than the integration shards. The parts are names, not numbers: a red
-  # `check (lint)` says what broke without opening the log.
   check-part:
     name: check (${{ matrix.part }})
+    needs: changes
     # A non-dispatch event has no `only`, so it reads as `all`.
-    if: contains(fromJSON('["all","check"]'), github.event.inputs.only || 'all')
+    if: >-
+      needs.changes.outputs.tests == 'true'
+      && contains(fromJSON('["all","check"]'), github.event.inputs.only || 'all')
     # Pinned rather than ubuntu-latest: GitHub moves that alias to the next
     # LTS image on its own schedule, which lands as an unrelated CI break in
     # whatever PR is open that day.
@@ -64,12 +110,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - part: typecheck
-          - part: lint
-          # THIRD_PARTY_NOTICES.md against bun.lock: a dependency
-          # added without regenerating the notices, or one under a license
-          # nobody reviewed, fails the required check. Offline by design.
-          - part: licenses
           - part: "unit: packages"
             unit: packages
           # PGlite migration fixtures otherwise exhaust the packages job's ceiling.
@@ -79,25 +119,15 @@ jobs:
           # tests/: as one part they ran about 5m of the then-6m ceiling.
           - part: "unit: worker, web"
             unit: worker-web
-          # The complement of the two above: the other apps, tests/, and any
+          # The complement of the parts above: the other apps, tests/, and any
           # other directory the `test` script's filters pick up.
           - part: "unit: other apps, tests"
             unit: rest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/bun-setup
-        with:
-          # One writer per cache scope; the other parts restore what it saved.
-          save-cache: ${{ matrix.part == 'typecheck' }}
       - run: bun install --frozen-lockfile
-      - if: matrix.part == 'typecheck'
-        run: bun run typecheck
-      - if: matrix.part == 'lint'
-        run: bun run lint
-      - if: matrix.part == 'licenses'
-        run: bun scripts/third-party-notices.ts --check
-      - if: matrix.unit
-        name: Tests of this part
+      - name: Tests of this part
         env:
           UNIT: ${{ matrix.unit }}
         # An assignment, not process substitution, so a planner failure fails
@@ -108,23 +138,36 @@ jobs:
           mapfile -t files <<<"$files"
           bun test "${files[@]}"
 
-  # The required check, for the same reason as `integration` below: branch
-  # protection names `check`, the matrix reports one context per part, and a
-  # skipped required check counts as passing. So it runs on `always()` and
-  # fails on anything but `success` from every part.
+  # A skipped required job counts as passing, so always emit an explicit verdict.
   check:
-    needs: check-part
+    needs: [changes, static, check-part, docs-checks]
     if: >-
       always()
       && contains(fromJSON('["all","check"]'), github.event.inputs.only || 'all')
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:
-      - env:
+      - id: verdict
+        if: '!cancelled()'
+        env:
           RESULT: ${{ needs.check-part.result }}
+          PLAN: ${{ needs.changes.result }}
+          STATIC: ${{ needs.static.result }}
+          DOCS: ${{ needs.docs-checks.result }}
+          TESTS: ${{ needs.changes.outputs.tests }}
+          DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
         run: |
-          echo "check parts: $RESULT"
-          [ "$RESULT" = success ]
+          [ "$PLAN" = success ] && [ "$STATIC" = success ] || exit 1
+          case "$TESTS:$DOCS_ONLY:$RESULT:$DOCS" in
+            true:false:success:skipped) echo "check: all unit parts passed" ;;
+            false:true:skipped:success) echo "check: documentation policy tests passed; product tests are not needed" ;;
+            *) echo "::error::invalid or failed check plan/results"; exit 1 ;;
+          esac
+      - id: cancelled
+        if: cancelled()
+        run: |
+          echo "::error::workflow was cancelled"
+          exit 1
 
   # The same suite with the opt-in variables on, so the tests gated on
   # PostgreSQL, LocalStack or the Docker daemon run instead of skipping.
@@ -146,7 +189,10 @@ jobs:
   # pay for those; it cost every green PR the whole of `check` in wall time.
   integration-domain:
     name: integration (${{ matrix.domain }})
-    if: contains(fromJSON('["all","integration"]'), github.event.inputs.only || 'all')
+    needs: changes
+    if: >-
+      needs.changes.outputs.tests == 'true'
+      && contains(fromJSON('["all","integration"]'), github.event.inputs.only || 'all')
     runs-on: ubuntu-24.04
     # Bounds a stuck job; it is not a budget. Slow runners are projected to need
     # 10.5-11m for surface and db, and a 10m limit cancelled them with no test
@@ -276,6 +322,8 @@ jobs:
               - tests/architecture.
               - tests/ci-images.
               - tests/ci-services.
+              - tests/ci-plan.
+              - tests/ci-static-checks.
               - tests/d2-gate/
               - tests/dev/
               - tests/docs-i18n-code.
@@ -475,33 +523,52 @@ jobs:
       - if: always()
         run: .github/scripts/ci-services.sh stop
 
-  # The required check. Branch protection names `integration`, and a matrix
-  # reports one context per job, so this job stands in for all of them:
-  # green only when every domain passed. A skipped required check counts as
-  # passing, so this must never skip once the domains were meant to run:
-  # `always()`, not the default (which skips after a failed domain) nor
-  # `!cancelled()` (which skips when the run is cancelled after a domain has
-  # already failed). Anything but `success` fails — a failed, cancelled,
-  # timed-out or skipped domain.
+  # Heavy jobs stay cancellable; this required gate rejects missing or cancelled results.
   integration:
-    needs: integration-domain
+    needs: [changes, integration-domain, e2e, quickstart]
     if: >-
       always()
       && contains(fromJSON('["all","integration"]'), github.event.inputs.only || 'all')
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:
-      - env:
+      - id: verdict
+        if: '!cancelled()'
+        env:
           RESULT: ${{ needs.integration-domain.result }}
+          E2E: ${{ needs.e2e.result }}
+          QUICKSTART: ${{ needs.quickstart.result }}
+          EVENT: ${{ github.event_name }}
+          ONLY: ${{ github.event.inputs.only || 'all' }}
+          PLAN: ${{ needs.changes.result }}
+          TESTS: ${{ needs.changes.outputs.tests }}
+          DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
         run: |
-          echo "integration domains: $RESULT"
-          [ "$RESULT" = success ]
+          [ "$PLAN" = success ] || exit 1
+          case "$EVENT:$ONLY:$E2E:$QUICKSTART" in
+            pull_request:all:success:success | push:all:success:success | workflow_dispatch:all:success:success) ;;
+            workflow_dispatch:integration:skipped:skipped) ;;
+            *) echo "::error::required scenario or guide jobs did not pass"; exit 1 ;;
+          esac
+          case "$TESTS:$DOCS_ONLY:$RESULT" in
+            true:false:success) echo "integration: all domains passed" ;;
+            false:true:skipped) echo "integration: documentation-only PR; no product test inputs changed" ;;
+            *) echo "::error::invalid or failed integration plan/results"; exit 1 ;;
+          esac
+      - id: cancelled
+        if: cancelled()
+        run: |
+          echo "::error::workflow was cancelled"
+          exit 1
 
   # apps/storybook: the static build, then every story rendered in Chrome,
   # failing on any axe violation (`a11y.test: "error"` in its preview). A
   # story-less component is caught earlier, by apps/storybook's bun suite.
   storybook:
-    if: contains(fromJSON('["all","storybook"]'), github.event.inputs.only || 'all')
+    needs: changes
+    if: >-
+      needs.changes.outputs.site == 'true'
+      && contains(fromJSON('["all","storybook"]'), github.event.inputs.only || 'all')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -529,7 +596,10 @@ jobs:
   # apps/docs: the Fumadocs site, a Next.js static export. Its own job so a
   # docs-only change does not wait on the story run, and the other way round.
   docs:
-    if: contains(fromJSON('["all","docs","storybook"]'), github.event.inputs.only || 'all')
+    needs: changes
+    if: >-
+      needs.changes.outputs.site == 'true'
+      && contains(fromJSON('["all","docs","storybook"]'), github.event.inputs.only || 'all')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -552,7 +622,10 @@ jobs:
   # recording and its Pages deploy live in JeongJaeSoon/agent-platform-demo,
   # which runs the same scan and build against this repository.
   demo:
-    if: contains(fromJSON('["all","demo"]'), github.event.inputs.only || 'all')
+    needs: changes
+    if: >-
+      needs.changes.outputs.product == 'true'
+      && contains(fromJSON('["all","demo"]'), github.event.inputs.only || 'all')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -569,7 +642,10 @@ jobs:
   # must type-check with skipLibCheck off, build, and render a styled Button in
   # the runner's Chrome. Nothing is published.
   ui-pack:
-    if: contains(fromJSON('["all","ui-pack"]'), github.event.inputs.only || 'all')
+    needs: changes
+    if: >-
+      needs.changes.outputs.product == 'true'
+      && contains(fromJSON('["all","ui-pack"]'), github.event.inputs.only || 'all')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -599,7 +675,7 @@ jobs:
           path: ${{ runner.temp }}/ui-pack-button.png
           retention-days: 7
 
-  # Assembled on every run so a PR proves the layout the deploy will get: the
+  # Assemble the current run's artifacts to prove the deploy layout: the
   # docs site at the root, Storybook and the Scalar reference beside it.
   # docs/api/index.html embeds the spec and loads ./scalar.js beside it;
   # openapi.json rides along as the downloadable copy.
@@ -692,9 +768,10 @@ jobs:
   # the other half of the contract: refusing to start rather than running
   # unbounded.
   workspace-quota:
-    needs: check
+    needs: [changes, check]
     if: >-
       !cancelled() && needs.check.result != 'failure'
+      && needs.changes.outputs.product == 'true'
       && contains(fromJSON('["all","workspace-quota"]'), github.event.inputs.only || 'all')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -789,32 +866,73 @@ jobs:
   # tests/e2e/compose.ci-mirror.yml points the stack's third-party images
   # and the Dockerfiles' base at the CI mirror.
   e2e:
-    if: contains(fromJSON('["all","e2e"]'), github.event.inputs.only || 'all')
+    needs: changes
+    if: >-
+      !cancelled()
+      && contains(fromJSON('["all","e2e"]'), github.event.inputs.only || 'all')
     runs-on: ubuntu-24.04
     # Image builds take most of it; the scenario itself is a few minutes.
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: ./.github/actions/bun-setup
-      - run: bun install --frozen-lockfile
-      - name: Alpha path against the compose stack
+      - name: Validate product test plan
+        if: '!cancelled()'
+        env:
+          PLAN: ${{ needs.changes.result }}
+          PRODUCT: ${{ needs.changes.outputs.product }}
+          DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
+        run: |
+          [ "$PLAN" = success ] || exit 1
+          case "$PRODUCT:$DOCS_ONLY" in
+            true:false) echo "e2e: product inputs changed; running the complete scenario" ;;
+            false:true) echo "e2e: documentation-only PR; product inputs unchanged" ;;
+            *) echo "::error::invalid product test plan"; exit 1 ;;
+          esac
+      - if: success() && !cancelled() && needs.changes.outputs.product == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - if: success() && !cancelled() && needs.changes.outputs.product == 'true'
+        uses: ./.github/actions/bun-setup
+      - if: success() && !cancelled() && needs.changes.outputs.product == 'true'
+        run: bun install --frozen-lockfile
+      - if: success() && !cancelled() && needs.changes.outputs.product == 'true'
+        id: scenario
+        name: Alpha path against the compose stack
         env:
           E2E_COMPOSE_OVERRIDE: tests/e2e/compose.ci-mirror.yml
           E2E_OUT: ${{ runner.temp }}/e2e
         run: tests/e2e/run.sh
       # run.sh removes the images it built; what compose pulled stays.
-      - if: '!cancelled()'
+      - if: '!cancelled() && needs.changes.outputs.product == ''true'''
         name: Nothing pulled from Docker Hub
         run: .github/scripts/assert-no-docker-hub-images.sh docker
       # Compose, worker and suite logs: the worker containers are gone by
       # now, so this is the only copy of what they printed.
-      - if: always()
+      - if: always() && needs.changes.outputs.product == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: e2e-record
           path: ${{ runner.temp }}/e2e
           if-no-files-found: ignore
           retention-days: 14
+      - id: verdict
+        name: Required scenario verdict
+        if: always() && !cancelled()
+        env:
+          PLAN: ${{ needs.changes.result }}
+          PRODUCT: ${{ needs.changes.outputs.product }}
+          DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
+          SCENARIO: ${{ steps.scenario.outcome }}
+        run: |
+          [ "$PLAN" = success ] || exit 1
+          case "$PRODUCT:$DOCS_ONLY:$SCENARIO" in
+            true:false:success) echo "e2e: scenario passed" ;;
+            false:true:skipped) echo "e2e: intentionally omitted for documentation-only inputs" ;;
+            *) echo "::error::required e2e scenario did not pass"; exit 1 ;;
+          esac
+      - id: cancelled
+        if: cancelled()
+        run: |
+          echo "::error::workflow was cancelled"
+          exit 1
 
   # docs/quickstart.md and the site's reference/api-guide.mdx run as written on this fresh clone
   # every `bash` block, in order, on the default project and ports —
@@ -823,25 +941,46 @@ jobs:
   # COMPOSE_FILE adds the mirror overlay `e2e` uses under the
   # page's own `docker compose` commands, so the page needs no CI-only line.
   quickstart:
-    if: contains(fromJSON('["all","quickstart"]'), github.event.inputs.only || 'all')
+    needs: changes
+    if: >-
+      !cancelled()
+      && contains(fromJSON('["all","quickstart"]'), github.event.inputs.only || 'all')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: docs/quickstart.md
+      - name: Validate executable guide plan
+        if: '!cancelled()'
+        env:
+          PLAN: ${{ needs.changes.result }}
+          QUICKSTART: ${{ needs.changes.outputs.quickstart }}
+          DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
+        run: |
+          [ "$PLAN" = success ] || exit 1
+          case "$QUICKSTART:$DOCS_ONLY" in
+            true:true | true:false) echo "quickstart: product or guide inputs changed; running both guides" ;;
+            false:true) echo "quickstart: documentation-only PR; executable guides unchanged" ;;
+            *) echo "::error::invalid executable guide plan"; exit 1 ;;
+          esac
+      - if: success() && !cancelled() && needs.changes.outputs.quickstart == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - if: success() && !cancelled() && needs.changes.outputs.quickstart == 'true'
+        id: guide
+        name: docs/quickstart.md
         env:
           COMPOSE_FILE: compose.yaml:tests/e2e/compose.ci-mirror.yml
           QUICKSTART_OUT: ${{ runner.temp }}/quickstart
         run: tests/e2e/quickstart.sh
-      - name: reference/api-guide.mdx
+      - if: success() && !cancelled() && needs.changes.outputs.quickstart == 'true'
+        id: api-guide
+        name: reference/api-guide.mdx
         env:
           COMPOSE_FILE: compose.yaml:tests/e2e/compose.ci-mirror.yml
           QUICKSTART_OUT: ${{ runner.temp }}/api-guide
         run: tests/e2e/quickstart.sh apps/docs/content/docs/reference/api-guide.mdx
-      - if: '!cancelled()'
+      - if: '!cancelled() && needs.changes.outputs.quickstart == ''true'''
         name: Nothing pulled from Docker Hub
         run: .github/scripts/assert-no-docker-hub-images.sh docker
-      - if: always()
+      - if: always() && needs.changes.outputs.quickstart == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: quickstart-record
@@ -850,6 +989,27 @@ jobs:
             ${{ runner.temp }}/api-guide
           if-no-files-found: ignore
           retention-days: 14
+      - id: verdict
+        name: Required guide verdict
+        if: always() && !cancelled()
+        env:
+          PLAN: ${{ needs.changes.result }}
+          QUICKSTART: ${{ needs.changes.outputs.quickstart }}
+          DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
+          GUIDE: ${{ steps.guide.outcome }}
+          API_GUIDE: ${{ steps.api-guide.outcome }}
+        run: |
+          [ "$PLAN" = success ] || exit 1
+          case "$QUICKSTART:$DOCS_ONLY:$GUIDE:$API_GUIDE" in
+            true:false:success:success | true:true:success:success) echo "quickstart: both guides passed" ;;
+            false:true:skipped:skipped) echo "quickstart: intentionally omitted; executable guides unchanged" ;;
+            *) echo "::error::required executable guide did not pass"; exit 1 ;;
+          esac
+      - id: cancelled
+        if: cancelled()
+        run: |
+          echo "::error::workflow was cancelled"
+          exit 1
 
   # The Helm chart (deploy/helm/werft) with the CI digests and with
   # the AWS example: helm lint, the render check (hardening, probes,
@@ -857,7 +1017,10 @@ jobs:
   # and kubeconform against the Kubernetes and CRD schemas. Both tools are
   # release binaries checked against their published sha256.
   helm-chart:
-    if: contains(fromJSON('["all","helm-chart"]'), github.event.inputs.only || 'all')
+    needs: changes
+    if: >-
+      needs.changes.outputs.product == 'true'
+      && contains(fromJSON('["all","helm-chart"]'), github.event.inputs.only || 'all')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     env:
@@ -909,7 +1072,10 @@ jobs:
   # the registry and the stand-ins by their digests, the app builds' base and
   # frontend as build args.
   k8s-smoke:
-    if: contains(fromJSON('["all","k8s-smoke"]'), github.event.inputs.only || 'all')
+    needs: changes
+    if: >-
+      needs.changes.outputs.product == 'true'
+      && contains(fromJSON('["all","k8s-smoke"]'), github.event.inputs.only || 'all')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:

@@ -430,6 +430,29 @@ describe("agent, version and release", () => {
     ).toBe(false);
   });
 
+  test("a release carries no pull request settings: the request is strict, so they are refused, not dropped", () => {
+    const request = (extra: object) =>
+      createAgentReleaseRequestSchema.safeParse({
+        version_id: VERSION_ID,
+        runtime_profile_id: "claude-coding-v1",
+        ...extra,
+      });
+    expect(request({}).success).toBe(true);
+    for (const key of [
+      "pull_request",
+      "pull_request_template",
+      "formatting",
+      "template",
+      "template_name",
+    ]) {
+      expect(
+        request({
+          [key]: { formatting: "off", template: null, template_name: null },
+        }).success,
+      ).toBe(false);
+    }
+  });
+
   test("a release note is trimmed and counts 1 to 200 code points, as the column does", () => {
     const request = (note?: string) =>
       createAgentReleaseRequestSchema.safeParse({

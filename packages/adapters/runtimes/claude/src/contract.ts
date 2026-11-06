@@ -152,6 +152,22 @@ function mcpConfig(
   };
 }
 
+// Only a `platform` server's own tools, and only those it also exposes: a
+// name that is not in the server's allowlist share is never trusted.
+function trustedToolsOf(
+  servers: RuntimeStart["bundle"]["mcpServers"],
+): Pick<ClaudeRuntimeConfig, "trustedTools"> {
+  const trusted = servers.flatMap((s) =>
+    s.platform === true
+      ? (s.trusted ?? []).filter(
+          (tool) =>
+            tool.startsWith(`mcp__${s.name}__`) && s.tools.includes(tool),
+        )
+      : [],
+  );
+  return trusted.length === 0 ? {} : { trustedTools: trusted };
+}
+
 export function claudeStartConfig(
   start: RuntimeStart,
   deps: RuntimeHostDeps,
@@ -166,6 +182,7 @@ export function claudeStartConfig(
     ...(config.gitEnvironment === undefined
       ? {}
       : { gitEnvironment: config.gitEnvironment }),
+    ...trustedToolsOf(start.bundle.mcpServers),
     ...(deps.providerMaxRetries === undefined
       ? {}
       : { providerMaxRetries: deps.providerMaxRetries }),

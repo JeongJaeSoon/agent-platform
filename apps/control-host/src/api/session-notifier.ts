@@ -49,7 +49,7 @@ export class PostgresSessionNotifier implements SessionEventWakeup {
         new Client({
           connectionString,
           stream: lookupEveryTimeStream,
-          application_name: "agent-platform:api-listen",
+          application_name: "werft:api-listen",
         }));
   }
 

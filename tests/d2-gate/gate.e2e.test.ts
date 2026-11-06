@@ -216,15 +216,17 @@ async function sameImage(listed: string): Promise<boolean> {
 }
 
 async function workspaceVolumes(sessionId: string): Promise<string[]> {
+  const volumeLabelNamespace =
+    process.env.EXECUTION_VOLUME_LABEL_NAMESPACE || "werft";
   const { stdout } = await run([
     "docker",
     "volume",
     "ls",
     "-q",
     "--filter",
-    `label=agent-platform.installation=${env?.installation}`,
+    `label=${volumeLabelNamespace}.installation=${env?.installation}`,
     "--filter",
-    `label=agent-platform.session-id=${sessionId}`,
+    `label=${volumeLabelNamespace}.session-id=${sessionId}`,
   ]);
   return stdout.split("\n").filter(Boolean);
 }

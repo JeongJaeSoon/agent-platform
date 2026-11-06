@@ -77,6 +77,7 @@ import {
 } from "../api/catalog-config.ts";
 import { eventNeutralizer } from "../api/neutral-fields.ts";
 import { consoleOriginFrom, slackApiUrlFrom } from "../api/slack-config.ts";
+import { booleanFlag } from "../boolean-flag.ts";
 import { PASS_LOOP_ROLES, passLoopConfigFromEnv } from "../pass-loop/loop.ts";
 
 type Environment = Readonly<Record<string, string | undefined>>;
@@ -211,6 +212,14 @@ export function slackSessionHandler(deps: {
       ...newSessionGitHubReaders(db),
     },
     promptRevision: platformPromptRevisionFromEnv(environment),
+    // The API role validates the same variable at boot; this role only reads it.
+    actionFlows: (
+      (on) => () =>
+        on
+    )(
+      environment.AGENT_ACTION_FLOWS !== undefined &&
+        booleanFlag(environment.AGENT_ACTION_FLOWS, "AGENT_ACTION_FLOWS"),
+    ),
     credentials,
     limits: installationLimitsFromEnv(environment),
   });

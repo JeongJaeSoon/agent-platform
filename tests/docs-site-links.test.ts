@@ -47,6 +47,7 @@ const ALLOWED: Record<string, string> = {
   "docs/contributing":
     "developer-only: repository setup, CI and design records for contributors; the site contributing page lists them",
   "docs/contributing/architecture.md": "contributor document",
+  "docs/contributing/console-demo.md": "contributor document",
   "docs/contributing/ci.md": "contributor document",
   "docs/contributing/development.md": "contributor document",
   "docs/contributing/i18n-glossary.md": "contributor document",
@@ -60,10 +61,7 @@ const ALLOWED: Record<string, string> = {
     "held: still calls an internal test script and has unfinished sections",
   "docs/operator/data-retention.md":
     "held: pins line numbers to a commit and has an open decisions section",
-  "docs/operator/execution.md": "held: no site page yet",
   "docs/operator/server-deployment.md": "held: no site page yet",
-  "docs/operator/test-ops.md":
-    "internal operations procedure that is never published on the site",
 };
 const ALLOWED_PREFIXES: Record<string, string> = {
   "examples/sdk-": "sample code directories and their per-sample READMEs",

@@ -88,6 +88,8 @@ integration("LocalDockerBackend against a real daemon", () => {
     tmpfsSizeBytes: 16 * 1024 * 1024,
     user: "1000:1000",
     workspaceDir: "/workspace",
+    volumeLabelNamespace: "werft",
+    volumeNamePrefix: "werft-ws-",
     workspaceGcMinAgeMs: 0,
     // Neither Docker Desktop nor a stock Linux runner puts its storage on a
     // quota-capable filesystem; the quota itself is covered by
@@ -197,7 +199,7 @@ integration("LocalDockerBackend against a real daemon", () => {
       expect.objectContaining({
         Source: expect.stringMatching(
           new RegExp(
-            `^${workspaceVolumePrefixFor(intent.sessionId, installationId)}`,
+            `^${workspaceVolumePrefixFor(intent.sessionId, backendConfig())}`,
           ),
         ),
         Target: "/workspace",

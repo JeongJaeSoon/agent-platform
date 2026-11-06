@@ -29,6 +29,7 @@ import {
 import {
   agentSessionListsFilter,
   pendingRequestsQuery,
+  sessionGithubWorkQuery,
   sessionQuery,
   sessionsQuery,
   sessionTurnsQuery,
@@ -109,7 +110,7 @@ export function useChangeSessionProfile(id: string) {
 }
 
 /** A part of a session's server state that an event or a command can make stale. */
-type SessionPart = "list" | "detail" | "pending" | "usage" | "turns";
+type SessionPart = "list" | "detail" | "pending" | "usage" | "turns" | "github";
 
 function refreshSession(
   queryClient: QueryClient,
@@ -146,6 +147,9 @@ function refreshSession(
         break;
       case "turns":
         void queryClient.invalidateQueries(sessionTurnsQuery(client, id));
+        break;
+      case "github":
+        void queryClient.invalidateQueries(sessionGithubWorkQuery(client, id));
         break;
     }
   }
@@ -271,8 +275,8 @@ const EVENT_STALES: Partial<
   Record<SessionEventPayload["event"], readonly SessionPart[]>
 > = {
   question: ["detail", "pending"],
-  status: ["list", "detail", "pending", "usage", "turns"],
-  result: ["detail", "usage"],
+  status: ["list", "detail", "pending", "usage", "turns", "github"],
+  result: ["detail", "usage", "github"],
   error: ["detail"],
 };
 

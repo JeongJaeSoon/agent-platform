@@ -4,6 +4,7 @@ import {
   legacySessionOf,
   legacyWorkspaceVolumeName,
   quotaStampOf,
+  volumeLabelsOf,
   workspaceVolumePrefixFor,
   workspaceVolumeProblem,
 } from "./backend.ts";
@@ -19,7 +20,7 @@ import {
  * leftover helper this tool's to remove. Deliberately not `managed`, so the
  * scheduler never takes it for a worker.
  */
-export const MIGRATION_HELPER_LABEL = "agent-platform.workspace-migration";
+export const MIGRATION_HELPER_LABEL = "werft.workspace-migration";
 
 /** busybox 1.36, by the digest of its multi-arch index. */
 export const DEFAULT_MIGRATION_HELPER_IMAGE =
@@ -94,10 +95,11 @@ export function planWorkspaceMigration(input: {
   derived: VolumeInspect | null;
 }): MigrationPlan {
   const { config, sessionId, labelled, derived } = input;
+  const keys = volumeLabelsOf(config);
   const listed = new Set(labelled.map((volume) => volume.Name));
   let source: VolumeInspect | null = null;
   if (derived !== null && !listed.has(derived.Name)) {
-    if (legacySessionOf(derived, config.installationId) !== sessionId) {
+    if (legacySessionOf(derived, config) !== sessionId) {
       return {
         kind: "refused",
         reason: `${derived.Name} carries labels that say it is not this session's`,
@@ -124,7 +126,7 @@ export function planWorkspaceMigration(input: {
     const present = new Set(listed);
     if (derived !== null) present.add(derived.Name);
     const sources = stale.filter((volume) => {
-      const from = volume.Labels?.[LABELS.migratedFrom];
+      const from = volume.Labels?.[keys.migratedFrom];
       return from === undefined || !present.has(from);
     });
     if (sources.length !== 1) {
@@ -138,14 +140,14 @@ export function planWorkspaceMigration(input: {
   if (source === null) return { kind: "current", workspace: null };
   const from = source.Name;
   const copies = labelled.filter(
-    (volume) => volume.Labels?.[LABELS.migratedFrom] === from,
+    (volume) => volume.Labels?.[keys.migratedFrom] === from,
   );
   // A copy of an earlier volume under the same name may be the only whole
   // workspace left; the one now under that name is not what it was made from.
   const foreign = copies.filter(
     (volume) =>
       source.CreatedAt === undefined ||
-      volume.Labels?.[LABELS.migrationSourceCreatedAt] !== source.CreatedAt,
+      volume.Labels?.[keys.migrationSourceCreatedAt] !== source.CreatedAt,
   );
   if (foreign.length > 0) {
     return {
@@ -216,10 +218,8 @@ export class WorkspaceMigrator {
     const fail = (reason: string) =>
       new WorkspaceMigrationError(sessionId, reason);
     // Also what keeps the session id safe to put in a volume name.
-    const prefix = workspaceVolumePrefixFor(
-      sessionId,
-      this.config.installationId,
-    );
+    const prefix = workspaceVolumePrefixFor(sessionId, this.config);
+    const keys = volumeLabelsOf(this.config);
     if (!PINNED_IMAGE.test(helperImage)) {
       throw fail(
         `helper image ${helperImage} must be pinned by digest (name@sha256:...), so the copy runs the tool that was reviewed`,
@@ -233,17 +233,17 @@ export class WorkspaceMigrator {
     // Named per attempt and removed by id: a run that lost its lock and
     // resumed late must not take down the pin or helper of the run after it.
     const attempt = crypto.randomUUID().slice(0, 8);
-    const helper = `ap-ws-migrate-${this.config.installationId}-${sessionId}-${attempt}`;
-    const pin = `ap-ws-migrate-pin-${this.config.installationId}-${sessionId}-${attempt}`;
+    const helper = `werft-ws-migrate-${this.config.installationId}-${sessionId}-${attempt}`;
+    const pin = `werft-ws-migrate-pin-${this.config.installationId}-${sessionId}-${attempt}`;
 
     const [labelled, derived] = await Promise.all([
       this.client.listVolumes([
-        `${LABELS.managed}=true`,
-        `${LABELS.installation}=${this.config.installationId}`,
-        `${LABELS.sessionId}=${sessionId}`,
+        `${keys.managed}=true`,
+        `${keys.installation}=${this.config.installationId}`,
+        `${keys.sessionId}=${sessionId}`,
       ]),
       this.client.inspectVolume(
-        legacyWorkspaceVolumeName(sessionId, this.config.installationId),
+        legacyWorkspaceVolumeName(sessionId, this.config),
       ),
     ]);
     const plan = planWorkspaceMigration({
@@ -366,7 +366,7 @@ export class WorkspaceMigrator {
     // session's workspace; until then, launches keep refusing.
     signal?.throwIfAborted();
     const copy = await this.client.inspectVolume(target);
-    if (copy === null || copy.Labels?.[LABELS.migratedFrom] !== source) {
+    if (copy === null || copy.Labels?.[keys.migratedFrom] !== source) {
       throw fail(
         `${target} disappeared after the copy; ${source} is untouched`,
       );
@@ -374,10 +374,10 @@ export class WorkspaceMigrator {
     // A copy made by another attempt means another run is still at work on
     // this source: removing it now would leave that run copying nothing.
     const copies = await this.client.listVolumes([
-      `${LABELS.managed}=true`,
-      `${LABELS.installation}=${this.config.installationId}`,
-      `${LABELS.sessionId}=${sessionId}`,
-      `${LABELS.migratedFrom}=${source}`,
+      `${keys.managed}=true`,
+      `${keys.installation}=${this.config.installationId}`,
+      `${keys.sessionId}=${sessionId}`,
+      `${keys.migratedFrom}=${source}`,
     ]);
     const others = copies.filter((volume) => volume.Name !== target);
     if (others.length > 0) {
@@ -500,6 +500,7 @@ export class WorkspaceMigrator {
     fail: (reason: string) => WorkspaceMigrationError,
   ): Promise<string> {
     const { config } = this;
+    const keys = volumeLabelsOf(config);
     const quota = config.workspaceQuota;
     const name = `${prefix}${crypto.randomUUID().slice(0, 8)}`;
     const volume = await this.client.createVolume({
@@ -508,12 +509,12 @@ export class WorkspaceMigrator {
         ? { DriverOpts: { size: String(quota.sizeBytes) } }
         : {}),
       Labels: {
-        [LABELS.installation]: config.installationId,
-        [LABELS.managed]: "true",
-        [LABELS.migratedFrom]: source.name,
-        [LABELS.migrationSourceCreatedAt]: source.createdAt,
-        [LABELS.sessionId]: sessionId,
-        [LABELS.workspaceQuota]: quotaStampOf(quota),
+        [keys.installation]: config.installationId,
+        [keys.managed]: "true",
+        [keys.migratedFrom]: source.name,
+        [keys.migrationSourceCreatedAt]: source.createdAt,
+        [keys.sessionId]: sessionId,
+        [keys.workspaceQuota]: quotaStampOf(quota),
       },
       Name: name,
     });
@@ -522,8 +523,8 @@ export class WorkspaceMigrator {
     const problem = workspaceVolumeProblem(volume, sessionId, config);
     if (
       problem !== null ||
-      volume.Labels?.[LABELS.migratedFrom] !== source.name ||
-      volume.Labels?.[LABELS.migrationSourceCreatedAt] !== source.createdAt
+      volume.Labels?.[keys.migratedFrom] !== source.name ||
+      volume.Labels?.[keys.migrationSourceCreatedAt] !== source.createdAt
     ) {
       throw fail(
         `${name} is not the copy this run asked for: ${problem ?? "labels differ"}`,

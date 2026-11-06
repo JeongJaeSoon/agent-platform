@@ -86,6 +86,19 @@ export function createPostgresSlackThreadStatusStore(
           FROM push_requests p
           WHERE p.session_id = ${SESSION_ID} AND p.state = 'requested'
         ), '[]'::json)`,
+        actionStages: sql<
+          { kind: "push_intent" | "pull_request"; id: string; state: string }[]
+        >`coalesce((
+          SELECT json_agg(stage ORDER BY stage.created_at) FROM (
+            SELECT 'push_intent' AS kind, i.id, i.status AS state, i.created_at
+            FROM push_intents i
+            WHERE i.session_id = ${SESSION_ID} AND i.status IN ('deferred', 'pinned')
+            UNION ALL
+            SELECT 'pull_request', p.id, p.pr_state, p.created_at
+            FROM push_requests p
+            WHERE p.session_id = ${SESSION_ID} AND p.pr_state IN ('due', 'opening')
+          ) stage
+        ), '[]'::json)`,
       })
       .from(sessions)
       .where(
@@ -105,6 +118,11 @@ export function createPostgresSlackThreadStatusStore(
           answerableRequest: Boolean(row.answerableRequest),
           runningTurn: Boolean(row.runningTurn),
           queuedTurn: Boolean(row.queuedTurn),
+          actionStages: row.actionStages.map(({ kind, id, state }) => ({
+            kind,
+            id,
+            state,
+          })),
           requestedPushes: row.requestedPushes.map((push) => ({
             checkpointRevision: push.checkpoint_revision,
             gitCommit: push.git_commit,

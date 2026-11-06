@@ -1480,8 +1480,10 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     verifyAttemptManifest,
 
     /**
-     * The workspace commit of the pointer's checkpoint and of up to
-     * MAX_PROTECTED_COMMITS - 1 earlier ones, newest first. A checkpoint whose
+     * The commits the repair must not remake: every commit a push request
+     * pinned and the pointer's own, then the workspace commits of up to
+     * MAX_PROTECTED_COMMITS - 1 earlier checkpoints while room is left. Past
+     * the bound the required commits alone must fit, or this throws. A checkpoint whose
      * manifest does not verify makes the list incomplete, and an incomplete
      * list could let the repair remake a commit that was pushed: it throws, and
      * the worker then skips the repair.
@@ -1491,12 +1493,21 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       pointer: CheckpointPointer | null;
     }): Promise<string[]> {
       if (input.pointer === null) return [];
+      // Every commit a push request pinned comes first and is never cut: a
+      // remote may hold it, or an approval may still push it. If those alone
+      // do not fit the list, a shorter list would let the repair remake one,
+      // so there is no list.
+      const pinned = await store.listPinnedCommits(
+        input.sessionId,
+        MAX_PROTECTED_COMMITS + 1,
+      );
       const earlier = await store.listCheckpoints(input.sessionId, {
         belowRevision: input.pointer.revision,
         limit: MAX_PROTECTED_COMMITS - 1,
       });
       const verified = await verifiedRefs(input.sessionId);
       const commits: string[] = [];
+      let current: string | undefined;
       for (const pointer of [input.pointer, ...earlier]) {
         const verdict = await judgeManifest({
           checkpoint: checkpointRefOf(pointer),
@@ -1508,9 +1519,31 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
             `checkpoint revision ${pointer.revision} does not verify (${verdict.reason}); the protected commits would be incomplete`,
           );
         }
+        // A checkpoint that recorded any attribution entry, a mismatch or the
+        // working-tree snapshot marker, was refused by request_push, so no
+        // push ever pinned its commit: it stays open to repair and to
+        // judgment. Protecting it would hide the wrong commits below it from
+        // the next turn's check (a snapshot commit sits on the unjudged tip).
+        if ((verdict.manifest.attribution?.mismatches.length ?? 0) > 0) {
+          continue;
+        }
         commits.push(verdict.manifest.workspace.gitCommit);
+        if (pointer === input.pointer) current = commits[0];
       }
-      return [...new Set(commits)];
+      // The pointer's commit is what the next request can pin, so it is
+      // required as well; the older checkpoints fill what room is left.
+      const required = [
+        ...new Set([...pinned, ...(current === undefined ? [] : [current])]),
+      ];
+      if (required.length > MAX_PROTECTED_COMMITS) {
+        throw new Error(
+          `${required.length} commits are pinned by push requests or the latest checkpoint; more than ${MAX_PROTECTED_COMMITS} cannot be listed, and a shorter list would let the repair remake a pushed commit`,
+        );
+      }
+      return [...new Set([...required, ...commits])].slice(
+        0,
+        MAX_PROTECTED_COMMITS,
+      );
     },
 
     /**

@@ -96,6 +96,9 @@ function fakeApi(): GitHubApi {
   return {
     maxBodyLength: 65_536,
     getRepository: unused,
+    getBranchHead: unused,
+    readTree: unused,
+    readBlob: unused,
     findPullRequestForBranch: unused,
     findPullRequestsForBranch: unused,
     createPullRequest: unused,

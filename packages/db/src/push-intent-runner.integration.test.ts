@@ -198,6 +198,80 @@ integration("push intent runner on PostgreSQL", () => {
     ]);
   });
 
+  test("a session that closed or was paused after the claim cancels or keeps the intent", async () => {
+    pinned = { status: "ready", revision: 1, gitCommit: PINNED_COMMIT };
+    for (const [state, expected] of [
+      ["closed", { status: "cancelled", refusalCode: "session_closed" }],
+      ["paused", { status: "pinned", claimToken: null }],
+    ] as const) {
+      const intent = await pinnedIntent();
+      const store = intents();
+      const job = await store.claimNext(60_000);
+      expect(job?.id).toBe(intent.id);
+      await db
+        .update(sessions)
+        .set({ admissionState: state })
+        .where(eq(sessions.id, intent.sessionId));
+      if (job === null) throw new Error("unreachable");
+      const result = await store.transition(job, {
+        ownerId: OWNER,
+        sessionId: job.sessionId,
+        actor: ACTOR,
+        payloadHash: "h",
+        repositoryId: "sample-app",
+        repositoryBinding: "sha256:b",
+        checkpointRevision: 1,
+        gitCommit: PINNED_COMMIT,
+        policyApproval: null,
+        policyFields: {},
+      });
+      expect(result.outcome).toBe(state === "closed" ? "ended" : "waiting");
+      expect(await intentRow(intent.id)).toMatchObject(expected);
+      expect(await requestsOf(intent.sessionId)).toHaveLength(0);
+    }
+  });
+
+  test("two intents for one target are claimed oldest first, and the newer waits for it", async () => {
+    const first = await pinnedIntent();
+    const [turn] = await db
+      .insert(turns)
+      .values({
+        sessionId: first.sessionId,
+        sequence: 2,
+        message: "again",
+        status: "completed",
+        attemptId: "attempt-2",
+      })
+      .returning({ id: turns.id });
+    if (!turn) throw new Error("no turn");
+    const secondId = crypto.randomUUID();
+    await db.insert(pushIntents).values({
+      id: secondId,
+      ownerId: OWNER,
+      sessionId: first.sessionId,
+      turnId: turn.id,
+      attemptId: "attempt-2",
+      repositoryId: "sample-app",
+      targetBranch: `agent/${first.sessionId}`,
+      status: "pinned",
+      pinnedRevision: 2,
+      actor: ACTOR,
+      approvalBasis: "push.primary",
+      policySource: "agent",
+    });
+    const store = intents();
+    // Other tests' leftovers may be older; take claims until this session's.
+    const claimed: string[] = [];
+    for (let i = 0; i < 20; i += 1) {
+      const job = await store.claimNext(60_000);
+      if (job === null) break;
+      if (job.sessionId === first.sessionId) claimed.push(job.id);
+    }
+    // The first is held by its lease, so the second is not offered.
+    expect(claimed).toEqual([first.id]);
+    expect((await intentRow(secondId)).claimToken).toBeNull();
+  });
+
   test("running it again makes no second request", async () => {
     const intent = await pinnedIntent();
     const r = runner();

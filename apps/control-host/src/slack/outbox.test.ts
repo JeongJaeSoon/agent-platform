@@ -33,6 +33,7 @@ import {
   linkedAccounts,
   memberships,
   pendingRequests,
+  pushIntents,
   pushRequests,
   receipts,
   registerSlackInstallation,
@@ -2239,6 +2240,48 @@ describe.each(ENGINES)("the Slack thread status on %s", (engine) => {
     const stamped = await statusRows();
     expect(stamped).toHaveLength(120);
     expect(stamped.every((row) => row.reconciledAt !== null)).toBe(true);
+  });
+
+  test("a push intent or a pull request stage change marks the thread status due", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    const [session] = await db
+      .select()
+      .from(sessions)
+      .where(eq(sessions.id, sessionId));
+    const [turn] = await db
+      .select({ id: turns.id })
+      .from(turns)
+      .where(eq(turns.sessionId, sessionId));
+    if (!session || !turn) throw new Error("no session or turn");
+    const dirty = async () => (await statusRows())[0]?.dirtyRev ?? 0;
+    const intentId = randomUUID();
+    let before = await dirty();
+    await db.insert(pushIntents).values({
+      id: intentId,
+      ownerId: session.ownerId,
+      sessionId,
+      turnId: turn.id,
+      attemptId: "attempt-1",
+      repositoryId: "sandbox",
+      targetBranch: `agent/${sessionId}`,
+      status: "deferred",
+      actor: {
+        principal: { kind: "api_key", id: "k" },
+        actor_user_id: null,
+        agent_id: null,
+      },
+      approvalBasis: "push.primary",
+      policySource: "agent",
+    });
+    expect(await dirty()).toBeGreaterThan(before);
+    before = await dirty();
+    await db
+      .update(pushIntents)
+      .set({ status: "cancelled", refusalCode: "session_closed" })
+      .where(eq(pushIntents.id, intentId));
+    expect(await dirty()).toBeGreaterThan(before);
   });
 
   test("processing is sent again after 50 minutes, before Slack drops it", async () => {

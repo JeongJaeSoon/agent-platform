@@ -2,8 +2,16 @@ import type { RelatedIssue, UserLocale } from "@werft-ai/contracts";
 import { repoRefOf } from "../ports/forge.ts";
 import { closeOpenBlocks, withPullRequestTail } from "./git-attribution.ts";
 import {
+  fillTemplate,
+  type PreparedTemplate,
+  SECTION_NAMES,
+  type SectionBlocks,
+  type SectionName,
+} from "./pull-request-template.ts";
+import {
   cleanBodies,
   cut,
+  lineRedactor,
   stripEngineSignatures,
 } from "./pull-request-text.ts";
 
@@ -16,14 +24,6 @@ export type PullRequestFields = {
   notes?: string | undefined;
   related?: readonly RelatedIssue[] | undefined;
 };
-
-type SectionName =
-  | "summary"
-  | "changes"
-  | "rationale"
-  | "testing"
-  | "related"
-  | "notes";
 
 const HEADINGS: Record<UserLocale, Record<SectionName, string>> = {
   ko: {
@@ -108,27 +108,30 @@ type Cleaned = {
   related: string[];
 };
 
-function assemble(fields: Cleaned, locale: UserLocale): string {
-  const headings = HEADINGS[locale];
-  const sections: string[] = [];
-  const text = (name: SectionName, value: string) => {
-    if (value !== "") sections.push(`## ${headings[name]}\n${value}`);
+function blocksOf(fields: Cleaned): SectionBlocks {
+  const bullets = (items: readonly string[]) =>
+    items.map((item) => `- ${item}`).join("\n");
+  return {
+    summary: fields.summary,
+    changes: bullets(fields.changes),
+    rationale: fields.rationale,
+    testing: fields.testing,
+    related: bullets(fields.related),
+    notes: fields.notes,
   };
-  text("summary", fields.summary);
-  if (fields.changes.length > 0) {
-    sections.push(
-      `## ${headings.changes}\n${fields.changes.map((change) => `- ${change}`).join("\n")}`,
-    );
-  }
-  text("rationale", fields.rationale);
-  text("testing", fields.testing);
-  if (fields.related.length > 0) {
-    sections.push(
-      `## ${headings.related}\n${fields.related.map((line) => `- ${line}`).join("\n")}`,
-    );
-  }
-  text("notes", fields.notes);
-  return sections.join("\n\n");
+}
+
+function assemble(
+  fields: Cleaned,
+  locale: UserLocale,
+  template: PreparedTemplate | null,
+): string {
+  const headings = HEADINGS[locale];
+  const blocks = blocksOf(fields);
+  if (template !== null) return fillTemplate(template, blocks, headings);
+  return SECTION_NAMES.filter((name) => (blocks[name] ?? "") !== "")
+    .map((name) => `## ${headings[name]}\n${blocks[name]}`)
+    .join("\n\n");
 }
 
 const ZWSP = "​";
@@ -172,6 +175,7 @@ function cleanAll(
 }
 
 const FENCE_RUN = /`{3,}|~{3,}/g;
+const FENCE_LINE = /^\s{0,3}(`{3,}|~{3,})/;
 const breakRun = (run: string) => [...run].join(ZWSP);
 
 // A task item with no text, in a list, a quote or both, takes the next line
@@ -252,8 +256,38 @@ export function renderPullRequestBody(input: {
     id: string;
     repositories: Readonly<Record<string, { url: string }>>;
   };
-}): { body: string; relatedDropped: number } {
+  template?: PreparedTemplate | null | undefined;
+}): { body: string; relatedDropped: number; templateUsed: boolean } {
   const { fields, locale, tail, maxLength, redact } = input;
+  const redactRow = lineRedactor(redact);
+  let template: PreparedTemplate | null =
+    input.template == null
+      ? null
+      : {
+          rows: input.template.rows.map((row) => ({
+            ...row,
+            text: redactRow(row.text),
+          })),
+        };
+  // The validation judged the comment boundaries on the text as read. A row
+  // inside or at the edge of a comment that redaction rewrote may have lost
+  // its `-->` (or its `<!--`), and a rewritten fence line may have lost its
+  // marker, so a closing fence would open one: the checked structure no longer
+  // holds.
+  if (
+    template !== null &&
+    input.template != null &&
+    input.template.rows.some(
+      (row, at) =>
+        row.text !== template?.rows[at]?.text &&
+        (row.startsInComment ||
+          FENCE_LINE.test(row.text) ||
+          row.text.includes("<!--") ||
+          row.text.includes("-->")),
+    )
+  ) {
+    template = null;
+  }
   const related: string[] = [];
   let relatedDropped = 0;
   for (const item of fields.related ?? []) {
@@ -289,15 +323,24 @@ export function renderPullRequestBody(input: {
     related,
   };
   const marker = OMITTED[locale];
-  const render = () => withPullRequestTail(assemble(cleaned, locale), tail);
+  const render = () =>
+    withPullRequestTail(assemble(cleaned, locale, template), tail);
   let body = render();
   const shrinkable = (field: ShrinkField) =>
     field === "changes" ? cleaned.changes.length > 0 : cleaned[field] !== "";
   while (body.length > maxLength) {
     const field = SHRINK_ORDER.find(shrinkable);
     if (field === undefined) {
+      if (template !== null) {
+        template = null;
+        return renderPullRequestBody({ ...input, template: null });
+      }
       // Only the platform's own lines are left over the limit.
-      return { body: cut(body, maxLength, ""), relatedDropped };
+      return {
+        body: cut(body, maxLength, ""),
+        relatedDropped,
+        templateUsed: false,
+      };
     }
     const overflow = body.length - maxLength;
     if (field === "changes") {
@@ -316,5 +359,5 @@ export function renderPullRequestBody(input: {
     }
     body = render();
   }
-  return { body, relatedDropped };
+  return { body, relatedDropped, templateUsed: template !== null };
 }

@@ -30,6 +30,7 @@ import {
   agentGitHubResponseSchema,
   agentIdentityParamsSchema,
   agentIdParamsSchema,
+  agentPullRequestResponseSchema,
   apiErrorResponseSchema,
   apiKeyIdParamsSchema,
   apiRootResponseSchema,
@@ -187,12 +188,16 @@ import {
   putAgentGitHubEnabledResponseSchema,
   putAgentGitHubSettingsRequestSchema,
   putAgentGitHubSettingsResponseSchema,
+  putAgentPullRequestSettingsRequestSchema,
+  putAgentPullRequestSettingsResponseSchema,
   putGitHubAppRequestSchema,
   putGitHubAppResponseSchema,
   putGitHubOAuthClientSecretRequestSchema,
   putGitHubOAuthClientSecretResponseSchema,
   putGitHubPackagesAllowlistRequestSchema,
   putGitHubPackagesTokenRequestSchema,
+  putGitHubPullRequestSettingsRequestSchema,
+  putGitHubPullRequestSettingsResponseSchema,
   putGitHubRepositoryAppPinRequestSchema,
   putGitHubRepositoryAppPinResponseSchema,
   putGitHubSettingsRequestSchema,
@@ -362,6 +367,9 @@ const requestComponents = {
   RerunWorkflowRequest: rerunWorkflowRequestSchema,
   SubmitPullRequestReviewRequest: submitPullRequestReviewRequestSchema,
   PutGitHubSettingsRequest: putGitHubSettingsRequestSchema,
+  PutAgentPullRequestSettingsRequest: putAgentPullRequestSettingsRequestSchema,
+  PutGitHubPullRequestSettingsRequest:
+    putGitHubPullRequestSettingsRequestSchema,
   PutGitHubOAuthClientSecretRequest: putGitHubOAuthClientSecretRequestSchema,
   PutGitHubPackagesTokenRequest: putGitHubPackagesTokenRequestSchema,
   PutGitHubPackagesAllowlistRequest: putGitHubPackagesAllowlistRequestSchema,
@@ -505,6 +513,11 @@ const responseComponents = {
   DeleteGitHubAppResponse: deleteGitHubAppResponseSchema,
   ListGitHubAppsResponse: listGitHubAppsResponseSchema,
   PutGitHubUserLinkAppResponse: putGitHubUserLinkAppResponseSchema,
+  AgentPullRequestResponse: agentPullRequestResponseSchema,
+  PutAgentPullRequestSettingsResponse:
+    putAgentPullRequestSettingsResponseSchema,
+  PutGitHubPullRequestSettingsResponse:
+    putGitHubPullRequestSettingsResponseSchema,
   GetGitHubRepositoryAppPinsResponse: getGitHubRepositoryAppPinsResponseSchema,
   PutGitHubRepositoryAppPinResponse: putGitHubRepositoryAppPinResponseSchema,
   ListGitHubRepositoriesResponse: listGitHubRepositoriesResponseSchema,
@@ -784,6 +797,13 @@ const EXAMPLE_GITHUB_INSTALLATION_SUMMARY = {
   permissions: { contents: "write", pull_requests: "write", metadata: "read" },
   repository_count: 1,
 };
+
+const EXAMPLE_PULL_REQUEST_SETTINGS = {
+  formatting: "on",
+  default_template: null,
+  template_mode: "repository_first",
+  session_link: "url",
+} as const;
 
 const EXAMPLE_GITHUB_CONNECTION = {
   connection_id: "019a0000-0000-7000-8000-0000000000b1",
@@ -2254,6 +2274,8 @@ export const API_ROUTE_DECLARATIONS = [
           callback_url:
             "https://console.example.com/settings/linked-accounts/github",
         },
+        pull_request: EXAMPLE_PULL_REQUEST_SETTINGS,
+        pull_request_revision: 0,
         connections: [EXAMPLE_GITHUB_CONNECTION],
         apps: {
           author: {
@@ -2316,8 +2338,49 @@ export const API_ROUTE_DECLARATIONS = [
           callback_url:
             "https://console.example.com/settings/linked-accounts/github",
         },
+        pull_request: EXAMPLE_PULL_REQUEST_SETTINGS,
+        pull_request_revision: 0,
         connections: [EXAMPLE_GITHUB_CONNECTION],
         apps: { author: { permissions: null }, reviewer: null },
+      },
+    },
+    errors: [400, 401, 403, 404, 409, 413, 503],
+    errorCodes: { 409: ["REVISION_CONFLICT"] },
+    idempotent: false,
+  },
+  {
+    method: "put",
+    path: "/v1/workspaces/{id}/github-settings/pull-request",
+    operationId: "putGitHubPullRequestSettings",
+    tag: "Workspace settings",
+    summary:
+      "Change how the workspace's pull request bodies are laid out (owner or admin)",
+    description:
+      "Replaces `formatting` (`off` leaves every template out, so the fields land on the platform's default layout), `template_mode` (`repository_first`: the repository's template, else `default_template`; `override`: `default_template` always, the repository's is not read), `default_template` (markdown up to 16 KiB, or null for the platform's default) and `session_link` (`id` leaves the console's address out of the pull request tail and the `Agent-Session` trailer). `revision` is `pull_request_revision` as last read; a stale one is 409 `REVISION_CONFLICT` and nothing changes. It is separate from the ceiling's `revision`. A template the platform will not lay text around is 400 with `reason_code` `template_too_large`, `template_not_utf8` or `template_unsupported`. A change reaches pull requests opened or updated afterwards and commits made after a worker's next claim; text already on GitHub is not rewritten. Writes a `set_github_pull_request_settings` receipt with the values before and after (a template as its size and hash, never its text); `receipt_id` is null when nothing changed. API keys are refused.",
+    auth: "session",
+    body: "PutGitHubPullRequestSettingsRequest",
+    requestExample: {
+      pull_request: {
+        formatting: "on",
+        default_template: null,
+        template_mode: "repository_first",
+        session_link: "id",
+      },
+      revision: 0,
+    },
+    success: {
+      status: 200,
+      schema: "PutGitHubPullRequestSettingsResponse",
+      description: "Stored; the settings and their new revision.",
+      example: {
+        pull_request: {
+          formatting: "on",
+          default_template: null,
+          template_mode: "repository_first",
+          session_link: "id",
+        },
+        pull_request_revision: 1,
+        receipt_id: EXAMPLE_RECEIPT_ID,
       },
     },
     errors: [400, 401, 403, 404, 409, 413, 503],
@@ -3513,7 +3576,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Push requests",
     summary: "Open a pull request from a pushed request",
     description:
-      "Opens a pull request on the request's repository's forge (GitHub or GHES) from the request's branch (`agent/<session-id>` or `agent/<session-id>-<branch>`) into that catalog entry's `branch`. Only a `pushed` request opens one, and only while the catalog entry is still the one the request pinned. The platform calls GitHub with its own credential: an installation token of the catalog's GitHub App, scoped to this repository with `contents: read` and `pull_requests: write`.\n\nThe content is the structured fields `summary`, `changes`, `rationale`, `testing`, `notes` and `related`, or the legacy `body` text, never both. The platform lays the fields out on its default template, a heading per field that has content, in Korean; `related` items become `Closes #N` (an issue of the pull request's own repository, when `closes` is true) or `Refs owner/repo#N`, written by the platform from the catalog, and an item whose `repository_id` the session's catalog does not have is left out (`body_source.related_dropped` counts them). A legacy `body` is used as written. `body_source` says which one the platform wrote, and is null when the pull request was already open and its body was left alone.\n\n`title` (default `Agent session <session-id>`) and the text are cleaned before GitHub sees them: `@` mentions, cross-repository references (`owner/repo#N`), closing keywords (`Closes #N` and the like) and HTML comments are broken with a zero-width space, a line that looks like a secret is replaced by `[REDACTED]`, an engine's own signature line (Claude Code's `Generated with` link) is removed, and the body is cut to GitHub's limit, the last fields first. The body ends with a line naming the session and the commit. The platform never approves, merges or asks for reviews.\n\nSafe to retry: a request opens at most one pull request. When one is already recorded, or GitHub already has an open one for the branch, it is answered with `created: false` (200). Every attempt, refused ones included, leaves an `open_pull_request` receipt; `receipt_id` names this one, and a refusal's `error.details.receipt_id` names it.\n\nA verified credential that holds `sessions:approve` opens one, as for a push decision. One that may only submit to the session (an agent's key without `sessions:approve`, or the key that started the session) opens one too, since the request was already pushed. The token is issued through the agent's GitHub settings: with GitHub off for the agent, or the repository outside its release, the call is refused with `GITHUB_REFUSED`. Worker credentials are not accepted on `/v1` (401).",
+      "Opens a pull request on the request's repository's forge (GitHub or GHES) from the request's branch (`agent/<session-id>` or `agent/<session-id>-<branch>`) into that catalog entry's `branch`. Only a `pushed` request opens one, and only while the catalog entry is still the one the request pinned. The platform calls GitHub with its own credential: an installation token of the catalog's GitHub App, scoped to this repository with `contents: read` and `pull_requests: write`.\n\nThe content is the structured fields `summary`, `changes`, `rationale`, `testing`, `notes` and `related`, or the legacy `body` text, never both. The platform lays the fields out on the repository's pull request template when its default branch has one (`.github/`, the repository root or `docs/`, a `pull_request_template.md` or the one file of a `PULL_REQUEST_TEMPLATE/` directory; read at the default branch's commit as it is when the request is handled, never from the pull request's own branch), under the template's headings or at its `<!-- werft:slot summary -->` lines, keeping the template's own text, comments and checkboxes; otherwise on its default template, a heading per field that has content, in Korean. A template that is over 16 KiB, not a plain UTF-8 file, ambiguous (several in a directory), unreadable, or written with HTML, tables, reference definitions or comments that share a row with text is passed over for the default template, and the pull request still opens; `body_source.kind` is `repository` with the template's `path`, or `platform` with `skipped` saying why, and the receipt's `template` records the commit, path and blob read. The template's own mentions, closing keywords and references are broken like the fields', a line that looks like a secret is replaced like theirs, and it cannot pass for the platform's tail. On either layout, `related` items become `Closes #N` (an issue of the pull request's own repository, when `closes` is true) or `Refs owner/repo#N`, written by the platform from the catalog, and an item whose `repository_id` the session's catalog does not have is left out (`body_source.related_dropped` counts them). A legacy `body` is used as written. `body_source` says which one the platform wrote, and is null when the pull request was already open and its body was left alone.\n\n`title` (default `Agent session <session-id>`) and the text are cleaned before GitHub sees them: `@` mentions, cross-repository references (`owner/repo#N`), closing keywords (`Closes #N` and the like) and HTML comments are broken with a zero-width space, a line that looks like a secret is replaced by `[REDACTED]`, an engine's own signature line (Claude Code's `Generated with` link) is removed, and the body is cut to GitHub's limit, the last fields first. The body ends with a line naming the session and the commit. The platform never approves, merges or asks for reviews.\n\nSafe to retry: a request opens at most one pull request. When one is already recorded, or GitHub already has an open one for the branch, it is answered with `created: false` (200). Every attempt, refused ones included, leaves an `open_pull_request` receipt; `receipt_id` names this one, and a refusal's `error.details.receipt_id` names it.\n\nA verified credential that holds `sessions:approve` opens one, as for a push decision. One that may only submit to the session (an agent's key without `sessions:approve`, or the key that started the session) opens one too, since the request was already pushed. The token is issued through the agent's GitHub settings: with GitHub off for the agent, or the repository outside its release, the call is refused with `GITHUB_REFUSED`. Worker credentials are not accepted on `/v1` (401).",
     scope: "approve",
     scopeCheckedBy: "service",
     idempotent: false,
@@ -5092,6 +5155,66 @@ export const API_ROUTE_DECLARATIONS = [
       schema: "PutAgentGitHubSettingsResponse",
       description: "Saved.",
       example: { settings_revision: 4, receipt_id: EXAMPLE_RECEIPT_ID },
+    },
+    errors: [400, 401, 403, 404, 409, 413, 503],
+    errorCodes: { 409: ["REVISION_CONFLICT"] },
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/agents/{id}/github/pull-request",
+    operationId: "getAgentPullRequestSettings",
+    tag: "Agents",
+    summary: "How the agent's pull request bodies differ from the workspace's",
+    description:
+      "`pull_request` holds `formatting` (`inherit` follows the workspace; `on` or `off` overrides it), `template` (markdown up to 16 KiB that stands in for the workspace's `default_template`; null uses the workspace's) and `template_name` (which file of a repository's `.github/PULL_REQUEST_TEMPLATE/` directory to use when it holds several; matched to the names found there, never used as a path). An agent with nothing saved reads as `inherit`, no template, no name, with `pull_request_revision` 0. Kept apart from the agent's GitHub settings: saving it does not make the agent's sessions follow those instead of their release. Whoever manages the agent reads it, and so do the live members of its managing team.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "AgentPullRequestResponse",
+      description: "The agent's values and the revision that guards them.",
+      example: {
+        pull_request: {
+          formatting: "inherit",
+          template: null,
+          template_name: "feature.md",
+        },
+        pull_request_revision: 2,
+      },
+    },
+    errors: [401, 403, 404, 503],
+  },
+  {
+    method: "put",
+    path: "/v1/agents/{id}/github/pull-request",
+    operationId: "putAgentPullRequestSettings",
+    tag: "Agents",
+    summary: "Change how the agent's pull request bodies are laid out",
+    description:
+      "Replaces the three values. `revision` is `pull_request_revision` as last read (0 when none was saved); a stale one is 409 `REVISION_CONFLICT` and nothing changes. A template the platform will not lay text around is 400 with `reason_code` `template_too_large`, `template_not_utf8` or `template_unsupported`. A change reaches pull requests the agent's sessions open or update afterwards; text already on GitHub is not rewritten. Writes a `set_agent_pull_request_settings` receipt with the values before and after (a template as its size and hash, never its text); `receipt_id` is null when nothing changed. Agent managers with a web session only; API keys are refused.",
+    auth: "session",
+    body: "PutAgentPullRequestSettingsRequest",
+    requestExample: {
+      pull_request: {
+        formatting: "inherit",
+        template: null,
+        template_name: "feature.md",
+      },
+      revision: 0,
+    },
+    success: {
+      status: 200,
+      schema: "PutAgentPullRequestSettingsResponse",
+      description: "Stored; the values and their new revision.",
+      example: {
+        pull_request: {
+          formatting: "inherit",
+          template: null,
+          template_name: "feature.md",
+        },
+        pull_request_revision: 1,
+        receipt_id: EXAMPLE_RECEIPT_ID,
+      },
     },
     errors: [400, 401, 403, 404, 409, 413, 503],
     errorCodes: { 409: ["REVISION_CONFLICT"] },
@@ -7012,7 +7135,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Limits & receipts",
     summary: "Current outcome of an accepted command",
     description:
-      "Reads the current outcome of a command by the `receipt_id` its response returned: `accepted` while it is in progress, then `succeeded`, `failed` (with `error`) or `unknown` (nobody can say; `error` explains). Poll until it leaves `accepted`. `result` depends on `operation`:\n\n- `create_session`, `append_message`: the acceptance response exactly as first returned, never rewritten. The turn's outcome is read from `GET /v1/sessions/{session_id}/turns/{turn_id}` using `target_ref`.\n- `interrupt`: `{turn_id, terminal, no_op}` once settled.\n- `pause`, `resume`: `{resulting_admission_state, checkpoint_revision, queued_turn_count}`.\n- `close`: `{resulting_admission_state, checkpoint_revision, cancelled_turn_count}`; `checkpoint_revision` is null only for a session that never ran a turn.\n- `terminate`: `{execution_gone, checkpoint_revision, unconfirmed_turn_id, external_effects_reverted}`.\n- `recovery_decision`: `{resulting_admission_state, checkpoint_revision, resumable}`.\n- `answer`: null; only `status` and `error` change.\n- `request_push`, `resolve_push`, `push`: `{push_request_id, action, verdict, refusal, repository_id, checkpoint_revision, git_commit, target_branch}`; `verdict` is `allow` or `refuse`, a refused attempt is `failed` with the reason in `refusal` and `error`, and fields the attempt never read are null. `actor` names who made it. Receipts written before the rename say `decide_push`, `decision`, `already_decided` and `PUSH_REQUEST_DECIDED` instead.\n- `open_pull_request`, `update_pull_request`, `comment_pull_request`: `{push_request_id, verdict, refusal, repository_id, number, url, head, base, created}`, and for a comment also `{comment_id, comment_url, marker}`; `created` is false when the call answered an open pull request, edited the marked comment, or (always, for `update_pull_request`) changed the title or body of the pull request with the built-in `github` MCP server's `update_pull_request`.\n- `close_pull_request`, `reopen_pull_request`: the same fields plus `{state, changed}`, written when the session's agent closes or reopens the pull request of its push request with the built-in `github` MCP server's tools of those names; `state` is the pull request's state after the call and `changed` is false when it was already in that state. A merged pull request is refused with `pull_request_merged` (`PULL_REQUEST_MERGED`).\n- `attach_repository`: `{session_id, attempt_id, agent_id, agent_release_id, repository_id, branch, commit, failure, reason_code}`, written when the session's agent attaches a repository with the built-in `github` MCP server's `attach_repository`. It is `accepted` until the worker reports the fetch, then `succeeded` with `commit` or `failed` with `failure` (`fetch_timeout`, `fetch_too_large`, `fetch_failed`). A refused call is `failed` at once with `reason_code` `repository_not_allowed` (not on the release's list, not allowed for the profile, or the agent's GitHub off; `error.code` `GITHUB_REFUSED`), `allowed_in_newer_release` (off the session's release but allowed by the agent's active release: the session keeps the release it started with, and a new session can attach it; `GITHUB_REFUSED`) or `attempt_ended` (`STALE_EPOCH`). `agent_release_id` is the release whose list allowed it.\n- `set_slack_secret`, `delete_slack_secret`: `{purpose, last4}`; the value itself is never in a receipt.\n- `set_github_app`, `delete_github_app`: `{app_id}`; the private key is never in a receipt.\n\nAny credential of the same owner can read a receipt, except that a receipt about a session needs that session to be visible to the caller, and one that changed an agent's settings (`target_ref.resource` an agent or one of its Slack bindings, other than a refused `create_session`) is read only by those who read the agent's settings: its workspace's owners and admins, its admins, the live members of its managing team, and their personal keys; anyone else gets 403. It changes nothing.",
+      "Reads the current outcome of a command by the `receipt_id` its response returned: `accepted` while it is in progress, then `succeeded`, `failed` (with `error`) or `unknown` (nobody can say; `error` explains). Poll until it leaves `accepted`. `result` depends on `operation`:\n\n- `create_session`, `append_message`: the acceptance response exactly as first returned, never rewritten. The turn's outcome is read from `GET /v1/sessions/{session_id}/turns/{turn_id}` using `target_ref`.\n- `interrupt`: `{turn_id, terminal, no_op}` once settled.\n- `pause`, `resume`: `{resulting_admission_state, checkpoint_revision, queued_turn_count}`.\n- `close`: `{resulting_admission_state, checkpoint_revision, cancelled_turn_count}`; `checkpoint_revision` is null only for a session that never ran a turn.\n- `terminate`: `{execution_gone, checkpoint_revision, unconfirmed_turn_id, external_effects_reverted}`.\n- `recovery_decision`: `{resulting_admission_state, checkpoint_revision, resumable}`.\n- `answer`: null; only `status` and `error` change.\n- `request_push`, `resolve_push`, `push`: `{push_request_id, action, verdict, refusal, repository_id, checkpoint_revision, git_commit, target_branch}`; `verdict` is `allow` or `refuse`, a refused attempt is `failed` with the reason in `refusal` and `error`, and fields the attempt never read are null. `actor` names who made it. Receipts written before the rename say `decide_push`, `decision`, `already_decided` and `PUSH_REQUEST_DECIDED` instead.\n- `open_pull_request`, `update_pull_request`, `comment_pull_request`: `{push_request_id, verdict, refusal, repository_id, number, url, head, base, created}`, and for a comment also `{comment_id, comment_url, marker}`, and for an open or update whose body came from structured fields also `template` (`{commit, path?, blob_sha?, skipped?}`: the default branch's commit read, the template used or the reason one was passed over; never its text); `created` is false when the call answered an open pull request, edited the marked comment, or (always, for `update_pull_request`) changed the title or body of the pull request with the built-in `github` MCP server's `update_pull_request`.\n- `close_pull_request`, `reopen_pull_request`: the same fields plus `{state, changed}`, written when the session's agent closes or reopens the pull request of its push request with the built-in `github` MCP server's tools of those names; `state` is the pull request's state after the call and `changed` is false when it was already in that state. A merged pull request is refused with `pull_request_merged` (`PULL_REQUEST_MERGED`).\n- `attach_repository`: `{session_id, attempt_id, agent_id, agent_release_id, repository_id, branch, commit, failure, reason_code}`, written when the session's agent attaches a repository with the built-in `github` MCP server's `attach_repository`. It is `accepted` until the worker reports the fetch, then `succeeded` with `commit` or `failed` with `failure` (`fetch_timeout`, `fetch_too_large`, `fetch_failed`). A refused call is `failed` at once with `reason_code` `repository_not_allowed` (not on the release's list, not allowed for the profile, or the agent's GitHub off; `error.code` `GITHUB_REFUSED`), `allowed_in_newer_release` (off the session's release but allowed by the agent's active release: the session keeps the release it started with, and a new session can attach it; `GITHUB_REFUSED`) or `attempt_ended` (`STALE_EPOCH`). `agent_release_id` is the release whose list allowed it.\n- `set_slack_secret`, `delete_slack_secret`: `{purpose, last4}`; the value itself is never in a receipt.\n- `set_github_app`, `delete_github_app`: `{app_id}`; the private key is never in a receipt.\n\nAny credential of the same owner can read a receipt, except that a receipt about a session needs that session to be visible to the caller, and one that changed an agent's settings (`target_ref.resource` an agent or one of its Slack bindings, other than a refused `create_session`) is read only by those who read the agent's settings: its workspace's owners and admins, its admins, the live members of its managing team, and their personal keys; anyone else gets 403. It changes nothing.",
     scope: "read",
     success: {
       status: 200,

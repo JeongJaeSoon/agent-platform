@@ -239,6 +239,7 @@ export async function savePullRequestIn(
       head: shown.head,
       base: shown.base,
       created,
+      ...(input.template == null ? {} : { template: input.template }),
     } satisfies PullRequestReceiptResult,
   });
   if (recorded !== null) {

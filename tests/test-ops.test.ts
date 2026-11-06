@@ -107,6 +107,8 @@ describe("scripts/test-ops.sh", () => {
     [["upgrade", "a.json", "--approve"]],
     [["upgrade", "a.json", "--approve-sessions"]],
     [["status", "extra"]],
+    [["start", "release.json"]],
+    [["stop", "-v"]],
     [["backup", "--now"]],
     [["backup", "--stop", "--now"]],
     [["key"]],
@@ -127,7 +129,7 @@ describe("scripts/test-ops.sh", () => {
   test("refuses the local stack's project name", async () => {
     const result = await run(["status"], {
       ...env,
-      TEST_OPS_PROJECT: "agent-platform",
+      TEST_OPS_PROJECT: "werft",
     });
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("is the local stack's project");
@@ -227,7 +229,7 @@ describe("scripts/test-ops.sh", () => {
     await mkdir(join(dir, "state"));
     await writeFile(
       join(dir, "state", "installation"),
-      "project=agent-platform-test-ops\ninstallation=test-ops\nobject_store=localstack",
+      "project=werft-test-ops\ninstallation=test-ops\nobject_store=localstack",
     );
     const result = await run(["status"], {
       ...env,
@@ -259,6 +261,66 @@ describe("scripts/test-ops.sh", () => {
     expect(result.stderr).toContain("no release is deployed");
   });
 
+  // An empty value counts as unset in the script's defaults.
+  const noOverrides = {
+    TEST_OPS_ENV_FILE: "",
+    TEST_OPS_STATE_DIR: "",
+    TEST_OPS_PROJECT: "",
+  };
+
+  test("defaults the settings file to /etc/werft/test-ops.env", async () => {
+    const result = await run(["status"], { ...env, ...noOverrides });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain(
+      "env file /etc/werft/test-ops.env not found",
+    );
+    expect(await dockerCalls()).toBe("");
+  });
+
+  test("defaults the state directory to /var/lib/werft/test-ops", async () => {
+    const result = await run(["status"], {
+      ...env,
+      ...noOverrides,
+      TEST_OPS_ENV_FILE: join(dir, "settings"),
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain(
+      "no release is deployed (/var/lib/werft/test-ops/current.json)",
+    );
+  });
+
+  // A host whose state directory holds no release, but whose project already
+  // has data (the state moved or was never written), must not get a second,
+  // empty installation started over it.
+  test("deploy stops without starting anything when the default project already has data", async () => {
+    await writeFile(
+      join(dir, "bin", "docker"),
+      `#!/bin/sh
+echo "$*" >> "${calls}"
+case "$*" in
+  "volume ls -q --filter label=com.docker.compose.project=werft-test-ops") echo werft-test-ops_postgres-data ;;
+esac
+exit 0
+`,
+      { mode: 0o755 },
+    );
+    const result = await run(["deploy", EXAMPLE_MANIFEST], {
+      ...env,
+      TEST_OPS_PROJECT: "",
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("project 'werft-test-ops' already has");
+    expect(result.stderr).toContain("TEST_OPS_PROJECT, TEST_OPS_STATE_DIR");
+    const issued = (await dockerCalls()).trim().split("\n");
+    expect(issued.some((call) => call.startsWith("compose"))).toBe(false);
+    expect(issued).toContain(
+      "volume ls -q --filter label=com.docker.compose.project=werft-test-ops",
+    );
+    await expect(
+      readFile(join(dir, "state", "current.json")),
+    ).rejects.toThrow();
+  });
+
   // The provider key rotation in docs/operator/test-ops.md: the deployed release again,
   // worker unchanged, so nothing is approved ( found it dying under
   // `set -u` and leaving pending.json behind).
@@ -274,7 +336,7 @@ describe("scripts/test-ops.sh", () => {
     await writeFile(join(dir, "release.json"), JSON.stringify(manifest));
     await writeFile(
       join(dir, "state", "installation"),
-      "project=agent-platform-test-ops\ninstallation=t\nobject_store=localstack",
+      "project=werft-test-ops\ninstallation=t\nobject_store=localstack",
     );
     const render = JSON.stringify({
       services: {
@@ -318,6 +380,108 @@ exit 0
         () => null,
       ),
     ).toBeNull();
+  });
+
+  // 94S-1419: a stack a compose down or a host restart left down. deploy
+  // refuses it (a release is recorded) and upgrade needs a running postgres;
+  // start is the one way back, on the volumes that stayed.
+  test.each(["start", "stop"])(
+    "%s needs a deployed release and touches no container without one",
+    async (verb) => {
+      const result = await run([verb], env);
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toMatch(/no release is deployed/);
+      expect(await dockerCalls()).toBe("");
+      expect(
+        await readFile(join(dir, "state", "history.log"), "utf8").catch(
+          () => null,
+        ),
+      ).toBeNull();
+    },
+  );
+
+  test("deploy still refuses a host with a recorded release", async () => {
+    await deployedSameWorker();
+    const result = await run(["deploy", join(dir, "release.json")], env);
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("a release is already deployed");
+  });
+
+  test("start brings the deployed release up again on the kept volumes", async () => {
+    await deployedSameWorker();
+    const result = await run(["start"], env);
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toContain("start: done");
+    const called = await dockerCalls();
+    expect(called).toContain("up -d --wait");
+    expect(called).not.toContain(" down");
+    expect(called).not.toContain(" -v");
+    expect(await readFile(join(dir, "state", "history.log"), "utf8")).toContain(
+      " start by ",
+    );
+    expect(
+      await readFile(join(dir, "state", "pending.json"), "utf8").catch(
+        () => null,
+      ),
+    ).toBeNull();
+  });
+
+  test("start refuses while an upgrade has not finished", async () => {
+    await deployedSameWorker();
+    await writeFile(join(dir, "state", "pending.json"), "{}");
+    const result = await run(["start"], env);
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("an upgrade to");
+    expect(await dockerCalls()).not.toContain(" up ");
+  });
+
+  test("start refuses an installation deploy never recorded", async () => {
+    await deployedSameWorker();
+    await rm(join(dir, "state", "installation"));
+    const result = await run(["start"], env);
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("installation is missing");
+    expect(await dockerCalls()).not.toContain(" up ");
+  });
+
+  test("start refuses compose files that are not the release's", async () => {
+    await deployedSameWorker();
+    const manifest = JSON.parse(await readFile(EXAMPLE_MANIFEST, "utf8"));
+    // HEAD is not the source commit, and infra/ differs between the two.
+    await writeFile(
+      join(dir, "bin", "git"),
+      `#!/bin/sh\ncase "$*" in *rev-parse*) echo not-${manifest.source_commit} ;; *diff*) exit 1 ;; esac\nexit 0\n`,
+      { mode: 0o755 },
+    );
+    const result = await run(["start"], env);
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("its infra/ differs");
+    expect(await dockerCalls()).not.toContain(" up ");
+  });
+
+  test("start accepts another commit whose infra/ is the release's", async () => {
+    await deployedSameWorker();
+    const manifest = JSON.parse(await readFile(EXAMPLE_MANIFEST, "utf8"));
+    await writeFile(
+      join(dir, "bin", "git"),
+      `#!/bin/sh\ncase "$*" in *rev-parse*) echo not-${manifest.source_commit} ;; esac\nexit 0\n`,
+      { mode: 0o755 },
+    );
+    const result = await run(["start"], env);
+    expect(result.exitCode).toBe(0);
+    expect(await dockerCalls()).toContain("up -d --wait");
+  });
+
+  test("stop takes the containers down and never the volumes", async () => {
+    await deployedSameWorker();
+    const result = await run(["stop"], env);
+    expect(result.exitCode).toBe(0);
+    const called = await dockerCalls();
+    expect(called).toContain("down --remove-orphans");
+    expect(called).not.toMatch(/(^| )-v( |$)|--volumes/m);
+    expect(await readFile(join(dir, "state", "history.log"), "utf8")).toContain(
+      " stop by ",
+    );
   });
 
   test("upgrade refuses when the database lacks the settings document", async () => {
@@ -365,7 +529,7 @@ exit 0
       await writeFile(join(dir, "release.json"), JSON.stringify(manifest));
       await writeFile(
         join(dir, "state", "installation"),
-        "project=agent-platform-test-ops\ninstallation=t\nobject_store=localstack",
+        "project=werft-test-ops\ninstallation=t\nobject_store=localstack",
       );
       if (verb === "upgrade") {
         await writeFile(
@@ -431,7 +595,7 @@ exit 0
     );
     await writeFile(
       join(dir, "state", "installation"),
-      "project=agent-platform-test-ops\ninstallation=t\nobject_store=localstack",
+      "project=werft-test-ops\ninstallation=t\nobject_store=localstack",
     );
     const result = await run(["status"], env);
     expect(result.exitCode).toBe(1);
@@ -458,7 +622,7 @@ exit 0
     );
     await writeFile(
       join(dir, "state", "installation"),
-      "project=agent-platform-test-ops\ninstallation=t\nobject_store=localstack",
+      "project=werft-test-ops\ninstallation=t\nobject_store=localstack",
     );
     const render = JSON.stringify({
       "x-test-ops-api-url": "http://127.0.0.1:13000",

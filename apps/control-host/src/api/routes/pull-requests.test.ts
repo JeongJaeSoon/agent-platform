@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   apiErrorResponseSchema,
   commentPullRequestResponseSchema,
+  DEFAULT_PULL_REQUEST_SETTINGS,
   GITHUB_CEILING_NONE,
   openPullRequestResponseSchema,
   type PullRequest,
@@ -81,6 +82,15 @@ function app(
   const forge: GitHubApi = {
     maxBodyLength: 65_536,
     getRepository: async () => {
+      throw new Error("not used");
+    },
+    getBranchHead: async () => {
+      throw new Error("not used");
+    },
+    readTree: async () => {
+      throw new Error("not used");
+    },
+    readBlob: async () => {
       throw new Error("not used");
     },
     findPullRequestForBranch: async () => {
@@ -184,6 +194,13 @@ function app(
     gate,
     redact: (line) => line,
     attribution: { attribution: async () => null },
+    settings: {
+      get: async () => ({
+        settings: DEFAULT_PULL_REQUEST_SETTINGS,
+        revision: 0,
+      }),
+      agentOfSession: async () => null,
+    },
     consoleOrigin: null,
     logger: { warn: () => {} },
     store: {

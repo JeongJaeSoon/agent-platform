@@ -13,7 +13,7 @@ const secrets = new SecretsManagerClient({
   endpoint: env.AWS_ENDPOINT_URL_SECRETS_MANAGER ?? "http://secrets:4566",
   region: env.AWS_REGION ?? "ap-northeast-1",
 });
-const secretId = "agent-platform/local/fake-github-app";
+const secretId = "werft/local/fake-github-app";
 let privateKey: string;
 try {
   const stored = await secrets.send(
