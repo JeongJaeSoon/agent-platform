@@ -204,7 +204,7 @@ type ActionResult<T> = { ok: true; result: T } | { ok: false; refusal: ActionRef
 |---|---|---|
 | `validation_error` | platform | false(`isError`) |
 | `no_repository`, `repository_not_allowed`, `github_disabled`, `default_branch`, `target_refused`, `over_workspace_ceiling`, `self_approval` | policy | false |
-| `source_ref_unsupported`, `no_running_turn`, `missing_scope`, `unverified_principal`, `not_found`, `session_closed`, `turn_ended_without_checkpoint`, `turn_finalized_without_pin`, `source_missing`, `attribution_mismatch`, `uncommitted_changes`, `no_checkpoint`, `checkpoint_moved`, `commit_mismatch`, `catalog_changed`, `already_resolved`, `already_decided`, `unrelated_history`, `github_settings_unsupported`, `no_push_credential` | platform | false |
+| `source_ref_unsupported`, `no_running_turn`, `missing_scope`, `unverified_principal`, `not_found`, `session_closed`, `turn_ended_without_checkpoint`, `turn_finalized_without_pin`, `superseded_by_turn`, `source_missing`, `attribution_mismatch`, `uncommitted_changes`, `no_checkpoint`, `checkpoint_moved`, `commit_mismatch`, `catalog_changed`, `already_resolved`, `already_decided`, `unrelated_history`, `github_settings_unsupported`, `no_push_credential` | platform | false |
 | `checkpoint_unavailable`, `lease_expired`, `push_failed`, `request_open` | platform | true |
 | `rejected_before` | person | false |
 | `non_fast_forward`, `github_refused` | github | false |

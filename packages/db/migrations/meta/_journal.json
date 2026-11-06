@@ -1044,6 +1044,13 @@
       "when": 1793940959839,
       "tag": "0239_connection_replaces_auth",
       "breakpoints": true
+    },
+    {
+      "idx": 240,
+      "version": "7",
+      "when": 1793954358484,
+      "tag": "0240_push_intent_superseded_reason",
+      "breakpoints": true
     }
   ]
 }
