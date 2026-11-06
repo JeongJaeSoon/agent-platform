@@ -719,10 +719,8 @@ export function createPullRequestService(deps: {
           merged: marked.some((found) => found.mergedAt !== null),
         });
       }
-      // Too little lease left to create and still record it.
-      if (Date.now() >= options.deadline) {
-        return { kind: "retry", error: "lease_expired", delayMs: 0 };
-      }
+      // The body can take several forge reads (the repository template), so
+      // it is built first and the lease checked right before the create.
       const title = cleanTitle(
         job.intent?.title ?? `Agent session ${job.sessionId}`,
         redact,
@@ -733,6 +731,10 @@ export function createPullRequestService(deps: {
         tail,
         settings,
       });
+      // Too little lease left to create and still record it.
+      if (Date.now() >= options.deadline) {
+        return { kind: "retry", error: "lease_expired", delayMs: 0 };
+      }
       let made: Awaited<ReturnType<typeof forge.createPullRequest>>;
       try {
         made = await forge.createPullRequest({

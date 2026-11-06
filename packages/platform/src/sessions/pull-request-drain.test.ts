@@ -15,6 +15,10 @@ import {
   type PullRequestJob,
   type PullRequestSettled,
 } from "../ports/pull-request-drain.ts";
+import {
+  type FakeFile,
+  fakeRepositoryReads,
+} from "../testing/repository-tree-fake.ts";
 import { repositoryBinding, type SessionCatalog } from "./catalog.ts";
 import { pushRequestMarker, pushRequestMarkerOf } from "./git-attribution.ts";
 import { createPullRequestDrain } from "./pull-request-drain.ts";
@@ -81,6 +85,10 @@ function harness(
     lookupFails?: boolean;
     createFails?: boolean;
     refuse?: boolean;
+    /** The repository's files; a template among them is read for the body. */
+    files?: Record<string, FakeFile>;
+    /** How long the template read takes before it answers. */
+    readDelayMs?: number;
   } = {},
 ) {
   const calls: string[] = [];
@@ -89,17 +97,24 @@ function harness(
   const unused = async (): Promise<never> => {
     throw new Error("not used");
   };
+  const repository = fakeRepositoryReads(options.files ?? {}).reads;
   const forge: GitHubApi = {
     maxBodyLength: 65_536,
-    getRepository: unused,
+    ...repository,
+    getRepository: async () => {
+      calls.push("template read");
+      if (options.readDelayMs !== undefined) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, options.readDelayMs),
+        );
+      }
+      return repository.getRepository();
+    },
     getPullRequest: unused,
     setPullRequestState: unused,
     upsertComment: unused,
     dispatchWorkflow: unused,
     getWorkflowRun: unused,
-    getBranchHead: unused,
-    readTree: unused,
-    readBlob: unused,
     rerunWorkflow: unused,
     submitReview: unused,
     findPullRequestForBranch: unused,
@@ -175,6 +190,7 @@ function harness(
 }
 
 const deadline = () => Date.now() + 60_000;
+const TEMPLATE_PATH = ".github/pull_request_template.md";
 
 describe("opening a pull request for a pushed request", () => {
   test("creates one carrying the marker, after looking the branch up in every state", async () => {
@@ -189,10 +205,44 @@ describe("opening a pull request for a pushed request", () => {
     expect(calls).toEqual([
       "grant pull_request",
       `list ${HEAD}`,
+      "template read",
       `create ${HEAD}`,
     ]);
     expect(created[0]?.base).toBe("develop");
     expect(pushRequestMarkerOf(created[0]?.body ?? "")).toBe(PUSH);
+  });
+
+  test("hands back the template record of the repository template the body was laid out on", async () => {
+    const { service } = harness({
+      files: { [TEMPLATE_PATH]: "## Summary\n\n## Testing\n" },
+    });
+    const outcome = await service.openForPushRequest(job(), {
+      deadline: deadline(),
+    });
+    expect(outcome).toMatchObject({
+      kind: "opened",
+      pullRequest: {
+        created: true,
+        template: { path: TEMPLATE_PATH },
+      },
+    });
+  });
+
+  test("does not create when the template read used up the lease", async () => {
+    const { service, calls } = harness({
+      files: { [TEMPLATE_PATH]: "## Summary\n" },
+      readDelayMs: 60,
+    });
+    const outcome = await service.openForPushRequest(job(), {
+      deadline: Date.now() + 30,
+    });
+    expect(outcome).toEqual({
+      kind: "retry",
+      error: "lease_expired",
+      delayMs: 0,
+    });
+    expect(calls).toContain("template read");
+    expect(calls.some((call) => call.startsWith("create "))).toBe(false);
   });
 
   test("adopts the branch's open pull request when it is at the pushed commit, and moves its tail", async () => {
