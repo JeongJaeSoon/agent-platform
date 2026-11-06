@@ -50,9 +50,10 @@ The first line must show `xfs` with `prjquota` in the options, and the second mu
 **Prepare an ext4 server.** Make XFS on an image file and mount it on `/var/lib/docker` with `loop,prjquota`. Keep the image file outside the mount point. The steps below are one chained line, so if any step fails the rest (Docker's start above all) does not run. An existing `/var/lib/docker` is moved to `/var/lib/docker.old` and copied back with `rsync` after the mount. On a server that has never run Docker, those two steps are skipped.
 
 ```bash
-sudo apt-get install -y xfsprogs &&   # or: dnf install -y xfsprogs
+[ ! -e /var/lib/docker.old ] &&
+sudo apt-get install -y xfsprogs rsync &&   # or: dnf install -y xfsprogs rsync
 sudo systemctl stop docker docker.socket &&
-{ [ ! -e /var/lib/docker ] || { [ ! -e /var/lib/docker.old ] && sudo mv /var/lib/docker /var/lib/docker.old; }; } &&
+{ [ ! -e /var/lib/docker ] || sudo mv /var/lib/docker /var/lib/docker.old; } &&
 sudo truncate -s 60G /var/lib/docker.xfs.img &&
 sudo mkfs.xfs -q /var/lib/docker.xfs.img &&
 sudo mkdir -p /var/lib/docker &&
@@ -63,7 +64,7 @@ mount | grep 'on /var/lib/docker .*prjquota' &&
 sudo systemctl start docker
 ```
 
-If `/var/lib/docker.old` already exists, the line stops at the move step; look at what it holds, put it elsewhere and start again. If it stops midway, Docker stays stopped; do not start it before the cause is fixed. If the move already happened, `/var/lib/docker.old` is the original. Run the check commands above; `deploy` comes only after they pass.
+If `/var/lib/docker.old` already exists, the line stops at its first step; look at what it holds, put it elsewhere and start again. If it stops midway, Docker stays stopped; do not start it before the cause is fixed. If the move already happened, `/var/lib/docker.old` is the original. Run the check commands above; `deploy` comes only after they pass.
 
 - 60G is the ceiling for all of Docker (images, logs and every volume). The image file is sparse, so it takes only what is written from the host disk, but it never shrinks. The host filesystem needs that much free space.
 - What was checked: `truncate`, `mkfs.xfs`, `mount -o loop,prjquota` and `mount | grep prjquota` are run as written by the repository's CI `workspace-quota` job (an 8G image). Pointing Docker's `data-root` at an image file was checked once on an OrbStack machine. The `/etc/fstab` line and the `rsync` move were not run while writing this page (**NOT VERIFIED**). Try them on a test server first.

@@ -50,9 +50,10 @@ P="quota-probe-$(date +%s)"; docker volume create --driver local --opt size=64m 
 **ext4 서버를 준비한다.** 이미지 파일에 XFS를 만들고 `/var/lib/docker`에 `loop,prjquota`로 mount한다. 이미지 파일은 마운트 지점 밖에 둔다. 아래는 한 줄로 이어져 있어서 어느 단계든 실패하면 그 뒤(특히 Docker 시작)는 실행되지 않는다. 기존 `/var/lib/docker`가 있으면 `/var/lib/docker.old`로 옮겼다가 mount 뒤에 `rsync`로 되돌린다. 처음 쓰는 서버면 두 단계는 건너뛴다.
 
 ```bash
-sudo apt-get install -y xfsprogs &&   # dnf라면 dnf install -y xfsprogs
+[ ! -e /var/lib/docker.old ] &&
+sudo apt-get install -y xfsprogs rsync &&   # dnf라면 dnf install -y xfsprogs rsync
 sudo systemctl stop docker docker.socket &&
-{ [ ! -e /var/lib/docker ] || { [ ! -e /var/lib/docker.old ] && sudo mv /var/lib/docker /var/lib/docker.old; }; } &&
+{ [ ! -e /var/lib/docker ] || sudo mv /var/lib/docker /var/lib/docker.old; } &&
 sudo truncate -s 60G /var/lib/docker.xfs.img &&
 sudo mkfs.xfs -q /var/lib/docker.xfs.img &&
 sudo mkdir -p /var/lib/docker &&
@@ -63,7 +64,7 @@ mount | grep 'on /var/lib/docker .*prjquota' &&
 sudo systemctl start docker
 ```
 
-`/var/lib/docker.old`가 이미 있으면 이동 단계에서 멈춘다. 내용을 확인해 다른 곳으로 치운 뒤 다시 한다. 중간에 멈추면 Docker는 멈춘 채로 있다. 원인을 고치기 전에 시작하지 않는다. 이미 옮겼다면 `/var/lib/docker.old`가 원본이다. 위 확인 명령이 통과해야 `deploy`로 간다.
+`/var/lib/docker.old`가 이미 있으면 첫 단계에서 멈춘다. 내용을 확인해 다른 곳으로 치운 뒤 다시 한다. 중간에 멈추면 Docker는 멈춘 채로 있다. 원인을 고치기 전에 시작하지 않는다. 이미 옮겼다면 `/var/lib/docker.old`가 원본이다. 위 확인 명령이 통과해야 `deploy`로 간다.
 
 - 60G는 Docker 전체(이미지, 로그, 모든 volume)의 천장이다. 이미지 파일은 sparse라 쓴 만큼만 호스트 디스크를 차지하지만 줄어들지는 않는다. 호스트 파일시스템에 그만큼의 여유가 있어야 한다.
 - 이 단계에서 확인한 것: `truncate`, `mkfs.xfs`, `mount -o loop,prjquota`, `mount | grep prjquota`는 저장소 CI의 `workspace-quota` job이 그대로 돌린다(8G 이미지). OrbStack 머신에서는 이미지 파일을 Docker `data-root`로 지정하는 방식을 한 번 확인했다. `/etc/fstab` 줄과 `rsync` 이전은 이 문서를 쓰면서 실행해 보지 않았다(**미검증**). 먼저 시험 서버에서 한 번 해 본다.
