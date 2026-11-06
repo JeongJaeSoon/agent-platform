@@ -245,21 +245,36 @@ describe("opening a pull request for a pushed request", () => {
     expect(calls.some((call) => call.startsWith("create "))).toBe(false);
   });
 
-  test("a lease used up on the last attempt ends as failed, not uncertain: nothing was created", async () => {
-    const { service, calls } = harness({
-      files: { [TEMPLATE_PATH]: "## Summary\n" },
-      readDelayMs: 60,
+  // The stored row cannot say whether an earlier attempt reached the create,
+  // so a lease used up before it is never turned into `failed` (a user's
+  // second request would then open a second pull request): it stays a retry,
+  // and the claim past the last attempt ends `uncertain`.
+  for (const attempt of [2, PULL_REQUEST_MAX_ATTEMPTS]) {
+    test(`a lease used up on attempt ${attempt} stays a retry, never failed`, async () => {
+      const { service, calls } = harness({
+        files: { [TEMPLATE_PATH]: "## Summary\n" },
+        readDelayMs: 60,
+      });
+      const outcome = await service.openForPushRequest(job({ attempt }), {
+        deadline: Date.now() + 30,
+      });
+      expect(outcome).toEqual({
+        kind: "retry",
+        error: "lease_expired",
+        delayMs: 0,
+      });
+      expect(calls.some((call) => call.startsWith("create "))).toBe(false);
     });
-    const outcome = await service.openForPushRequest(
-      job({ attempt: PULL_REQUEST_MAX_ATTEMPTS }),
-      { deadline: Date.now() + 30 },
-    );
-    expect(outcome).toEqual({
-      kind: "stop",
-      stage: "failed",
-      error: "lease_expired",
-    });
-    expect(calls.some((call) => call.startsWith("create "))).toBe(false);
+  }
+
+  test("the claim past the last attempt ends uncertain", async () => {
+    const { service } = harness({});
+    expect(
+      await service.openForPushRequest(
+        job({ attempt: PULL_REQUEST_MAX_ATTEMPTS + 1 }),
+        { deadline: Date.now() + 60_000 },
+      ),
+    ).toEqual({ kind: "stop", stage: "uncertain", error: "lease_expired" });
   });
 
   test("adopts the branch's open pull request when it is at the pushed commit, and moves its tail", async () => {
