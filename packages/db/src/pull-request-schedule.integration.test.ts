@@ -303,7 +303,7 @@ integration("scheduling a pull request on PostgreSQL", () => {
         pullRequestIntent: FIRST,
         prState: "opening",
         prAttempts: 1,
-        prClaimToken: "old",
+        prClaimToken: crypto.randomUUID(),
         prLeaseExpiresAt: new Date(Date.now() - 60_000),
       })
       .where(eq(pushRequests.id, openingRow.id));

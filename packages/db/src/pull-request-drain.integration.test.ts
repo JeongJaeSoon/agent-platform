@@ -76,6 +76,7 @@ integration("postgres pull request drain", () => {
       repositoryBinding: "sha256:binding",
       checkpointRevision: 1,
       gitCommit: COMMIT,
+      flow: "actions",
       policyApproval: null,
       policyFields: {},
     });
@@ -406,11 +407,15 @@ integration("postgres pull request drain", () => {
     expect((await row(id))?.prState).toBe("opening");
   });
 
-  test("a legacy request with an invalid intent is failed without a notice", async () => {
+  test("a legacy request with an invalid intent is left alone: the drain only works the actions flow", async () => {
     const { id, sessionId } = await due({ title: 42 });
+    await db
+      .update(pushRequests)
+      .set({ flow: "legacy" })
+      .where(eq(pushRequests.id, id));
     await slackThread(sessionId);
     expect(await drain.claimNextDue(60_000)).toBeNull();
-    expect((await row(id))?.prError).toBe("intent_invalid");
+    expect((await row(id))?.prError).toBeNull();
     expect(await noticesOf(sessionId)).toHaveLength(0);
   });
 });
