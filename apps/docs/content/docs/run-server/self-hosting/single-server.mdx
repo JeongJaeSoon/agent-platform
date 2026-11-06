@@ -6,11 +6,11 @@ description: 게시된 이미지로 Linux 서버 한 대에 Werft를 설치하�
 Linux 서버 한 대에 Docker Compose로 Werft를 설치한다. 이미지는 직접 빌드하지 않고 게시된 것을 digest로 고정해 받는다. 이 페이지는 `/readyz`가 200을 돌려줄 때까지의 순서를 적는다. Kubernetes에 올린다면 [Kubernetes 설치](/run-server/self-hosting/kubernetes)를 읽는다.
 
 <Callout type="warn">
-이 절차는 OrbStack의 Ubuntu(arm64) 머신에서 게시 이미지로 1~6단계와 7단계의 `key create`까지 실행해 확인했다. 7단계의 `/bootstrap` 화면으로 첫 owner를 만드는 일은 확인하지 못했다. 실제 모델 호출은 확인했다. 콘솔에서 만든 GitHub App으로 `claude-coding` 프로필 세션을 만들었고, turn 1이 `completed`로 끝났다. `reset`은 세션이 없는 설치에서 컨테이너를 `-v` 없이 내린 뒤 한 번 실행해 exit 0과 postgres volume 삭제를 확인했다. 내용이 다르면 저장소의 `scripts/test-ops.sh`와 `infra/` 파일이 기준이다.
+이 절차는 OrbStack의 Ubuntu(arm64) 머신에서 게시 이미지로 1~6단계와 7단계의 `key create`까지 실행해 확인했다. v0.1.0을 단 commit(`9e2098e5`)에서는 3~7단계를 `main-<12>` 게시 이미지로 다시 실행했다. `/readyz`와 docs가 200이었고, bootstrap 요청이 201이었으며, 키를 넣은 요청은 200, 넣지 않은 요청은 401이었다. 이 실행은 7단계의 `/bootstrap` 요청까지다. 앞선 실행에서는 오너가 `/bootstrap` 화면으로 첫 owner를 직접 만들었고(검증 카드는 화면을 보지 못했다), 로그인 API(`POST /v1/auth/login`)가 200이었다. 브라우저 화면의 `/login` 로그인은 하지 않았다. 실제 모델 호출은 확인했다. 콘솔에서 만든 GitHub App으로 `claude-coding` 프로필 세션을 만들었고, turn 1이 `completed`로 끝났다. `reset`은 세션이 없는 설치에서 컨테이너를 `-v` 없이 내린 뒤 한 번 실행해 exit 0과 postgres volume 삭제를 확인했다. 내용이 다르면 저장소의 `scripts/test-ops.sh`와 `infra/` 파일이 기준이다.
 </Callout>
 
 <Callout type="warn">
-첫 `v` 태그가 아직 없다. 지금은 `main`에 머지될 때마다 게시되는 `main-<12>` 태그를 쓴다. 이 태그는 릴리스가 아니고, 태그가 가리키는 이미지는 digest로 고정해서 쓴다. 첫 `v` 태그가 생기면 아래 `TAG`를 `v<버전>`으로 바꾸고 2단계에서 같은 태그를 checkout한다. 나머지 명령은 같다.
+첫 릴리스 `v0.1.0`이 게시됐다(GitHub Release와 `v0.1.0` 이미지 태그). 릴리스를 설치하려면 아래 `TAG`를 `v0.1.0`으로 바꾸고 2단계에서 같은 태그를 checkout한다. 나머지 명령은 같다. 다만 위 확인은 `v0.1.0`과 같은 commit의 `main-<12>` 이미지로 한 것이고, `v0.1.0` 태그 이미지로 이 절차를 따라 설치해 보지는 않았다. `main-<12>` 태그는 릴리스가 아니고, 태그가 가리키는 이미지는 digest로 고정해서 쓴다.
 </Callout>
 
 ## 배포 결정
@@ -66,7 +66,7 @@ unset API_IMAGE WORKER_IMAGE EGRESS_PROXY_IMAGE
 
 ## 2. checkout 받기
 
-이미지와 같은 commit을 checkout한다. `<12>`는 위 `TAG`의 12자다. 첫 `v` 태그 뒤에는 `git checkout v<버전>`이다.
+이미지와 같은 commit을 checkout한다. `<12>`는 위 `TAG`의 12자다. 릴리스를 설치할 때는 `git checkout v0.1.0`처럼 릴리스 태그를 쓴다.
 
 ```bash
 git clone https://github.com/JeongJaeSoon/werft.git
@@ -182,7 +182,7 @@ ssh -N -L 3000:127.0.0.1:3000 <user>@<server>
 
 ## 7. 첫 owner와 API key
 
-브라우저로 `http://127.0.0.1:3000/bootstrap`을 열고 env 파일의 `BOOTSTRAP_TOKEN`, owner 정보, workspace 이름을 넣는다. env 파일에 넣지 않았다면 API 컨테이너 로그에서 `BOOTSTRAP_TOKEN`으로 시작하는 한 줄을 찾아 그 값을 쓴다. 이 로그를 읽을 수 있는 사람은 첫 owner가 생기기 전까지 bootstrap할 수 있으니 열람 권한을 운영자로 제한한다. 같은 토큰을 다시 보내면 `409 BOOTSTRAP_DONE`이 나온다. 이어서 `/login`으로 로그인한다. 이 화면으로 owner를 만드는 일은 확인하지 못했다.
+브라우저로 `http://127.0.0.1:3000/bootstrap`을 열고 env 파일의 `BOOTSTRAP_TOKEN`, owner 정보, workspace 이름을 넣는다. env 파일에 넣지 않았다면 API 컨테이너 로그에서 `BOOTSTRAP_TOKEN`으로 시작하는 한 줄을 찾아 그 값을 쓴다. 이 로그를 읽을 수 있는 사람은 첫 owner가 생기기 전까지 bootstrap할 수 있으니 열람 권한을 운영자로 제한한다. 같은 토큰을 다시 보내면 `409 BOOTSTRAP_DONE`이 나온다. 이어서 `/login`으로 로그인한다. 이 화면으로 owner를 만드는 일은 오너가 직접 했고 카드는 화면을 보지 못했다. 브라우저의 로그인 화면은 확인하지 못했다.
 
 사용자마다 owner와 API key를 따로 발급한다. 평문 key는 한 번만 출력되니 변수에 받아 직접 전달한다.
 

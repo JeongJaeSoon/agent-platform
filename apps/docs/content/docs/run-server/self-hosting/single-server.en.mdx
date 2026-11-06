@@ -6,11 +6,11 @@ description: The steps to install Werft on one Linux server from the published i
 Install Werft on one Linux server with Docker Compose. You do not build the images. You pull the published ones, pinned by digest. This page lists the steps up to the point where `/readyz` returns 200. To run on Kubernetes, read [Kubernetes install](/run-server/self-hosting/kubernetes) instead.
 
 <Callout type="warn">
-These steps were run with the published images on an Ubuntu (arm64) machine in OrbStack, from step 1 through step 6 and `key create` in step 7. Creating the first owner on the `/bootstrap` screen in step 7 was not checked. A real model call was checked: a `claude-coding` session using a GitHub App created in the console finished turn 1 as `completed`. `reset` was run once on an installation with no sessions, after its containers were taken down without `-v`; it exited 0 and removed the postgres volume. If anything differs, the repository's `scripts/test-ops.sh` and `infra/` files are the reference.
+These steps were run with the published images on an Ubuntu (arm64) machine in OrbStack, from step 1 through step 6 and `key create` in step 7. On the commit tagged v0.1.0 (`9e2098e5`), steps 3 to 7 were run again with the published `main-<12>` images: `/readyz` and docs returned 200, the bootstrap request returned 201, and a request with a key returned 200 and one without a key returned 401. That run reached the `/bootstrap` request in step 7 only. In an earlier run the owner created the first owner on the `/bootstrap` screen themselves (the verifying card did not see the screen), and the login API (`POST /v1/auth/login`) returned 200. Logging in on the `/login` screen in a browser was not done. A real model call was checked: a `claude-coding` session using a GitHub App created in the console finished turn 1 as `completed`. `reset` was run once on an installation with no sessions, after its containers were taken down without `-v`; it exited 0 and removed the postgres volume. If anything differs, the repository's `scripts/test-ops.sh` and `infra/` files are the reference.
 </Callout>
 
 <Callout type="warn">
-There is no `v` tag yet. For now, use the `main-<12>` tag published on every merge to `main`. It is not a release, and you pin the image it points to by digest. Once the first `v` tag exists, change `TAG` below to `v<version>` and check out the same tag in step 2. Every other command stays the same.
+The first release, `v0.1.0`, is published (a GitHub Release and `v0.1.0` image tags). To install the release, change `TAG` below to `v0.1.0` and check out the same tag in step 2. Every other command stays the same. The checks above were made with the `main-<12>` images of the same commit as `v0.1.0`, though; this procedure was not followed with the `v0.1.0` tag images. `main-<12>` is not a release, and you pin the image it points to by digest.
 </Callout>
 
 ## Decisions
@@ -66,7 +66,7 @@ unset API_IMAGE WORKER_IMAGE EGRESS_PROXY_IMAGE
 
 ## 2. Get the checkout
 
-Check out the same commit as the images. `<12>` is the 12 characters from `TAG` above. After the first `v` tag, use `git checkout v<version>`.
+Check out the same commit as the images. `<12>` is the 12 characters from `TAG` above. To install a release, use its tag, for example `git checkout v0.1.0`.
 
 ```bash
 git clone https://github.com/JeongJaeSoon/werft.git
@@ -182,7 +182,7 @@ To expose it on an internal DNS name, put a reverse proxy with TLS and a VPN or 
 
 ## 7. First owner and API key
 
-Open `http://127.0.0.1:3000/bootstrap` in a browser and enter the `BOOTSTRAP_TOKEN` from the env file, the owner details and a workspace name. If you did not put it in the env file, find the line that starts with `BOOTSTRAP_TOKEN` in the API container's log and use its value. Anyone who can read that log can bootstrap until the first owner exists, so limit who can read it to operators. Sending the same token again returns `409 BOOTSTRAP_DONE`. Then sign in at `/login`. Creating the owner on this screen was not checked.
+Open `http://127.0.0.1:3000/bootstrap` in a browser and enter the `BOOTSTRAP_TOKEN` from the env file, the owner details and a workspace name. If you did not put it in the env file, find the line that starts with `BOOTSTRAP_TOKEN` in the API container's log and use its value. Anyone who can read that log can bootstrap until the first owner exists, so limit who can read it to operators. Sending the same token again returns `409 BOOTSTRAP_DONE`. Then sign in at `/login`. The owner created the first owner on this screen themselves, and the verifying card did not see the screen. The browser login screen was not checked.
 
 Issue a separate owner and API key for each user. The plain key is printed once, so capture it in a variable and hand it over directly.
 

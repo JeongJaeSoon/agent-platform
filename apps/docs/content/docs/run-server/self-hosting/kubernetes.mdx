@@ -6,7 +6,7 @@ description: 게시된 Helm chart로 Kubernetes에 Werft를 설치하고 /readyz
 게시된 Helm chart로 Kubernetes에 Werft를 설치한다. 저장소 checkout 없이 chart 하나가 세 이미지의 digest와 worker runtime을 담고 있다. 이 페이지만 따라 `/readyz`가 200을 돌려줄 때까지 간다. Linux 서버 한 대에 Docker Compose로 올린다면 [단일 서버 설치](/run-server/self-hosting/single-server)를 읽는다.
 
 <Callout type="warn">
-첫 `v` 태그가 아직 없다. 지금은 `main`에 머지될 때마다 게시되는 chart `0.1.0-main-<12>`를 쓴다. 이 버전은 릴리스가 아니다. 첫 `v` 태그가 생기면 `v` 없이 태그의 버전(`v1.2.3`이면 `1.2.3`)이 chart 버전이 되고, 아래 명령은 `VERSION`만 바꾸면 같다.
+첫 릴리스 `v0.1.0`이 게시됐고 chart `0.1.0`(appVersion `v0.1.0`)이 같이 올라갔다. 릴리스를 설치하려면 `VERSION`을 `0.1.0`으로 바꾼다(`v` 없이 태그의 버전이 chart 버전이다). 아래 명령은 `VERSION`만 바꾸면 같다. 다만 kind에서 처음부터 끝까지 확인한 것은 `v0.1.0`과 같은 commit의 chart `0.1.0-main-<12>`이고, chart `0.1.0`으로 이 절차를 따라 설치해 보지는 않았다. `0.1.0-main-<12>`는 릴리스가 아니다.
 </Callout>
 
 ## 준비물

@@ -6,7 +6,7 @@ description: Install Werft on Kubernetes from the published Helm chart and reach
 Install Werft on Kubernetes from the published Helm chart. You do not need a repository checkout: one chart carries the digest of all three images and the worker runtime. Follow this page alone until `/readyz` returns 200. To run on one Linux server with Docker Compose, read [Single-server install](/run-server/self-hosting/single-server) instead.
 
 <Callout type="warn">
-There is no `v` tag yet. For now, use the chart `0.1.0-main-<12>` published on every merge to `main`. It is not a release. Once the first `v` tag exists, the chart version is the tag without the `v` (`1.2.3` for `v1.2.3`); change only `VERSION` and the commands stay the same.
+The first release, `v0.1.0`, is published, and chart `0.1.0` (appVersion `v0.1.0`) went out with it. To install the release, set `VERSION` to `0.1.0` (the chart version is the tag without the `v`). Change only `VERSION` and the commands stay the same. The end-to-end run on kind used chart `0.1.0-main-<12>` of the same commit as `v0.1.0`, though; this procedure was not followed with chart `0.1.0`. `0.1.0-main-<12>` is not a release.
 </Callout>
 
 ## Requirements

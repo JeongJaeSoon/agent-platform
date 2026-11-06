@@ -6,7 +6,7 @@ description: 公開された Helm chart で Kubernetes に Werft を設置し、
 公開された Helm chart で Kubernetes に Werft を設置します。リポジトリの checkout は不要で、chart 1つに3つのイメージの digest と worker runtime が入っています。このページだけに従えば、`/readyz` が 200 を返すところまで進めます。Linux サーバー1台に Docker Compose で設置する場合は [単一サーバーの設置](/run-server/self-hosting/single-server) を読んでください。
 
 <Callout type="warn">
-`v` タグはまだありません。今は `main` にマージされるたびに公開される chart `0.1.0-main-<12>` を使います。これはリリースではありません。最初の `v` タグができると、chart のバージョンは `v` を除いたタグ(`v1.2.3` なら `1.2.3`)になり、`VERSION` だけを変えれば下のコマンドは同じです。
+最初のリリース `v0.1.0` が公開され、chart `0.1.0`(appVersion `v0.1.0`)も一緒に公開されました。リリースを設置するには `VERSION` を `0.1.0` にします(chart のバージョンは `v` を除いたタグです)。`VERSION` だけを変えれば下のコマンドは同じです。ただし kind で最初から最後まで確認したのは、`v0.1.0` と同じ commit の chart `0.1.0-main-<12>` で、chart `0.1.0` でこの手順を実行してはいません。`0.1.0-main-<12>` はリリースではありません。
 </Callout>
 
 ## 必要なもの
