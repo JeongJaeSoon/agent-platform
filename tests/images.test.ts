@@ -1544,6 +1544,63 @@ esac
     });
   });
 
+  describe("image-scan.sh", () => {
+    const script = join(root, ".github/scripts/image-scan.sh");
+
+    test("a build whose scan got no answer fails the job", () => {
+      const build = Bun.YAML.parse(read(".github/workflows/images.yml")) as {
+        jobs: {
+          build: { steps: { name?: string; "continue-on-error"?: boolean }[] };
+        };
+      };
+      const scan = build.jobs.build.steps.find(
+        (step) => step.name === "Vulnerability scan",
+      );
+      expect(scan).toBeDefined();
+      expect(scan?.["continue-on-error"]).toBeUndefined();
+    });
+
+    test("a scanner download that keeps failing exits non-zero and leaves error", () => {
+      const directory = mkdtempSync(join(tmpdir(), "image-scan-"));
+      try {
+        mkdirSync(join(directory, "bin"));
+        // The pinned checksums are per architecture; pretend to be x86_64 so
+        // the run reaches the download on any host.
+        writeFileSync(
+          join(directory, "bin/uname"),
+          "#!/usr/bin/env bash\necho x86_64\n",
+          { mode: 0o755 },
+        );
+        writeFileSync(
+          join(directory, "bin/curl"),
+          '#!/usr/bin/env bash\necho "$*" >"$FAKE/curl"\nexit 22\n',
+          { mode: 0o755 },
+        );
+        const result = Bun.spawnSync(
+          ["bash", script, "app-amd64", "image:ref", join(directory, "out")],
+          {
+            env: {
+              PATH: `${join(directory, "bin")}:${process.env.PATH ?? ""}`,
+              FAKE: directory,
+              GITHUB_STEP_SUMMARY: join(directory, "summary"),
+            },
+          },
+        );
+        expect(result.exitCode).toBe(22);
+        expect(readFileSync(join(directory, "out/app-amd64.txt"), "utf8")).toBe(
+          "error\n",
+        );
+        // A 504 from the release host is transient: retry every kind of
+        // failure, and wait longer than curl's default one-second backoff.
+        const args = readFileSync(join(directory, "curl"), "utf8");
+        expect(args).toContain("--retry-all-errors");
+        expect(args).toMatch(/--retry-delay [1-9]\d/);
+      } finally {
+        rmSync(directory, { recursive: true, force: true });
+      }
+    });
+  });
+
   describe("image-sources.sh", () => {
     const shared = "https://snapshot.debian.org/package/acl/2.3.2-2/";
     const workerOnly = "https://snapshot.debian.org/package/gh/1/";
