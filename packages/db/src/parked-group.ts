@@ -10,12 +10,14 @@ import {
   and,
   asc,
   eq,
+  gt,
   inArray,
   isNotNull,
   isNull,
   lte,
   max,
   notExists,
+  notInArray,
   or,
   sql,
 } from "drizzle-orm";
@@ -280,6 +282,26 @@ async function continueParkedTurn(
     .from(turns)
     .where(eq(turns.id, group.turnRowId));
   const parkedSequence = parkedTurn?.sequence ?? 0;
+  // A turn counts when it ran or still will: one cancelled or failed before
+  // it started (a revoked continuation, a launch given up on) left nothing,
+  // and a continuation of this very group is the turn taking over.
+  const [intervening] = await tx
+    .select({ id: turns.id })
+    .from(turns)
+    .where(
+      and(
+        eq(turns.sessionId, session.id),
+        gt(turns.sequence, parkedSequence),
+        or(
+          isNotNull(turns.attemptId),
+          notInArray(turns.status, ["cancelled", "failed"]),
+        ),
+        notExists(
+          sql`(SELECT 1 FROM ${turnContinuations} c WHERE c.turn_id = ${turns.id} AND c.parked_turn_id = ${group.turnRowId})`,
+        ),
+      ),
+    )
+    .limit(1);
   const [last] = await tx
     .select({ sequence: max(turns.sequence) })
     .from(turns)
@@ -303,7 +325,7 @@ async function continueParkedTurn(
     parkedTurnRowId: group.turnRowId,
     continuationRowId: turn.id,
     // A turn between the park and this one may have left its own commits.
-    intervened: (last?.sequence ?? 0) > parkedSequence,
+    intervened: intervening !== undefined,
   });
   await enqueueWithin(tx, {
     sessionId: session.id,

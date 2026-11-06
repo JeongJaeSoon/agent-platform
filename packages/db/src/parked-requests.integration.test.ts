@@ -2051,6 +2051,27 @@ integration("parked pending requests on PostgreSQL", () => {
     expect((await intentOf(sessionId)).status).toBe("pinned");
   });
 
+  test("a carrying turn failed before it started (launch given up) ends the push with a reason, as its group is carried on and cannot reopen", async () => {
+    const { owner, sessionId, worker } = await runningSession();
+    const requestId = await register(worker);
+    const parkedRowId = await deferPush(owner, sessionId, worker);
+    await parkRows(worker, [requestId]);
+    await executionGone(worker);
+    await answer(owner, sessionId, requestId);
+    const [carried] = await continuations(parkedRowId);
+    // What quarantineLaunch does to the queued turns of a session.
+    await db
+      .update(turns)
+      .set({ status: "failed", endedAt: sql`now()`, terminalReason: "launch" })
+      .where(eq(turns.id, carried?.id ?? -1));
+
+    expect(await createPostgresPushIntents(db).settleStale()).toBe(1);
+    expect(await intentOf(sessionId)).toMatchObject({
+      status: "cancelled",
+      refusalCode: "turn_finalized_without_pin",
+    });
+  });
+
   // Turn 1 drain-parked and left open, then turn 2 parked behind it by the
   // system, both groups waiting.
   async function twoParks() {
