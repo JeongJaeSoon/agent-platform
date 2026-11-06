@@ -82,6 +82,16 @@ If `/var/lib/docker.old` already exists, the line stops at its first step; look 
 | What the operator sets | The filesystem of the Docker data root (XFS, `prjquota`) and its size, and the two limits above |
 | Check commands | `findmnt -no FSTYPE,OPTIONS -T "$(docker info -f '{{.DockerRootDir}}')"`, `xfs_quota -x -c 'report -p'`, `df -h`, `df -i` |
 
+## Install without a checkout: the release bundle
+
+A `v*` GitHub Release carries `werft-test-ops-<tag>.tar.gz` with the compose files, `scripts/test-ops.sh` and the example settings. It holds no images: they are the ones already published, pulled by the digests in the release's `release-manifest.json`. With the bundle you skip step 2 (checkout) and need no host bun. The commands from download to `deploy` are in the repository's `docs/operator/test-ops.md` (Korean), section "릴리스 번들로 설치".
+
+| | Checkout install | Bundle install |
+|---|---|---|
+| Needs | git, jq, curl, bun 1.3.14, a checkout of the deployed commit | docker, jq, curl |
+| `preflight` `deploy` `start` `stop` `status` `key` `reset` `manifest` | Supported | Supported |
+| `upgrade` `backup` `reseed` `restore-drill` | Supported | Refused; use the checkout |
+
 ## 1. Read the image digests
 
 Pick a tag and read the digest of the three images. Each image is an index of `linux/amd64` and `linux/arm64`, so the server pulls its own architecture.
