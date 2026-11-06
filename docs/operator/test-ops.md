@@ -51,6 +51,37 @@ Kubernetes 설치는 `scripts/test-ops.sh`를 쓰지 않는다. 같은 일을 �
 
 compose 파일(`infra/compose.core.yml` + `infra/compose.test-ops.yml` + object store layer)과 postgres 초기 SQL, LocalStack 초기화 스크립트를 checkout에서 읽으므로, 업그레이드 사이에는 checkout을 배포한 commit에 그대로 둔다.
 
+checkout과 호스트 bun 없이 설치하려면 [릴리스 번들](#릴리스-번들로-설치)을 쓴다. 그 경우 위 "도구"와 "checkout" 줄은 아래 번들 표가 대신한다.
+
+## 릴리스 번들로 설치
+
+`v*` 릴리스의 GitHub Release에는 `release-manifest.json` 말고 `werft-test-ops-<tag>.tar.gz`와 `.sha256`이 붙는다. 번들은 compose 파일, `scripts/test-ops.sh`와 그 헬퍼, postgres 초기 SQL, LocalStack 초기화 스크립트, 예시 설정, 그 릴리스의 `release-manifest.json`을 checkout과 같은 배치로 담는다. 이미지는 담지 않는다. 이미지는 GHCR에 이미 게시된 digest 그대로 `deploy`가 받는다. 번들은 태그를 찍은 run에서만 만들어 올린다.
+
+| | checkout 설치 | 번들 설치 |
+|---|---|---|
+| 필요한 것 | git, jq, curl, bun 1.3.14(`bun install` 완료), 배포 commit의 checkout | docker, jq, curl. git·bun·checkout 없음 |
+| 헬퍼(`scripts/lib/test-ops.ts`) | 호스트 bun | 릴리스의 control-host 이미지(digest 고정)에서 실행. 첫 실행에 그 이미지를 받는다 |
+| 진입점 | `scripts/test-ops.sh <동사>` | 번들을 푼 디렉터리의 `scripts/test-ops.sh <동사>` |
+| 릴리스 확인 | git의 `HEAD`가 `source_commit`이고 로컬 변경 없음 | `SHA256SUMS`와 파일 목록이 맞고, manifest의 commit과 이미지 3개가 번들의 `release-manifest.json`과 같음 |
+| `preflight` `deploy` `start` `stop` `status` `key` `reset` `manifest` | 지원 | 지원 |
+| `upgrade` `backup` `reseed` `restore-drill` | 지원 | 거부. checkout에서 한다 |
+
+`upgrade`·`backup`·`reseed`·`restore-drill`은 업그레이드 게이트와 복원 도구(`scripts/verify-restore.sh` 등)를 쓰므로 번들에 없다. 번들에서 이 동사를 부르면 거부하고 checkout 경로를 안내한다. 같은 env 파일과 상태 디렉터리를 쓰므로, 번들로 설치한 설치를 나중에 `git checkout <source_commit>` 한 저장소에서 이어서 다룰 수 있다. LocalStack 설치는 컨테이너가 내려가면 객체를 잃으므로(아래 `reseed`) 체크포인트가 쌓인 설치는 checkout 경로를 권한다.
+
+```bash
+TAG=v0.1.0   # 쓸 릴리스 태그
+mkdir "$TAG" && cd "$TAG"
+gh release download "$TAG" -R JeongJaeSoon/werft -p 'werft-test-ops-*' -p release-manifest.json
+sha256sum -c "werft-test-ops-$TAG.tar.gz.sha256"
+tar -xzf "werft-test-ops-$TAG.tar.gz" && cd "werft-test-ops-$TAG"
+# env 파일(infra/test-ops.env.example)과 설정 문서를 준비한 뒤
+scripts/test-ops.sh manifest release-manifest.json /etc/werft/settings.json > ../release.json
+scripts/test-ops.sh preflight ../release.json
+scripts/test-ops.sh deploy ../release.json
+```
+
+`sha256`은 내려받다 깨진 파일과 빠진 파일을 잡는다. 릴리스 출처를 증명하지는 않으므로, `gh release download`(GitHub, TLS)로 받은 파일만 쓴다. `manifest` 동사는 릴리스 manifest와 설정 문서의 sha256으로 `deploy`가 받는 manifest를 만든다. 번들의 `preflight`·`deploy`는 그 manifest의 이미지 3개와 commit이 번들 안 `release-manifest.json`과 다르면 거부한다.
+
 ## AWS 준비(`s3`에서만)
 
 `TEST_OPS_OBJECT_STORE=s3`로 배포할 때만 필요하다.
