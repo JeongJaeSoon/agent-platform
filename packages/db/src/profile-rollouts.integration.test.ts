@@ -722,6 +722,54 @@ integration("profile rollouts on PostgreSQL (U3b reader)", () => {
       expect(await db.select().from(profileFill)).toHaveLength(1);
     });
 
+    test("a lineage with a rollout and a failed item does not block the fill of a lineage without one", async () => {
+      const caller = await owner();
+      await lineage(caller);
+      const waiting = await follower(caller);
+      for (const [version, profile] of [
+        [1, V1],
+        [2, V2],
+      ] as const) {
+        await db.insert(installationProfiles).values({
+          id: `op_other_v${version}`,
+          name: "other",
+          version,
+          origin: "console",
+          definition: definitionOf(profile),
+          permissionMode: "default",
+          fingerprint: `fp-other-${version}`,
+          repositoryIds: [],
+          createdBy: userOf(caller),
+        });
+      }
+      const opened = await follower(caller, { profile: "op_other_v1" });
+      const rolloutId = randomUUID();
+      await db.insert(profileRollouts).values({
+        id: rolloutId,
+        kind: "profile_update",
+        targetProfileId: "op_other_v2",
+        createdBy: userOf(caller),
+      });
+      await db.insert(profileRolloutItems).values({
+        rolloutId,
+        agentId: opened.agent.id,
+        generation: 0,
+        status: "failed",
+        reasonCode: "release_refused",
+      });
+
+      expect(await rollouts().sweep()).toEqual({
+        rollouts: 0,
+        items: 0,
+        held: 1,
+      });
+      const filled = await rollouts().backfill({ dryRun: false });
+      if ("refused" in filled) throw new Error("fill refused");
+      expect(filled.pinned).toEqual([waiting.agent.id]);
+      expect((await agentRow(opened.agent.id))?.profileTracking).toBe("follow");
+      expect(await db.select().from(profileFill)).toHaveLength(1);
+    });
+
     test("with nobody behind, an empty outbox is nothing to hold back", async () => {
       const caller = await owner();
       await lineage(caller);

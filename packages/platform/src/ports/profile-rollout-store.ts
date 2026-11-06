@@ -93,7 +93,8 @@ export interface ProfileRolloutStore {
   }): Promise<RolloutInspection>;
   /**
    * The one-time fill of `profile_tracking` and `model_source` before the
-   * outbox is written. A real run is refused once any rollout exists.
+   * outbox is written. Lineages that already have a rollout are the sweep's
+   * and are left alone; a real run is refused when only those are behind.
    */
   backfill(input: {
     dryRun: boolean;

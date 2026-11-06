@@ -576,14 +576,16 @@ export function createPostgresProfileRolloutStore(
     }): Promise<BackfillReport | { refused: "rollouts_exist" }> {
       return db.transaction(async (tx) => {
         await lockWrites(tx);
-        const { behind } = await behindLatest(tx);
+        const { behind: allBehind } = await behindLatest(tx);
         // A lineage that already has a rollout belongs to the sweep: pinning
-        // its agents here would race the items the writer put in.
-        if (!dryRun) {
-          const opened = await lineagesWithRollouts(tx);
-          if (behind.some((agent) => opened.has(agent.lineage as string)))
-            return { refused: "rollouts_exist" as const };
-        }
+        // its agents here would race the items the writer put in. They are
+        // left alone, and the run is refused only when nothing else is left.
+        const opened = await lineagesWithRollouts(tx);
+        const behind = allBehind.filter(
+          (agent) => !opened.has(agent.lineage as string),
+        );
+        if (!dryRun && allBehind.length > 0 && behind.length === 0)
+          return { refused: "rollouts_exist" as const };
         const behindSorted = [...behind].sort((a, b) =>
           a.agent_id < b.agent_id ? -1 : a.agent_id > b.agent_id ? 1 : 0,
         );
