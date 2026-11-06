@@ -5,6 +5,7 @@ import {
   type PullRequest,
   type PullRequestReceiptResult,
   type PullRequestRefusal,
+  type PullRequestStage,
   type PushRequestState,
 } from "@werft-ai/contracts";
 import {
@@ -472,7 +473,41 @@ export function createPostgresPullRequests(db: Database): PullRequestStore {
         state: row.state as PushRequestState,
         targetBranch: row.targetBranch,
         gitCommit: row.gitCommit,
+        prState: row.prState as PullRequestStage | null,
+        prError: row.prError,
+        prErrorDetails:
+          (row.prErrorDetails as Record<string, unknown> | null) ?? null,
       };
+    },
+
+    async failHeadMoved({ ownerId, pushRequestId, details }) {
+      await db.transaction(async (tx) => {
+        const [row] = await tx
+          .select({ id: pushRequests.id })
+          .from(pushRequests)
+          .where(
+            and(
+              eq(pushRequests.id, pushRequestId),
+              eq(pushRequests.ownerId, ownerId),
+            ),
+          )
+          .limit(1)
+          .for("update");
+        if (!row || (await findPullRequest(tx, ownerId, row.id)) !== null) {
+          return;
+        }
+        await tx
+          .update(pushRequests)
+          .set({
+            prState: "failed",
+            prError: "head_moved",
+            prErrorDetails: details,
+            prNextAttemptAt: null,
+            prClaimToken: null,
+            prLeaseExpiresAt: null,
+          })
+          .where(eq(pushRequests.id, row.id));
+      });
     },
 
     findPullRequest(ownerId, pushRequestId) {

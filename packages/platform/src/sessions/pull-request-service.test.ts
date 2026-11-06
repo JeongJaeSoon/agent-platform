@@ -143,8 +143,18 @@ function harness(
     state: options.state ?? "pushed",
     targetBranch: HEAD,
     gitCommit: "a".repeat(40),
+    prState: null,
+    prError: null,
+    prErrorDetails: null,
   };
+  const failed: Array<Record<string, unknown>> = [];
   const store: PullRequestStore = {
+    failHeadMoved: async ({ details }) => {
+      failed.push(details);
+      source.prState = "failed";
+      source.prError = "head_moved";
+      source.prErrorDetails = details;
+    },
     schedule: async () => {
       throw new Error("not used");
     },
@@ -393,6 +403,7 @@ function harness(
     failCompare: () => {
       compareFails = true;
     },
+    failed,
     setOpen: (
       pull: Omit<ForgePullRequest, "mergedAt" | "closedAt" | "headSha">,
       headSha = "a".repeat(40),
@@ -587,15 +598,50 @@ describe("opening a pull request", () => {
       expect(calls).not.toContain("update 3");
     });
 
-    test("a pull request just created, or answered to a 422, on a moved head is not recorded either", async () => {
-      for (const raced of [false, true]) {
-        const { service, saved } = harness({ madeHead: MOVED, raced });
-        const caught = await refusal(
-          service.open(actor, SESSION, PUSH, { readBody: async () => ({}) }),
-        );
-        expect(caught.details).toMatchObject({ refusal: "head_moved" });
-        expect(saved).toEqual([]);
-      }
+    test("a pull request answered to a 422 on a moved head is not recorded either", async () => {
+      const { service, saved } = harness({ madeHead: MOVED, raced: true });
+      const caught = await refusal(
+        service.open(actor, SESSION, PUSH, { readBody: async () => ({}) }),
+      );
+      expect(caught.details).toMatchObject({ refusal: "head_moved" });
+      expect(saved).toEqual([]);
+    });
+
+    test("a pull request this call created on a moved head ends the stage head_moved for good: its number is kept, nothing is recorded, and no later call creates another", async () => {
+      const { service, saved, failed, calls, ancestors, forgePullRequest } =
+        harness({ madeHead: MOVED });
+      // Even a head that only lags is final here: the pull request exists.
+      ancestors.add(MOVED);
+      const first = await refusal(
+        service.open(actor, SESSION, PUSH, { readBody: async () => ({}) }),
+      );
+      expect(first.details).toMatchObject({
+        refusal: "head_moved",
+        number: 7,
+        expected_sha: "a".repeat(40),
+        actual_sha: MOVED,
+      });
+      expect(failed).toEqual([
+        {
+          number: 7,
+          url: "https://github.com/acme/app/pull/7",
+          expected_sha: "a".repeat(40),
+          actual_sha: MOVED,
+        },
+      ]);
+      expect(saved).toEqual([]);
+      // A person closes it; the next call must not reach the forge at all.
+      const before = calls.length;
+      expect(forgePullRequest()).not.toBeNull();
+      const again = await refusal(
+        service.open(actor, SESSION, PUSH, { readBody: async () => ({}) }),
+      );
+      expect(again.details).toMatchObject({
+        refusal: "head_moved",
+        number: 7,
+      });
+      expect(calls.length).toBe(before);
+      expect(saved).toEqual([]);
     });
 
     test("a compare GitHub fails closes the same way as a head that is not an ancestor", async () => {

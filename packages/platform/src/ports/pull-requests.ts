@@ -3,6 +3,7 @@ import type {
   PullRequest,
   PullRequestReceiptResult,
   PullRequestRefusal,
+  PullRequestStage,
   PullRequestTemplateRecord,
   PushRequestState,
   ReceiptActor,
@@ -88,6 +89,10 @@ export type PullRequestSource = {
   state: PushRequestState;
   targetBranch: string;
   gitCommit: string;
+  /** The pull request stage, `failed` with `head_moved` being final. */
+  prState: PullRequestStage | null;
+  prError: string | null;
+  prErrorDetails: Record<string, unknown> | null;
 };
 
 /** What a pull request is scheduled against: one id, never both. */
@@ -189,6 +194,18 @@ export interface PullRequestStore {
   recordStateChange(
     input: PullRequestReceipt & { url: string },
   ): Promise<string>;
+  /**
+   * Ends the pull request stage as `failed` with `head_moved`, keeping the
+   * pull request the call made on a moved head (`number`, `url`) in the
+   * details: the open path then refuses without asking the forge, so a person
+   * closing that pull request cannot make a retry create another. Does
+   * nothing when a pull request is recorded.
+   */
+  failHeadMoved(input: {
+    ownerId: string;
+    pushRequestId: string;
+    details: Record<string, unknown>;
+  }): Promise<void>;
   /**
    * Records the pull request opened from the push request, with its
    * `open_pull_request` receipt. When one is already recorded (a racing

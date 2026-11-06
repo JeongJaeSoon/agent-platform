@@ -283,6 +283,59 @@ integration("scheduling a pull request on PostgreSQL", () => {
     });
   });
 
+  test("the drain never claims a legacy row an earlier build left due or opening", async () => {
+    const drain = createPostgresPullRequestDrain(db);
+    const sessionId = await newSession();
+    const dueRow = await request(sessionId, "legacy");
+    await approve(sessionId, dueRow.id);
+    await push(dueRow.id, "pushed");
+    const openingSession = await newSession();
+    const openingRow = await request(openingSession, "legacy");
+    await approve(openingSession, openingRow.id);
+    await push(openingRow.id, "pushed");
+    await db
+      .update(pushRequests)
+      .set({ pullRequestIntent: FIRST, prState: "due", prNextAttemptAt: null })
+      .where(eq(pushRequests.id, dueRow.id));
+    await db
+      .update(pushRequests)
+      .set({
+        pullRequestIntent: FIRST,
+        prState: "opening",
+        prAttempts: 1,
+        prClaimToken: "old",
+        prLeaseExpiresAt: new Date(Date.now() - 60_000),
+      })
+      .where(eq(pushRequests.id, openingRow.id));
+    const claimed: string[] = [];
+    for (let job = await drain.claimNextDue(60_000); job !== null; ) {
+      claimed.push(job.id);
+      job = await drain.claimNextDue(60_000);
+    }
+    expect(claimed.includes(dueRow.id)).toBe(false);
+    expect(claimed.includes(openingRow.id)).toBe(false);
+    expect(await row(dueRow.id)).toMatchObject({ prState: "due" });
+    expect(await row(openingRow.id)).toMatchObject({ prState: "opening" });
+  });
+
+  test("failHeadMoved ends the stage for good with the number, and findSource reads it back", async () => {
+    const sessionId = await newSession();
+    const made = await request(sessionId, "actions");
+    await approve(sessionId, made.id);
+    await push(made.id, "pushed");
+    const details = { number: 7, url: "https://github.com/acme/app/pull/7" };
+    await store.failHeadMoved({
+      ownerId: OWNER,
+      pushRequestId: made.id,
+      details,
+    });
+    expect(await store.findSource(OWNER, sessionId, made.id)).toMatchObject({
+      prState: "failed",
+      prError: "head_moved",
+      prErrorDetails: details,
+    });
+  });
+
   test("a rejected or failed request is refused with its state and id", async () => {
     const sessionId = await newSession();
     const made = await request(sessionId, "actions");
