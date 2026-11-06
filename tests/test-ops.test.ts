@@ -426,6 +426,24 @@ exit 0
     ).toBeNull();
   });
 
+  test("a start that fails names a cleanup that needs neither current.json nor a compose file", async () => {
+    const docker = await deployedSameWorker();
+    await writeFile(
+      join(dir, "bin", "docker"),
+      docker.replace(
+        "esac\nexit 0",
+        'esac\ncase "$*" in *" up -d"*) exit 1 ;; esac\nexit 0',
+      ),
+      { mode: 0o755 },
+    );
+    const result = await run(["start"], env);
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain(
+      "echo 'services: {}' | docker compose --project-name werft-test-ops -f - down --remove-orphans",
+    );
+    expect(result.stderr).not.toMatch(/ -v( |$)|--volumes/);
+  });
+
   test("start refuses while an upgrade has not finished", async () => {
     await deployedSameWorker();
     await writeFile(join(dir, "state", "pending.json"), "{}");

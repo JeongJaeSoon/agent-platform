@@ -77,6 +77,9 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/backup-lib.sh"
 ENV_FILE="${TEST_OPS_ENV_FILE:-/etc/werft/test-ops.env}"
 STATE_DIR="${TEST_OPS_STATE_DIR:-/var/lib/werft/test-ops}"
 PROJECT="${TEST_OPS_PROJECT:-werft-test-ops}"
+# A failed first deploy leaves no current.json, so `stop` has nothing to read. Compose
+# finds a project by its labels, but some versions refuse to run with no compose file.
+DOWN_BY_NAME="echo 'services: {}' | docker compose --project-name ${PROJECT} -f - down --remove-orphans"
 CURRENT="${STATE_DIR}/current.json"
 # The manifest of an upgrade that stopped the installation and did not finish.
 PENDING="${STATE_DIR}/pending.json"
@@ -482,7 +485,7 @@ start_apps() {
     log "the installation did not become healthy; last log lines of the services that fail first:"
     ops_compose logs --no-color --tail 30 migrate egress-proxy scheduler api >&2 || true
     # A first deploy that fails leaves no current.json, so `stop` has nothing to take down.
-    die "start failed (log lines above; for the scheduler, its quota or network preflight is the usual cause, docs/operator/test-ops.md). Containers that started stay up; take them down with: docker compose --project-name $PROJECT down (never -v; the volumes stay)"
+    die "start failed (log lines above; for the scheduler, its quota or network preflight is the usual cause, docs/operator/test-ops.md). Containers that started stay up; take them down with: ${DOWN_BY_NAME} (never -v; the volumes stay)"
   fi
   log "readyz: $(readyz)"
 }
