@@ -1108,7 +1108,11 @@ export function createPostgresPushRequests(
             // A pull request intent turns the finished push into a due
             // stage in this same write: the row is locked, so an intent
             // reserved meanwhile is either seen here or sees `pushed`.
-            ...(row.pullRequestIntent === null || row.prState !== null
+            // Only the actions flow has a drain; a legacy request's pull
+            // request is the follow-up turn's.
+            ...(row.flow !== "actions" ||
+            row.pullRequestIntent === null ||
+            row.prState !== null
               ? {}
               : pushed
                 ? { prState: "due", prNextAttemptAt: null }

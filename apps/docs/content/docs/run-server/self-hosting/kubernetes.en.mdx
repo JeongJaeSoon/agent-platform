@@ -21,6 +21,37 @@ The first release, `v0.1.0`, is published, and chart `0.1.0` (appVersion `v0.1.0
 
 The chart does not create PostgreSQL, the object store or Secret values. It does not create worker Pods either: the scheduler creates one per session. The published images are an index of `linux/amd64` and `linux/arm64`, so each node pulls its own architecture.
 
+### Workspace storage and its limits
+
+On a single server, XFS `prjquota` limits the workspace in both size and inodes ([Disk setup](/run-server/self-hosting/single-server)). Kubernetes has no such requirement, and the limits are built differently. The table puts the two paths side by side under the same headings.
+
+| Item | Single server | Kubernetes |
+| --- | --- | --- |
+| Where it lives | One Docker `local` volume per session, on the XFS under the Docker data root | One PVC per session (`werft-ws-<installationId>-<sessionId>`), mounted at the worker's `/workspace`. `ReadWriteOnce`, `Filesystem`. `/tmp` and HOME are memory-backed emptyDirs; no hostPath is used |
+| Size limit | `EXECUTION_WORKSPACE_QUOTA_MB`, default 4096 MiB (minimum 1024) | The PVC's `requests.storage`, helm `worker.workspace.quotaMb`, default 4096 MiB (minimum 1024). Whether it is enforced is up to the StorageClass |
+| Inode limit | `EXECUTION_WORKSPACE_QUOTA_INODES`, default 1,000,000 | **None.** Neither Werft nor the chart sets one. The filesystem default applies (ext4 fixes the count when it is made) |
+| Enforced by | XFS `prjquota` (the kernel). Checked by the scheduler preflight | The kubelet and the CSI driver. Werft only requests the size; it does not read usage, and no preflight checks it |
+| When exceeded | Worker writes fail with `ENOSPC`. If the limits cannot be set, the scheduler does not start | `ENOSPC` if the StorageClass enforces the size. If it does not, there is no limit. Node disk outside the PVC (mostly the log) is capped by `worker.ephemeralStorageMb` (default 1024 MiB, requests = limits); past it the kubelet evicts the Pod |
+| What the operator sets | The filesystem of the Docker data root and its size, and the two limits | `worker.storageClass` (empty is the cluster default), `worker.workspace.quotaMb`, `worker.ephemeralStorageMb`, and the filesystem size of the worker nodes |
+| Check commands | `findmnt -no FSTYPE,OPTIONS -T "$(docker info -f '{{.DockerRootDir}}')"`, `xfs_quota -x -c 'report -p'` | Below |
+
+```bash
+kubectl get storageclass
+kubectl -n werft get pvc -l app.kubernetes.io/part-of=werft,werft.installation=<installationId> \
+  -o custom-columns=NAME:.metadata.name,REQUEST:.spec.resources.requests.storage,CAPACITY:.status.capacity.storage
+kubectl -n werft exec <worker-pod> -- df -h /workspace
+kubectl -n werft exec <worker-pod> -- df -i /workspace
+```
+
+In `kubectl get storageclass`, check that the provisioner of the StorageClass you use creates volumes whose size is enforced (for example, an EBS gp3 volume is as large as the size requested). `REQUEST` in the PVC listing is what Werft asked for, and `CAPACITY` is the size the provisioner made. The total in `df -h` can differ from either because of filesystem overhead, so do not judge by whether they match. Check that `CAPACITY` is at least `REQUEST`, and that writing more than `REQUEST` into a test PVC of the same StorageClass ends in `ENOSPC`. `df -i` shows the inode total. These commands were not run against a cluster (**NOT VERIFIED**). The values were read from the code (`specs.ts`, `config.ts`) and the chart.
+
+- **A PVC is required.** The only workspace volume a worker Pod uses is a PVC (`specs.ts`); no setting switches it to an emptyDir or a hostPath. A session's PVC lives apart from the Pod, so a replaced Pod attaches to the same-named PVC again. The scheduler creates the Pod and the PVC for each session.
+- **Whether the StorageClass enforces the size as a hard limit is not something Werft looks at.** The code requests `requests.storage` and records it in the `werft.workspace-size` annotation to compare with the setting; it never reads `status.capacity` or usage. Enforcement differs by CSI driver and filesystem, so ask your infrastructure team before you install.
+- **Moving to node-local storage (emptyDir, hostPath) would change the guarantee.** It is not possible today; this is a hypothetical. With a disk-backed emptyDir, the limit would be the Pod's `ephemeral-storage` limit and kubelet eviction, not a volume size. Eviction deletes the Pod instead of returning `ENOSPC`, and emptyDir data goes with the Pod. A hostPath is not counted in `ephemeral-storage`, so Kubernetes sets no limit on it, and its data stays on the node after the Pod is gone. Either way, a hard limit or an inode limit needs a quota configured on the node filesystem (Kubernetes' project quota feature only measures usage). This describes general Kubernetes behavior and was not measured in this repository (**NOT VERIFIED**).
+- If you change `worker.workspace.quotaMb`, the PVC of an existing session no longer matches the size it was created with, and that session is refused (compared through the `werft.workspace-size` annotation). Change it while no session is in progress so that it applies from the new sessions on.
+- The default StorageClass of kind (local-path style) is known not to enforce the PVC size. This was not measured in this repository (**NOT VERIFIED**). A PVC that is `Bound` on kind does not mean a limit is in place.
+- **Known limit.** There is no inode limit, and the size limit is left to the StorageClass. The chart does not refuse a StorageClass that does not enforce the size. A code change to close this is outside the scope of this page.
+
 ## 1. Choose a version
 
 Always give the version exactly. The chart version of a `main` merge is `0.1.0-main-<12>`, where `<12>` is the first 12 characters of the commit SHA. Order among `main` versions means nothing, so do not pick the latest with `--devel`. Open the [Images workflow](https://github.com/JeongJaeSoon/werft/blob/main/.github/workflows/images.yml) and pick the commit of a `main` run that finished green.

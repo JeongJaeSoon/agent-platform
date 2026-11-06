@@ -124,7 +124,7 @@ D1~D5 확정(2026-11-03). PR 본문 템플릿과 commit 귀속은 플랫폼 도�
   - **배포 순서와 되돌림.** 배포 순서에는 제약이 없다. worker 이미지가 먼저 올라가도(운영은 worker 태그가 먼저, control-host가 뒤다) 새 worker는 옛 control-host에서 `/protected-commits` 404를 받아 복구를 건너뛰고, 보호 목록 없이는 mismatch도 판정하지 않으므로 manifest에 `attribution` 칸을 쓰지 않는다. 옛 worker와 새 control-host는 manifest에 칸이 없어 `request_push`를 통과하고 push 시점에서 막힌다. 제약은 되돌림에만 있다. `attribution` 칸은 선택 칸이지만 옛 control-host의 codec은 모르는 칸을 거절하므로, 이 변경을 되돌리면 이미 저장된 칸이 든 manifest(복구 뒤에도 틀린 commit이 남았을 때만 생긴다)를 옛 코드가 읽지 못한다.
   - **작업 트리 snapshot은 `uncommitted_changes`로 거절한다.** 에이전트가 추적 파일 변경을 commit하지 않고 턴을 끝내면 worker가 만드는 checkpoint commit(`Werft checkpoint`)은 플랫폼의 snapshot이다. snapshot의 identity는 복원용이라 고정이고 무효 주소이며, 내용은 엔진이 판단하지 않았다. 그래서 claim identity를 씌워 받지 않고(그러면 엔진이 보지 않은 내용이 엔진 판단 없이 push된다) `request_push`가 사람에게 묻기 전에 `uncommitted_changes`로 거절한다. 거절 문구는 commit한 뒤 그 턴이 끝난 다음 턴에 다시 요청하라고 말한다. checkpoint는 턴이 끝날 때 잡히므로 같은 턴 안의 재요청은 이전 checkpoint를 다시 본다. 신호는 worker가 manifest `attribution.mismatches`에 `problems`가 빈 항목(snapshot commit)을 쓰는 것이다. 판정이 빈 목록을 내는 일은 없고 옛 control-host도 그 모양을 읽으므로 스키마와 배포 순서는 바뀌지 않는다. 옛 worker나 신호를 쓰지 못한 checkpoint는 지금처럼 push 시점의 `attribution_mismatch`에서 막힌다. untracked 파일만 있는 작업 공간은 commit이 HEAD 그대로라 영향이 없다. 자동 복구(`werft-repair-attribution`)는 commit만 다시 만들고 snapshot은 복구 뒤 capture에서 생기므로 snapshot을 건드리지 않는다.
 - **작성자와 Co-author.** PR과 commit 모두 작성자(author·committer)는 플랫폼 GitHub App bot이고, 요청한 사람은 `Co-authored-by`다. 요청한 사람은 세션 시작자가 아니라 그 commit이나 PR 호출이 일어난 턴의 요청자다. 요청자가 GitHub 계정을 연결하지 않았으면 이름을 어디에도 넣지 않는다. commit에는 `Agent-Session`만 남고, PR 꼬리는 이름 없이 계정 미연결이라고만 적는다. 에이전트 key·operator key·스케줄처럼 요청자가 없으면 App 단독이다. 자리별 값은 [호출자 매핑](action-broker.md#7-호출자-매핑)에 있다. 위 "누가 들어가나"와 "미연결 안내"의 시작자 규칙은 이 규칙을 구현하는 단위(L15)가 머지될 때 고친다.
-- **D6~D11.** 도구 카탈로그가 도구 관점에서 다시 분류했다. D7·D9·D10은 결정 목록에서 뺐고(D10의 여러 소스 지원은 도구 한계로 남는다), D6(첨부 저장소 push 기본 승인 없음)과 D11(commit bot의 App은 주 저장소의 고정 연결 App)은 도구 기본값이 됐고, D8은 (a)를 유지한다. 판정과 이유는 [도구 카탈로그 10절](action-broker.md#10-오너-결정-d1d11)에 있다.
+- **D6~D11.** 도구 카탈로그가 도구 관점에서 다시 분류했다. D7·D9·D10은 결정 목록에서 뺐고(D10의 여러 소스 지원은 도구 한계로 남는다), D6(첨부 저장소 push 기본 승인 없음)과 D11(commit bot의 App은 주 저장소의 고정 연결 App. PR 템플릿 설계의 "App 선택은 지금 그대로"를 [claim이 남기는 고정](#claim이-남기는-고정)으로 개정했다)은 도구 기본값이 됐고, D8은 (a)를 유지한다. 판정과 이유는 [도구 카탈로그 10절](action-broker.md#10-오너-결정-d1d11)에 있다.
 
 ### 결정 6. push 전 사람 승인
 
@@ -166,7 +166,7 @@ D1~D5 확정(2026-11-03). PR 본문 템플릿과 commit 귀속은 플랫폼 도�
 | 게이트의 거절 | 발급 전에 거절했을 때 | 같음 | 같은 칸 + `reason_code`. status `failed`. 연결을 정하지 못하거나 고정된 연결이 닿지 않아 끝난 발급(`503` `forge_failed`)도 남기고 `pin_state`(`none_unreachable`·`lookup_failed`·`pinned_unreachable`)를 싣는다. `ambiguous_app`이면 `candidate_connection_ids`([결정 11](#그대로-지키는-것)) |
 | `set_github_app` (있음) | 등록·교체, 구성원 계정 연결에 쓰는 연결 바꾸기(`purpose: user_link`) | 사람 | `app_id`에 `connection_id`, `role`, `permissions`, `warnings`를 더한다. 옛 역할 주소의 교체가 고정을 지웠으면 `pins_cleared`, 같은 App을 다시 더해 고정을 되살렸으면 `pins_restored`, `purpose: user_link`이면 `before`·`after`(연결 id) |
 | `delete_github_app` (있음) | 연결 해제 | 사람 | `connection_id`, `app_id`, `role`, 해제할 때의 영향(`pinned_repository_count`, `agent_count`, `active_session_count`) |
-| `set_repository_github_app` (새) | 에이전트의 저장소 고르기가 고정을 남김, 관리자가 고정 연결을 바꿈([결정 11](#저장소에-고정된-연결)) | 사람(고르기와 관리자 변경 모두 콘솔 세션 cookie만 받는다) | `repository_id`, `role`, `pinned_by`(`selection`·`admin`), `before`, `after`(연결 id) |
+| `set_repository_github_app` (새) | 에이전트의 저장소 고르기가 고정을 남김, 관리자가 고정 연결을 바꿈, 세션 claim이 주 저장소의 고정을 남김([결정 11](#저장소에-고정된-연결)) | 사람(고르기와 관리자 변경 모두 콘솔 세션 cookie만 받는다) | `repository_id`, `role`, `pinned_by`(`selection`·`admin`), `before`, `after`(연결 id). claim이 남긴 고정은 actor가 null이고 `event: pinned_at_claim`, `pinned_by: claim`, `app_id`, `session_id`, `before: null`, `after`가 실린다 |
 | `set_github_ceiling` (새) | 상한 변경 | owner·admin | `before`, `after` |
 | `set_agent_github` (새) | 스위치 변경 | 에이전트 관리자 | `agent_id`, `enabled` |
 | `create_agent_release`·`activate_agent` (있음) | GitHub 보안 값 변경 | 그대로 | result에 `github`(릴리스의 `policy_pins.github`)를 더한다 |
@@ -211,16 +211,27 @@ GitHub App을 쓰는 카탈로그 저장소(`auth` `{ kind: github_app }`)마다
 | 있음 | 고정된 연결이 닿지 않음(설치 해제, 설치에서 저장소 뺌, 저장소 이전) | 지금의 설치 없음 거절과 같다(`503` `forge_failed`). 다른 연결로 대신 발급하지 않고 고정도 바꾸지 않는다 |
 | 있음 | 고정된 연결이 해제됨(연결 id가 빔) | 거절 `409 GITHUB_REFUSED`, `reason_code: pinned_app_removed`. 대신 발급하지 않는다 |
 
-- **고정이 생기는 곳은 셋이다.** (1) 에이전트가 저장소를 고를 때(settings-replace-file-catalog.md 1.1절의 고르기). 서버는 1.1절의 확인(`installationFor`로 그 저장소의 설치 id가 요청의 `installation_id`와 같은지)을 마친 뒤에만, 그 설치의 연결을 작성용 고정으로 남긴다. 호출자가 보낸 `installation_id`만 믿고 쓰지 않는다. 이 고정은 `set_repository_github_app` receipt(`pinned_by: selection`, `before: null`)로 남는다. 고르기는 `agent.manage`(에이전트별 관리자인 member 포함)가 하므로, 이 고정은 관리자가 바꿀 때까지 워크스페이스의 모든 에이전트에 대해 그 저장소의 작성용 App을 정한다. 연결은 이미 그 저장소에 닿는 App이고 실행 권한을 넓히지 않는다. 이미 다른 연결로 고정돼 있으면 고정을 바꾸지 않고, 응답 `{ catalog_id, connection_id }`의 `connection_id`가 고정된 연결을 알린다. (2) 고정이 없는 저장소의 첫 발급(위 표의 1개). #992에서 넘어온 행과 리뷰용 첫 사용이 여기로 온다. (3) 관리자가 바꿀 때(`PUT …/github-repositories/{catalog_id}/app-pins/{role}`, [6절](#6-api)). 서버는 그 연결이 같은 역할이고 저장소에 닿는지 확인하고, 아니면 `400`(`reason_code: role_mismatch`·`not_installed`)이다. `set_repository_github_app` receipt를 남기고 다음 토큰 요청부터 적용한다.
+- **고정이 생기는 곳은 넷이다.** (1) 에이전트가 저장소를 고를 때(settings-replace-file-catalog.md 1.1절의 고르기). 서버는 1.1절의 확인(`installationFor`로 그 저장소의 설치 id가 요청의 `installation_id`와 같은지)을 마친 뒤에만, 그 설치의 연결을 작성용 고정으로 남긴다. 호출자가 보낸 `installation_id`만 믿고 쓰지 않는다. 이 고정은 `set_repository_github_app` receipt(`pinned_by: selection`, `before: null`)로 남는다. 고르기는 `agent.manage`(에이전트별 관리자인 member 포함)가 하므로, 이 고정은 관리자가 바꿀 때까지 워크스페이스의 모든 에이전트에 대해 그 저장소의 작성용 App을 정한다. 연결은 이미 그 저장소에 닿는 App이고 실행 권한을 넓히지 않는다. 이미 다른 연결로 고정돼 있으면 고정을 바꾸지 않고, 응답 `{ catalog_id, connection_id }`의 `connection_id`가 고정된 연결을 알린다. (2) 고정이 없는 저장소의 첫 발급(위 표의 1개). #992에서 넘어온 행과 리뷰용 첫 사용이 여기로 온다. (3) 관리자가 바꿀 때(`PUT …/github-repositories/{catalog_id}/app-pins/{role}`, [6절](#6-api)). 서버는 그 연결이 같은 역할이고 저장소에 닿는지 확인하고, 아니면 `400`(`reason_code: role_mismatch`·`not_installed`)이다. `set_repository_github_app` receipt를 남기고 다음 토큰 요청부터 적용한다. (4) 세션 claim이 주 저장소에 고정이 아직 없을 때([아래](#claim이-남기는-고정))
 - 릴리스에는 연결 id를 넣지 않는다. 그래서 릴리스 지문과 릴리스 이전 규칙([결정 7](#결정-7-릴리스와의-관계))은 바뀌지 않는다. 같은 릴리스가 저장소마다 다른 App을 쓴다.
 - `outcome_refresh`도 작성용 고정으로 같은 표를 따른다. `ambiguous_app`·`pinned_app_removed`는 `check_error: github_refused`, 설치 없음과 조회 실패는 `forge_failed`로 남고([10절](#pr-상태-갱신-조회로-한다)의 실패 규칙), 다음 간격에 다시 읽는다.
 - 이 고정의 판정은 발급 요청마다 하고, 캐시에서 꺼낸 토큰을 줄 때도 고정 연결의 캐시에서만 꺼낸다.
+
+#### claim이 남기는 고정
+
+D11 개정(PR 0). 이전 결정: PR 템플릿 설계 4.1절이 "App 선택은 지금 그대로"라 commit 작성자는 이미 고정된 App만 따랐고, 고정이 없으면 이미지의 `Werft`였다. 바뀐 이유: commit의 bot과 PR을 여는 bot이 달라지지 않게 하려는 것이다. 구현은 PR 2이고 아래가 그 코드의 동작이다(`worker-gateway.ts`의 `pinAtClaim`, `github-pins.ts`의 `pinFirst`).
+
+- **허용 조건.** 세션의 주 저장소가 콘솔에 등록한 App으로 연결돼 있고(카탈로그가 직접 지정한 App과 PAT 연결 저장소는 해당 없음), 그 저장소의 작성용 고정이 아직 없을 때만 claim이 고정을 남긴다. 고르는 규칙은 토큰 발급의 위 표와 같은 resolver다. 작성용 연결 가운데 그 저장소에 닿는 것이 정확히 하나일 때만 고정하고, 둘 이상이면 `ambiguous_app`, 닿는 연결이 없으면 `none_unreachable`, GitHub가 답하지 않으면 `lookup_failed`로 고정하지 않는다. 고정이 이미 있으면 그것을 따르고 새로 쓰지 않는다. 고정은 `INSERT … ON CONFLICT DO NOTHING`이고 연결이 그 사이 교체됐는지를 쓰기 잠금 안에서 다시 확인한다.
+- **출처와 감사.** `pinned_by = 'claim'`이다. `first_mint`로 적지 않는다. 같은 트랜잭션에서 `set_repository_github_app` receipt를 쓰고 result의 `event`가 `pinned_at_claim`이다([4절](#4-데이터-모델)의 receipt 표). 사람이 한 일이 아니므로 actor는 null이고 result에 `session_id`와 `app_id`가 들어간다. 고정이 생기지 않았으면 receipt도 없다.
+- **실패해도 claim은 계속한다.** 아래 어느 경우에도 claim은 막히지 않고 commit 작성자를 `Werft`(`noreply@werft.invalid`)로 하여 그대로 발급된다. 이미 만든 고정과 receipt는 되돌리지 않는다. 로그 문구는 계약이 아니다.
+  - 고정을 만들지 못함(위 거절 사유, `no_author_app`, 저장소 URL을 읽지 못함, resolver의 예외): 고정도 receipt도 없다.
+  - 고정은 만들었으나 다시 읽은 결과가 없거나(`not_pinned`) 읽기가 예외로 끝남: 이 claim이 고정을 만들었다면 고정과 `pinned_at_claim` receipt는 남는다.
+  - 고정을 읽었으나 bot 사용자 조회가 실패하거나 답이 없음: 고정과 receipt는 남는다.
 
 #### 그대로 지키는 것
 
 - **에이전트별 저장소 범위([결정 8](#결정-8-에이전트별-저장소-범위)).** 고정은 "어느 App이 발급하나"만 정한다. 저장소가 릴리스 `github.repositories` 안인지는 게이트 3단계가 고정을 보기 전에 판정하고(`repository_not_allowed`), 고정이 있어도 범위 밖 저장소의 토큰은 나오지 않는다. 토큰은 지금처럼 저장소 하나로 좁혀 발급한다. 저장소를 고정한 연결이 다른 저장소에도 설치돼 있어도 범위는 넓어지지 않는다.
 - **게이트 하나의 발급([3절](#github-게이트)).** 고정을 읽고 쓰는 것은 게이트 6단계 안이고, 고정을 고른 연결의 발급기만 installation token을 만든다. 고르기와 관리자 변경은 App JWT로 `installationFor`만 부르고(해제 영향 조회는 DB만 읽는다) installation token을 발급하지 않는다(고르기가 owner/name을 읽는 설치 토큰은 settings-replace-file-catalog.md 1.1절의 관리 경로 그대로이고 세션 작업에 쓰이지 않는다). 그래서 게이트를 거치지 않고 세션 작업용 토큰을 얻는 경로는 늘지 않는다.
-- **어느 연결이 발급했나([결정 10](#결정-10-감사)).** `mint_github_token`과 게이트 거절 receipt의 result에 `connection_id`를 싣는다. 첫 발급이 고정을 남겼으면 그 `mint_github_token` result에 `pinned_by: first_mint`를 더한다. 고르기와 관리자 변경이 남긴 고정은 `set_repository_github_app`(`pinned_by: selection`·`admin`)으로, 옛 역할 주소의 교체가 지운 고정은 `set_github_app`의 `pins_cleared`로, 해제된 고정이 되살아난 것은 `set_github_app`의 `pins_restored`로 남는다. 고정 없이 설치 없음·조회 실패로 끝난 발급과, 고정된 연결이 닿지 않은 발급도 게이트 실패 receipt를 남기고 result에 `pin_state`(`none_unreachable`·`lookup_failed`·`pinned_unreachable`)를 싣는다. `ambiguous_app` 거절은 `candidate_connection_ids`(닿은 연결들)를 싣는다. 그래서 고정이 언제 누구에 의해 생겼는지와, 토큰마다 어느 연결이 발급했는지를 receipt만으로 찾는다.
+- **어느 연결이 발급했나([결정 10](#결정-10-감사)).** `mint_github_token`과 게이트 거절 receipt의 result에 `connection_id`를 싣는다. 첫 발급이 고정을 남겼으면 그 `mint_github_token` result에 `pinned_by: first_mint`를 더한다. 고르기와 관리자 변경이 남긴 고정은 `set_repository_github_app`(`pinned_by: selection`·`admin`)으로, claim이 남긴 고정은 같은 operation의 `event: pinned_at_claim`(`pinned_by: claim`)으로, 옛 역할 주소의 교체가 지운 고정은 `set_github_app`의 `pins_cleared`로, 해제된 고정이 되살아난 것은 `set_github_app`의 `pins_restored`로 남는다. 고정 없이 설치 없음·조회 실패로 끝난 발급과, 고정된 연결이 닿지 않은 발급도 게이트 실패 receipt를 남기고 result에 `pin_state`(`none_unreachable`·`lookup_failed`·`pinned_unreachable`)를 싣는다. `ambiguous_app` 거절은 `candidate_connection_ids`(닿은 연결들)를 싣는다. 그래서 고정이 언제 누구에 의해 생겼는지와, 토큰마다 어느 연결이 발급했는지를 receipt만으로 찾는다.
 - **`same_app`과 `no_author_app`의 비교 대상.** `same_app`은 새로 등록하거나 옛 역할 주소로 교체하는 `app_id`를 그 워크스페이스의 **다른 모든 연결**(역할 상관없이, 바꾸는 연결 자신은 빼고)과 비교한다. 같은 App의 키 교체는 자기 자신과만 같으므로 걸리지 않는다. `UNIQUE (workspace_id, app_id)`가 같은 판정을 DB에서 한 번 더 한다. 그래서 리뷰용 App은 어느 작성용 App과도 같지 않고, 작성용 App이 여럿이어도 리뷰용 App은 작성용 App이 연 PR의 작성자와 같은 App일 수 없다. `no_author_app`은 리뷰용 연결을 더할 때 작성용 연결이 **하나라도** 있는지만 본다. 리뷰용 연결을 특정 작성용 연결과 짝짓지 않는다. 마지막 작성용 연결을 해제해도 리뷰용 연결은 남는다([GA-5에서 정한 것](#ga-5에서-정한-것)과 같다).
 
 ## 3. 토큰 발급 경로와 좁히기
@@ -416,10 +427,10 @@ GA-7이 정한다. 지금 있는 원격 MCP 경로(카탈로그 `mcp_servers`, `
 | `role` | text NOT NULL | `CHECK (role IN ('author', 'reviewer'))` |
 | `connection_id` | uuid NULL FK `github_apps` ON DELETE SET NULL | 고정된 연결. null이면 고정했던 연결이 해제된 것이고 게이트는 `pinned_app_removed`로 거절한다. 행을 지우면(CASCADE) 다음 발급이 다른 연결로 새로 고정할 수 있으므로 지우지 않고 비운다 |
 | `app_id` | bigint NOT NULL | 고정할 때 그 연결의 GitHub App id. 연결이 해제돼 `connection_id`가 비어도 남는다. 같은 역할에 같은 `app_id`의 연결을 다시 더하면(`POST`, 옛 역할 주소의 `PUT`) 같은 트랜잭션에서 이 `app_id`의 빈 고정을 새 연결로 되살리고 `set_github_app` receipt에 `pins_restored`(수)를 남긴다. 이전에는 같은 App을 다시 등록하면 저장소가 그대로 다시 돌았으므로, 그 동작을 잃지 않으려는 것이다 |
-| `pinned_by` | text NOT NULL | `selection`(에이전트의 저장소 고르기)·`first_mint`(첫 발급)·`admin`(관리자 변경) |
-| `updated_by`, `updated_at` | uuid NULL, timestamptz NOT NULL | `first_mint`면 `updated_by`는 null |
+| `pinned_by` | text NOT NULL | `selection`(에이전트의 저장소 고르기)·`first_mint`(첫 발급)·`admin`(관리자 변경)·`claim`(세션 claim이 주 저장소에 남김. 마이그레이션으로 CHECK에 더했다) |
+| `updated_by`, `updated_at` | uuid NULL, timestamptz NOT NULL | `first_mint`와 `claim`이면 `updated_by`는 null |
 
-- 고르기와 첫 발급은 `INSERT … ON CONFLICT DO NOTHING`이다. 행을 고치는 것은 관리자 변경, 해제(`connection_id`를 비움), 같은 App을 다시 더할 때의 되살리기다. 행을 지우는 것은 옛 역할 주소의 다른 App 교체 하나다([결정 11](#결정-11-같은-역할에-app-여럿)의 1).
+- 고르기, 첫 발급, claim은 `INSERT … ON CONFLICT DO NOTHING`이다. 행을 고치는 것은 관리자 변경, 해제(`connection_id`를 비움), 같은 App을 다시 더할 때의 되살리기다. 행을 지우는 것은 옛 역할 주소의 다른 App 교체 하나다([결정 11](#결정-11-같은-역할에-app-여럿)의 1).
 - 고정이 null인 행도 관리자가 다른 연결로 바꿀 수 있다. 그것이 해제 뒤 저장소를 다시 쓰는 길이다.
 
 ### `github_workflow_dispatches` (새)

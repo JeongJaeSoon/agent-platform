@@ -535,6 +535,15 @@ export function createPullRequestService(deps: {
       if (!isSessionPushBranch(source.sessionId, head)) {
         return await refuse("not_pushed", fields, source.state);
       }
+      // A stage that ended on a moved head is final; the forge is not asked.
+      if (source.prState === "failed" && source.prError === "head_moved") {
+        return await refuse(
+          "head_moved",
+          fields,
+          undefined,
+          source.prErrorDetails ?? {},
+        );
+      }
       const { forge, base } = await forgeFor(actor, source, refuse);
       const settings = await settingsFor(actor.ownerId, source.sessionId);
       const tail = await tailFor(source, settings.sessionLink);
@@ -542,6 +551,7 @@ export function createPullRequestService(deps: {
         number: number;
         url: string;
         base: string;
+        headSha: string;
         created: boolean;
       };
       const title = cleanTitle(
@@ -574,6 +584,44 @@ export function createPullRequestService(deps: {
         throw error;
       }
       const { created } = opened;
+      // A pull request is recorded only when it holds the pushed commit, as
+      // the drain requires, whether it was found, answered to a 422 or just
+      // created (the branch may have moved since the push). One that does not
+      // is not this push's result, whatever the stage says. A head that is an
+      // ancestor of the pushed commit is GitHub's lag, so the caller may ask
+      // again; any other head, and a compare that fails, end it.
+      if (opened.headSha !== source.gitCommit) {
+        const moved = {
+          number: opened.number,
+          url: opened.url,
+          expected_sha: source.gitCommit,
+          actual_sha: opened.headSha,
+        };
+        if (created) {
+          // The pull request exists and is not this push's. The stage ends
+          // for good, so a person closing it cannot make a retry create
+          // another.
+          await store.failHeadMoved({
+            ownerId: actor.ownerId,
+            pushRequestId: source.id,
+            details: moved,
+          });
+        } else {
+          let lag = false;
+          try {
+            lag = await forge.isAncestor(opened.headSha, source.gitCommit);
+          } catch (error) {
+            if (!isForgeFailure(error)) throw error;
+          }
+          if (lag) return await refuse("forge_failed", { ...fields, head });
+        }
+        return await refuse(
+          "head_moved",
+          { ...fields, head, number: opened.number, url: opened.url },
+          undefined,
+          moved,
+        );
+      }
       // A later push request reuses the branch's open pull request; its tail
       // names this push's commit from now on. The pull request is open
       // whether or not this lands, so a failure is only logged.
