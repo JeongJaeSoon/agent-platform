@@ -45,9 +45,9 @@ describe("the rollout runner", () => {
         settled.push([held.agentId, result]);
         return true;
       },
-      async abandon(tokens: readonly string[]) {
-        abandoned.push([...tokens]);
-        return tokens.length;
+      async abandon(given: readonly ClaimedRolloutItem[]) {
+        abandoned.push(given.map((held) => held.agentId));
+        return given.length;
       },
       async inspect() {
         return {
@@ -86,7 +86,7 @@ describe("the rollout runner", () => {
 
     // The item in flight finished; the two not started were given back.
     expect(settled.map(([agent]) => agent)).toEqual(["agent-1"]);
-    expect(abandoned).toEqual([["claim-1"]]);
+    expect(abandoned).toEqual([["agent-2", "agent-3"]]);
   });
 
   test("the sweep runs only when asked to", async () => {

@@ -193,16 +193,19 @@ export function createPostgresProfileRolloutStore(
       return written.length > 0;
     },
 
-    async abandon(claims) {
-      if (claims.length === 0) return 0;
+    async abandon(items) {
+      if (items.length === 0) return 0;
       const freed = await rows(
         db,
-        sql`UPDATE profile_rollout_items
+        sql`UPDATE profile_rollout_items i
           SET locked_by = NULL, locked_until = NULL,
-              attempts = GREATEST(attempts - 1, 0), updated_at = now()
-          WHERE status = 'pending'
-            AND locked_by IN (${sql.join(
-              claims.map((claim) => sql`${claim}`),
+              attempts = GREATEST(i.attempts - 1, 0), updated_at = now()
+          WHERE i.status = 'pending'
+            AND (i.rollout_id, i.agent_id, i.generation, i.locked_by) IN (${sql.join(
+              items.map(
+                (item) =>
+                  sql`(${item.rolloutId}::uuid, ${item.agentId}::uuid, ${item.generation}::int, ${item.claim})`,
+              ),
               sql`, `,
             )})
           RETURNING 1 AS ok`,

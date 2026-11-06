@@ -419,7 +419,7 @@ integration("profile rollouts on PostgreSQL (U3b reader)", () => {
       lockedBy: taker?.claim,
     });
     // The new holder gives it back (a stop), and a run finishes the item.
-    await rollouts().abandon([taker?.claim as string]);
+    await rollouts().abandon([taker as NonNullable<typeof taker>]);
     expect(await runner().runOnce()).toEqual({ claimed: 1, settled: 1 });
     expect((await items(rolloutId))[0]?.status).toBe("applied");
     // The first holder wakes up late: its claim token no longer matches.
@@ -452,6 +452,31 @@ integration("profile rollouts on PostgreSQL (U3b reader)", () => {
       freed.every((i) => i.lockedBy === null && i.status === "pending"),
     ).toBe(true);
     expect(await runner().runOnce()).toEqual({ claimed: 2, settled: 2 });
+  });
+
+  test("giving items back leaves the attempt of an item that was tried", async () => {
+    const caller = await owner();
+    await lineage(caller);
+    const made = await Promise.all([follower(caller), follower(caller)]);
+    const rolloutId = await rolloutOf(
+      caller,
+      made.map((m) => m.agent.id),
+    );
+    // One claim holds both under one token; the first was tried and threw.
+    const held = await rollouts().claim({ leaseMs: 60_000, limit: 5 });
+    expect(held).toHaveLength(2);
+    expect(await rollouts().abandon(held.slice(1))).toBe(1);
+    const byAgent = new Map(
+      (await items(rolloutId)).map((i) => [i.agentId, i]),
+    );
+    expect(byAgent.get(held[0]?.agentId as string)).toMatchObject({
+      attempts: 1,
+      lockedBy: held[0]?.claim,
+    });
+    expect(byAgent.get(held[1]?.agentId as string)).toMatchObject({
+      attempts: 0,
+      lockedBy: null,
+    });
   });
 
   test("a failed item is not tried again until a person retries it", async () => {

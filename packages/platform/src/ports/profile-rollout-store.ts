@@ -58,8 +58,11 @@ export interface ProfileRolloutStore {
    * live lease. False: the lease was lost and nothing was written.
    */
   settle(item: ClaimedRolloutItem, result: RolloutItemResult): Promise<boolean>;
-  /** Gives claimed, unfinished items back at once (a stopping replica). */
-  abandon(claims: readonly string[]): Promise<number>;
+  /**
+   * Gives claimed items that were never started back at once (a stopping
+   * replica). Only the items named: one that was tried keeps its attempt.
+   */
+  abandon(items: readonly ClaimedRolloutItem[]): Promise<number>;
   /** A failed item back to pending: the one way a person resumes it. */
   retry(item: RolloutItemRef): Promise<boolean>;
   /**

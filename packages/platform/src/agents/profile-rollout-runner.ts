@@ -108,8 +108,7 @@ export function createProfileRolloutRunner(deps: {
     for (const [index, item] of items.entries()) {
       if (stopped()) {
         // A stopping replica gives the rest back instead of holding the lease.
-        const rest = new Set(items.slice(index).map((held) => held.claim));
-        await rollouts.abandon([...rest]);
+        await rollouts.abandon(items.slice(index));
         break;
       }
       try {
