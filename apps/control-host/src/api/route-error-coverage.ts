@@ -111,6 +111,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
   "routes/settings-console.test.ts": [
     "GET /v1/installation/settings/connections",
     "POST /v1/installation/settings/connections",
+    "POST /v1/installation/settings/connections/{id}/convert",
     "POST /v1/installation/settings/connections/{id}/credential",
     "POST /v1/installation/settings/connections/{id}/disable",
     "GET /v1/installation/settings/mcp-servers",

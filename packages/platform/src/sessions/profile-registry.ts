@@ -22,6 +22,7 @@ import {
   type CatalogRepositoryView,
   type CredentialRef,
   catalogProfileConfigSchema,
+  credentialRefOf,
   type InstallationProfileEntry,
   type InstallationProfileState,
   profileFingerprint,
@@ -93,6 +94,14 @@ export type InstallationSnapshot<P extends CatalogProfileView> = {
 
 export type SnapshotSources<P extends CatalogProfileView> = {
   connections: Connections;
+  /**
+   * For a connection the console moved from a deployment reference to a
+   * stored value: the provider it was, which a ceiling made before the move
+   * still holds.
+   */
+  connection_aliases?: Connections;
+  /** What `materialize` resolves a credential reference through. */
+  lookup?: (ref: CredentialRef) => string | undefined;
   allowUnattended: boolean;
   runtimeSupported: (profile: CatalogProfileConfig) => boolean;
   /**
@@ -122,6 +131,37 @@ export function installationProfileSnapshot<P extends CatalogProfileView>(
     const key = canonicalJson(sources.connections[id]);
     if (!connections.has(key)) connections.set(key, id);
   }
+  // A former provider names one connection, and only while no connection
+  // holds it as its current provider: two keys never get mixed up.
+  const former = new Map<string, string>();
+  for (const id of Object.keys(sources.connection_aliases ?? {}).sort()) {
+    const key = canonicalJson(sources.connection_aliases?.[id]);
+    if (!connections.has(key) && !former.has(key)) former.set(key, id);
+  }
+  const connectionOf = (provider: CatalogProfileConfig["provider"]) => {
+    const key = canonicalJson(provider);
+    return connections.get(key) ?? former.get(key) ?? null;
+  };
+  // Over a former provider the ceiling still names the old reference; the
+  // value is the one the connection holds now.
+  const lookupFor = (provider: CatalogProfileConfig["provider"]) => {
+    const base = sources.lookup;
+    const id = former.get(canonicalJson(provider));
+    const current = id === undefined ? undefined : sources.connections[id];
+    if (
+      base === undefined ||
+      current === undefined ||
+      connections.has(canonicalJson(provider))
+    ) {
+      return undefined;
+    }
+    const { kind: _old, ...oldFields } = provider.auth;
+    const { kind: _new, ...newFields } = current.auth;
+    const oldRef = canonicalJson(credentialRefOf(oldFields));
+    const newRef = credentialRefOf(newFields);
+    return (ref: CredentialRef) =>
+      base(canonicalJson(ref) === oldRef ? newRef : ref);
+  };
   const profiles: Record<string, P> = {};
   const installation = new Map<string, InstallationProfileEntry>();
   const byId = new Map(rows.map((row) => [row.id, row]));
@@ -143,10 +183,7 @@ export function installationProfileSnapshot<P extends CatalogProfileView>(
         repository_scope: row.repository_scope,
         record: row,
         definition: parsed ?? undefined,
-        connection_id:
-          parsed === null
-            ? null
-            : (connections.get(canonicalJson(parsed.provider)) ?? null),
+        connection_id: parsed === null ? null : connectionOf(parsed.provider),
       });
     };
     // Before every state a replica decides for itself: a block is the same
@@ -166,7 +203,7 @@ export function installationProfileSnapshot<P extends CatalogProfileView>(
       entry("definition_drift");
       continue;
     }
-    if (!connections.has(canonicalJson(definition.provider))) {
+    if (connectionOf(definition.provider) === null) {
       entry("connection_missing");
       continue;
     }
@@ -185,7 +222,11 @@ export function installationProfileSnapshot<P extends CatalogProfileView>(
     }
     let profile: P;
     try {
-      profile = sources.materialize(id, definition);
+      profile = sources.materialize(
+        id,
+        definition,
+        lookupFor(definition.provider),
+      );
     } catch {
       entry("connection_missing");
       continue;
@@ -386,8 +427,10 @@ function withSettings<P extends CatalogProfileView>(
   return {
     ...sources,
     connections: settings.connections,
-    materialize: (id, definition) =>
-      sources.materialize(id, definition, settings.lookup),
+    connection_aliases: settings.connection_aliases,
+    lookup: settings.lookup,
+    materialize: (id, definition, lookup) =>
+      sources.materialize(id, definition, lookup ?? settings.lookup),
   };
 }
 

@@ -259,6 +259,100 @@ describe("planSettingsImport", () => {
     expect(plan.unchanged).toContain("repository:open");
   });
 
+  test("a connection the console moved to a stored value is kept, not a conflict", () => {
+    const moved = {
+      ...entries.connections.main,
+      auth: { kind: "api_key", stored: "connection:main" },
+    };
+    const plan = planSettingsImport(
+      entries,
+      {
+        ...NONE,
+        connections: new Map([
+          [
+            "main",
+            {
+              entry: moved,
+              active: true,
+              has_value: true,
+              replaces: entries.connections.main,
+            },
+          ],
+        ]),
+      },
+      { allowExternal: true },
+    );
+    expect(plan.conflicts).toEqual([]);
+    expect(plan.kept).toEqual(["connection:main"]);
+    expect(plan.add.map((add) => add.id)).not.toContain("main");
+  });
+
+  test("a document naming the connection otherwise is still a conflict", () => {
+    const moved = {
+      ...entries.connections.main,
+      auth: { kind: "api_key", stored: "connection:main" },
+    };
+    const other = parseSettingsDocument({
+      ...DOCUMENT,
+      connections: {
+        main: {
+          ...DOCUMENT.connections.main,
+          auth: { kind: "api_key", value_env: "ANOTHER_KEY" },
+        },
+      },
+    });
+    const plan = planSettingsImport(
+      other,
+      {
+        ...NONE,
+        connections: new Map([
+          [
+            "main",
+            {
+              entry: moved,
+              active: true,
+              has_value: true,
+              replaces: entries.connections.main,
+            },
+          ],
+        ]),
+      },
+      { allowExternal: true },
+    );
+    expect(plan.conflicts).toEqual(["connection:main"]);
+  });
+
+  test("a new connection under a definition another row moved off is a conflict", () => {
+    const moved = {
+      ...entries.connections.main,
+      auth: { kind: "api_key", stored: "connection:main" },
+    };
+    const renamed = parseSettingsDocument({
+      ...DOCUMENT,
+      connections: { twin: DOCUMENT.connections.main },
+    });
+    const plan = planSettingsImport(
+      renamed,
+      {
+        ...NONE,
+        connections: new Map([
+          [
+            "main",
+            {
+              entry: moved,
+              active: true,
+              has_value: true,
+              replaces: entries.connections.main,
+            },
+          ],
+        ]),
+      },
+      { allowExternal: true },
+    );
+    expect(plan.conflicts).toEqual(["connection:twin"]);
+    expect(plan.add.map((add) => add.id)).not.toContain("twin");
+  });
+
   test("adds every entry over an empty installation", () => {
     const plan = planSettingsImport(entries, NONE, { allowExternal: true });
     expect(plan.add.map((add) => `${add.kind}:${add.id}`)).toEqual([

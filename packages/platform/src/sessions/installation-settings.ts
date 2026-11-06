@@ -22,6 +22,12 @@ export type SettingsSnapshot = {
   generation: number;
   /** The connections whose credential resolves. */
   connections: Readonly<Record<string, Provider>>;
+  /**
+   * For a connection the console moved from a deployment reference to a
+   * stored value: the provider it was. A ceiling made before the move holds
+   * that provider and still belongs to the connection.
+   */
+  connection_aliases: Readonly<Record<string, Provider>>;
   repositories: Readonly<Record<string, CatalogRepository>>;
   mcp_servers: Readonly<Record<string, CatalogMcpServer>>;
   /** What a ceiling over one of these connections resolves through. */
@@ -81,7 +87,8 @@ export function settingsSnapshot(
   }));
   const unavailable = invalidRepositoryIds(settings);
   const connections: Record<string, Provider> = {};
-  for (const { id, provider } of settings.connections) {
+  const connection_aliases: Record<string, Provider> = {};
+  for (const { id, provider, replaces } of settings.connections) {
     const { kind: _kind, ...fields } = provider.auth;
     try {
       resolveCredential(
@@ -90,6 +97,7 @@ export function settingsSnapshot(
         lookup,
       );
       connections[id] = provider;
+      if (replaces) connection_aliases[id] = replaces;
     } catch (error) {
       left_out.push({
         entry: `connection:${id}`,
@@ -128,6 +136,7 @@ export function settingsSnapshot(
   return {
     generation: settings.generation,
     connections,
+    connection_aliases,
     repositories,
     mcp_servers,
     lookup,
@@ -167,6 +176,11 @@ export function settingsView(
     generation: settings.generation,
     connections: Object.fromEntries(
       settings.connections.map(({ id, provider }) => [id, provider]),
+    ),
+    connection_aliases: Object.fromEntries(
+      settings.connections.flatMap(({ id, replaces }) =>
+        replaces ? [[id, replaces]] : [],
+      ),
     ),
     repositories,
     mcp_servers: Object.fromEntries(

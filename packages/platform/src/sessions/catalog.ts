@@ -1023,7 +1023,7 @@ export function workspaceProfileRefusal(
   profileId: string,
   options: { retiredAllowed?: boolean } = {},
 ): {
-  state: WorkspaceProfileState | "blocked" | "unknown";
+  state: WorkspaceProfileState | "blocked" | "unknown" | "connection_missing";
   message: string;
 } | null {
   if (!profileId.startsWith(WORKSPACE_PROFILE_PREFIX)) {
@@ -1036,6 +1036,14 @@ export function workspaceProfileRefusal(
       return {
         state,
         message: `Profile ${profileId} is blocked by the operator`,
+      };
+    }
+    // Without a usable key the connection is left out of the catalog; say so
+    // instead of letting the start read as an unknown profile.
+    if (state === "connection_missing") {
+      return {
+        state,
+        message: `Profile ${profileId} cannot run: its model connection has no usable key. Add the key under Settings > Workspace settings > Model connections.`,
       };
     }
     return !options.retiredAllowed && state === "retired"

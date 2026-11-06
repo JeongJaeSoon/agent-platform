@@ -4846,6 +4846,13 @@ export const providerConnections = pgTable(
       .$type<SettingsCredentialSource>()
       .notNull(),
     origin: text().$type<SettingsOrigin>().notNull(),
+    /**
+     * The `auth` this row had while its credential came from the
+     * deployment (an env or Secrets Manager reference, never a value),
+     * set once when the console moves it to a stored value. Ceilings made
+     * over the old definition keep matching this row.
+     */
+    replacesAuth: jsonb("replaces_auth").$type<Record<string, unknown>>(),
     disabledAt: timestamp("disabled_at", { withTimezone: true }),
     disabledBy: uuid("disabled_by").references(() => users.id),
     createdBy: uuid("created_by").references(() => users.id),

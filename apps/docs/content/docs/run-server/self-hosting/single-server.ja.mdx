@@ -16,7 +16,7 @@ Linux サーバー1台に Docker Compose で Werft を設置します。イメ�
 ## 配備の判断
 
 - 対象はサーバー1台と `local-docker` 実行基盤です。この設置では高可用性を扱いません。複数ノードが必要なら [Kubernetes の設置](/run-server/self-hosting/kubernetes)を使います。
-- provider key は運用者の key 1つをすべてのセッションで共有します。利用者ごとに owner と API key を別々に発行し、共有しません。
+- モデルキーは運用者の key 1つをすべてのセッションで共有します。設置したあと Web コンソールのモデル接続の画面で入れ、サーバーは DB に封印して保存します。利用者ごとに owner と API key を別々に発行し、共有しません。
 - 実サーバーのオブジェクトストアは専用の AWS S3 bucket です。同じホストの LocalStack はホストや Docker が再起動すると checkpoint を失うので、試用だけに使います。
 - アクセスは loopback bind と SSH tunnel が基本です。reverse proxy は TLS と VPN または IP allowlist の両方がそろったときだけ使います。
 
@@ -92,14 +92,15 @@ sudo install -d -m 700 -o "$USER" /var/lib/werft/test-ops
 | `POSTGRES_PASSWORD` | ランダムな値。英数字と `.` `_` `~` `-` だけを使う |
 | `EGRESS_AUTHORIZER_TOKEN` | 32文字以上のランダムな値 |
 | `PLATFORM_SECRET_KEY` | `openssl rand -hex 32` の64文字の hex。失うと保存した認証情報を読めない |
-| `ANTHROPIC_API_KEY` | セッションが使う Anthropic key。API コンテナにだけ渡る |
 | `BOOTSTRAP_TOKEN` | コメントを外して32〜256文字のランダムな値を入れる。最初の owner を作るトークン。入れないと API が生成してコンテナのログに出力する |
 
 例のファイルには、`EXECUTION_INSTALLATION_ID`(`test-ops`)、`PLATFORM_SETTINGS_DOCUMENT`(`/etc/werft/settings.json`)、`EGRESS_CREDENTIAL_ALLOWLIST`(`api.anthropic.com:443,github.com:443`)、`EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`(`localstack:4566`)、`EXECUTION_WORKSPACE_QUOTA`(`on`)があらかじめ入っています。既定の LocalStack 設置ならそのままにします。空だと compose が描画を拒否します。
 
 値をターミナルに出力したり、コマンド引数で渡したりしません。ランダムな値は `openssl rand -hex 32` で作り、エディタに貼り付けます。
 
-設定ドキュメントは `/etc/werft/settings.json` に置きます。セッションが使うモデル接続、GitHub リポジトリ、profile を書きます。値ではなく環境変数の名前だけを書くので、秘密は含みません。リポジトリの URL だけを実際の値に変えます。例は公開リポジトリを前提にしています。リポジトリの項目には `"auth": { "kind": "github_app" }` が必要です。ないと取り込みでそのリポジトリが落ちて `preflight` が設置を止めます。この値を入れると通ることを確認しました。非公開リポジトリの認証は [API サーバーのページ](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)(韓国語)に従います。
+モデルキー(`ANTHROPIC_API_KEY`)はこのファイルに入れません。サーバーを起動したあと、[ステップ8](#8-モデルキーを入れる)で Web コンソールのモデル接続の画面から入れます。キーがなくてもサーバーは起動しますが、キーを入れるまではモデルを呼ぶセッションは始まりません。キーを環境変数で渡す場合は[代替手段](#代替手段モデルキーを環境変数で渡す)を参照します。
+
+設定ドキュメントは `/etc/werft/settings.json` に置きます。セッションが使う GitHub リポジトリを書きます。秘密は含みません。リポジトリの URL だけを実際の値に変えます。例は公開リポジトリを前提にしています。リポジトリの項目には `"auth": { "kind": "github_app" }` が必要です。ないと取り込みでそのリポジトリが落ちて `preflight` が設置を止めます。この値を入れると通ることを確認しました。非公開リポジトリの認証は [API サーバーのページ](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)(韓国語)に従います。
 
 migrate コンテナが読むため、ファイルは `0644` にします。先に空のファイルを作り、エディタで次の内容を書き込みます。
 
@@ -110,37 +111,15 @@ sudo install -m 644 -o "$USER" /dev/null /etc/werft/settings.json
 ```json
 {
   "version": 1,
-  "connections": {
-    "anthropic": {
-      "kind": "anthropic",
-      "endpoint": "https://api.anthropic.com",
-      "auth": { "kind": "api_key", "value_env": "ANTHROPIC_API_KEY" }
-    }
-  },
+  "connections": {},
   "repositories": {
     "sample-app": {
       "url": "https://github.com/<owner>/<repo>.git",
       "branch": "main",
-      "auth": { "kind": "github_app" },
-      "profiles": ["claude-coding"]
+      "auth": { "kind": "github_app" }
     }
   },
-  "mcp_servers": {},
-  "profiles": {
-    "claude-coding": {
-      "runtime_kind": "claude_agent_sdk",
-      "runtime_version": "0.3.270",
-      "model": "claude-sonnet-5",
-      "tools": ["Read", "Edit", "Write", "Glob", "Grep", "Bash"],
-      "permission_mode": "default",
-      "provider": {
-        "kind": "anthropic",
-        "endpoint": "https://api.anthropic.com",
-        "auth": { "kind": "api_key", "value_env": "ANTHROPIC_API_KEY" }
-      },
-      "project_settings": { "claude_md": true }
-    }
-  }
+  "mcp_servers": {}
 }
 ```
 
@@ -215,6 +194,48 @@ KEY="$(scripts/test-ops.sh key create <owner_id> \
 `<owner_id>` は、この key のセッションをまとめる名前です。利用者ごとに別の値を決めます。Web コンソールのアカウントとは別で、workspace id は使いません。
 
 SDK と HTTP API は、このサーバーのアドレスと key で接続します([SDK のインストール](/getting-started/install))。
+
+## 8. モデルキーを入れる
+
+セッションがモデルを呼ぶには、モデルキーと、そのキーを使うプロファイルが必要です。どちらも Web コンソールで作ります。owner でサインインした状態で、次の順に行います。
+
+1. **設定 > ワークスペース設定 > モデル接続**で**接続を追加**を押します。種類は `anthropic`、アドレスは既定値(`https://api.anthropic.com`)のままにし、Anthropic の key を貼り付けて保存します。キーは DB に封印して保存され、画面には末尾4文字だけが表示されます。
+2. **プロファイル > インストールのプロファイルを作成**で、いま作った接続を選び、モデルとリポジトリを決めて保存します。エージェントを作るときにこのプロファイルを選びます。
+
+キーを入れる前にこのプロファイルでセッションを始めると、プロファイルのモデル接続に使えるキーがないというエラーになり、エラーが1の画面の場所を示します。キーを変えるときも同じ画面の**値を変える**を使います。この画面でキーを入れる流れは偽のモデルサーバーで確認しました。実際の Anthropic の呼び出しは確認していません。
+
+### 代替手段:モデルキーを環境変数で渡す
+
+キーを DB ではなくサーバーの env ファイルに置きたい場合は、`/etc/werft/test-ops.env` の `ANTHROPIC_API_KEY` を埋め、ステップ3の設定ドキュメントに接続とプロファイルを環境変数の名前で書きます。ドキュメントには値ではなく名前だけを書くので、秘密は含みません。`connections` と `profiles` を次のように埋め、リポジトリの項目に `"profiles": ["claude-coding"]` を足して、ステップ4の digest を求め直します。
+
+```json
+{
+  "connections": {
+    "anthropic": {
+      "kind": "anthropic",
+      "endpoint": "https://api.anthropic.com",
+      "auth": { "kind": "api_key", "value_env": "ANTHROPIC_API_KEY" }
+    }
+  },
+  "profiles": {
+    "claude-coding": {
+      "runtime_kind": "claude_agent_sdk",
+      "runtime_version": "0.3.270",
+      "model": "claude-sonnet-5",
+      "tools": ["Read", "Edit", "Write", "Glob", "Grep", "Bash"],
+      "permission_mode": "default",
+      "provider": {
+        "kind": "anthropic",
+        "endpoint": "https://api.anthropic.com",
+        "auth": { "kind": "api_key", "value_env": "ANTHROPIC_API_KEY" }
+      },
+      "project_settings": { "claude_md": true }
+    }
+  }
+}
+```
+
+この方法で作った接続は、あとから画面に移せます。**モデル接続**の該当行で**画面でキーを入れる**を押してキーを貼り付け直すと、同じ接続とその上のプロファイルが、保存したキーのまま動きます。サーバーが env の値を読んで移すことはなく、キーは人が入れ直します。移したあとも設定ドキュメントに同じ接続が残っていれば、取り込みは DB の行をそのままにします。
 
 ## 片付ける
 

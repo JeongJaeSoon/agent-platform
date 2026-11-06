@@ -1,5 +1,9 @@
 import { randomUUID } from "node:crypto";
-import type { ReceiptActor, ReceiptOperation } from "@werft-ai/contracts";
+import {
+  canonicalJson,
+  type ReceiptActor,
+  type ReceiptOperation,
+} from "@werft-ai/contracts";
 import {
   type CatalogRepositoryConfig,
   credentialSourceOf,
@@ -100,9 +104,23 @@ async function existingIn(
   ];
   return {
     connections: new Map(
-      (await tx.select().from(providerConnections)).map((row) =>
-        entryOf("connection", row.id, row.definition, row.disabledAt === null),
-      ),
+      (await tx.select().from(providerConnections)).map((row) => {
+        const [id, existing] = entryOf(
+          "connection",
+          row.id,
+          row.definition,
+          row.disabledAt === null,
+        );
+        return [
+          id,
+          row.replacesAuth === null
+            ? existing
+            : {
+                ...existing,
+                replaces: { ...row.definition, auth: row.replacesAuth },
+              },
+        ];
+      }),
     ),
     repositories: new Map(
       (await tx.select().from(catalogRepositories)).map((row) =>
@@ -508,7 +526,7 @@ function consoleWrites(
   key: SecretKey | null,
 ): Pick<
   SettingsDocumentStore,
-  "create" | "setValue" | "disable" | "setMcpWorkspaces"
+  "create" | "setValue" | "convertConnection" | "disable" | "setMcpWorkspaces"
 > {
   const sealIn = async (
     tx: Database,
@@ -603,6 +621,65 @@ function consoleWrites(
           {
             [TARGET[owner.kind]]: owner.id,
             last4: value.slice(-4),
+          },
+        );
+        return { outcome: "done" as const, receiptId };
+      });
+    },
+
+    convertConnection(id, value, actor) {
+      return asWriter("connection", actor, async (tx) => {
+        const held = await heldRow(tx, "connection", id);
+        if (held === null) return { outcome: "not_found" as const };
+        if (held.disabled) {
+          return { outcome: "conflict" as const, reason: "disabled" };
+        }
+        const entry = isRecord(held.entry) ? held.entry : {};
+        const auth = isRecord(entry.auth) ? entry.auth : {};
+        if (
+          held.credentialSource !== "external" ||
+          (auth.value_env === undefined && auth.secret_id === undefined)
+        ) {
+          return { outcome: "conflict" as const, reason: "not_external" };
+        }
+        // The old definition must stay this row's alone: every other row,
+        // by what it is now and by what it was.
+        const was = canonicalJson(entry);
+        for (const other of await tx
+          .select()
+          .from(providerConnections)
+          .where(ne(providerConnections.id, id))) {
+          const names = [
+            other.definition,
+            ...(other.replacesAuth === null
+              ? []
+              : [{ ...other.definition, auth: other.replacesAuth }]),
+          ];
+          if (names.some((name) => canonicalJson(name) === was)) {
+            return { outcome: "conflict" as const, reason: "alias_taken" };
+          }
+        }
+        const { value_env: _env, secret_id: _secret, ...kept } = auth;
+        await tx
+          .update(providerConnections)
+          .set({
+            definition: {
+              ...entry,
+              auth: { ...kept, stored: `connection:${id}` },
+            },
+            credentialSource: "stored",
+            replacesAuth: auth,
+          })
+          .where(eq(providerConnections.id, id));
+        await sealIn(tx, { kind: "connection", id }, value, actor);
+        const receiptId = await consoleReceipt(
+          tx,
+          actor,
+          "set_settings_credential",
+          {
+            connection_id: id,
+            last4: value.slice(-4),
+            replaced: auth.value_env === undefined ? "secret_id" : "value_env",
           },
         );
         return { outcome: "done" as const, receiptId };
