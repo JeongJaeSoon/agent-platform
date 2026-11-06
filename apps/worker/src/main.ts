@@ -19,8 +19,6 @@ export async function main(
 ): Promise<WorkerRunSummary> {
   const config = workerConfigFromEnv(environment);
   await verifyWorkspace(config.runtime.cwd);
-  const host = createWorkerHost(config);
-  const release = drainOnSignals(host);
   const requestedBytes = Number(environment.WORKER_WORKSPACE_QUOTA_BYTES);
   const quotaMode = environment.WORKER_WORKSPACE_QUOTA_MODE;
   const observer = new WorkspaceObserver(
@@ -38,6 +36,19 @@ export async function main(
     consoleLogger,
   );
   observer.start();
+  const host = createWorkerHost(config, {
+    workspaceQuota: {
+      observer,
+      limits: {
+        bytes:
+          Number.isSafeInteger(requestedBytes) && requestedBytes > 0
+            ? requestedBytes
+            : 4096 * 1024 * 1024,
+        inodes: 1_000_000,
+      },
+    },
+  });
+  const release = drainOnSignals(host);
   try {
     return await host.runLoop();
   } finally {

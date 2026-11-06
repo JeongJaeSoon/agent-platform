@@ -9,6 +9,7 @@ import {
   type TerminalTurnStatus,
   TURN_BUDGET_EXCEEDED_REASON,
   TURN_INPUT_WAIT_PARKED_REASON,
+  TURN_WORKSPACE_QUOTA_EXCEEDED_REASON,
   terminalTurnStatusSchema,
   type WorkerEvent,
 } from "@werft-ai/contracts";
@@ -2868,7 +2869,10 @@ export function createPostgresWorkerUnitOfWork(
                     : input.terminal.status === "failed" &&
                         ended.reason === TURN_BUDGET_EXCEEDED_REASON
                       ? "BUDGET_EXCEEDED"
-                      : "INTERNAL_ERROR",
+                      : input.terminal.status === "failed" &&
+                          ended.reason === TURN_WORKSPACE_QUOTA_EXCEEDED_REASON
+                        ? "WORKSPACE_QUOTA_EXCEEDED"
+                        : "INTERNAL_ERROR",
                   message: ended.reason ?? ended.status,
                 },
             updatedAt: now,

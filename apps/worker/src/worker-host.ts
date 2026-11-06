@@ -19,9 +19,11 @@ import type {
   WorkspaceDescriptor,
 } from "@werft-ai/contracts";
 import {
+  DEFAULT_WORKSPACE_ENFORCE,
   MAX_TURN_COST_USD,
   TURN_BUDGET_EXCEEDED_REASON,
   TURN_INPUT_WAIT_PARKED_REASON,
+  TURN_WORKSPACE_QUOTA_EXCEEDED_REASON,
 } from "@werft-ai/contracts";
 import {
   type AdmissionHold,
@@ -65,6 +67,11 @@ import {
 } from "./secret-scrubber.ts";
 import { settledWithin, until } from "./waits.ts";
 import { AttachLimitError, type WorkspacePreparer } from "./workspace.ts";
+import type { WorkspaceObserver } from "./workspace-observer.ts";
+import {
+  WorkspaceQuota,
+  type WorkspaceQuotaLimits,
+} from "./workspace-quota.ts";
 
 /** Where the claim's object store token goes. */
 export type ObjectStoreAccess = { useToken(token: string): void };
@@ -142,6 +149,10 @@ export type WorkerHostOptions = {
   runtimes: RuntimeRegistry;
   timeouts: WorkerTimeouts;
   workspace: WorkspacePreparer;
+  workspaceQuota?: {
+    observer: Pick<WorkspaceObserver, "measureNow" | "watch" | "nudge">;
+    limits: WorkspaceQuotaLimits;
+  };
   logger?: WorkerLogger;
   now?: () => Date;
   sleep?: (ms: number) => Promise<void>;
@@ -257,6 +268,7 @@ type Turn = {
   settle: (settlement: Settlement | Promise<Settlement>) => void;
   /** The deadline fired: whatever terminal comes now is the timeout's. */
   timedOut: boolean;
+  quotaExceeded?: boolean;
   timers: ReturnType<typeof setTimeout>[];
   turnId: string;
   uuid: string;
@@ -320,6 +332,7 @@ export class WorkerHost {
   private heartbeat: Heartbeat | undefined;
   private mirrorError: string | undefined;
   private engineBudgeted = false;
+  private workspaceEnforce: "warn" | "fail" | "off" = DEFAULT_WORKSPACE_ENFORCE;
   private pending: PendingRequestRegistry | undefined;
   /**
    * Approval-wait checkpoints of the current turn that may be committed and
@@ -428,6 +441,8 @@ export class WorkerHost {
       };
     }
     const { claim } = claimed;
+    this.workspaceEnforce =
+      claim.workspace_enforce ?? DEFAULT_WORKSPACE_ENFORCE;
     this.options.gateway.useCredential(claim.session_credential);
     this.options.objectStoreAccess?.useToken(claim.object_store.access.token);
     this.scopeValue = {
@@ -1306,7 +1321,9 @@ export class WorkerHost {
     // Armed before the delivery check, so a check that hangs spends the same
     // budget as an engine that does.
     this.armDeadline(run, turn);
+    let unwatch: (() => void) | undefined;
     try {
+      unwatch = await this.armQuota(run, turn);
       await this.deliver(run, turn, input.message);
       // The engine's terminal ends the turn; the deadline ends one it never
       // answers, which heartbeats alone would otherwise keep leased forever.
@@ -1333,6 +1350,7 @@ export class WorkerHost {
         this.publisher?.release();
       }
     } finally {
+      unwatch?.();
       clearTurnTimers(turn);
     }
   }
@@ -1348,7 +1366,7 @@ export class WorkerHost {
     const check = run.holdsInput(turn.uuid).catch((error: unknown) => {
       // Past the deadline the timeout owns the terminal; a check failing
       // now must not unwind the turn before it is finalized.
-      if (turn.timedOut) return undefined;
+      if (turn.timedOut || turn.quotaExceeded) return undefined;
       throw error;
     });
     // Raced with the turn too: the deadline has to end a check that hangs.
@@ -1359,7 +1377,13 @@ export class WorkerHost {
     // The check awaited: the deadline, the lease or the engine may be gone.
     // Past the deadline nothing is sent, even with the terminal still to
     // come: the interrupt has already been asked for and would miss it.
-    if (held === undefined || turn.closed || turn.timedOut) return;
+    if (
+      held === undefined ||
+      turn.closed ||
+      turn.timedOut ||
+      turn.quotaExceeded
+    )
+      return;
     if (this.stopKind === "failed" || this.stopKind === "lost") return;
     if (held) {
       this.logger.warn("worker.turn.already_consumed", {
@@ -1417,6 +1441,74 @@ export class WorkerHost {
       );
     };
     turn.timers.push(setTimeout(expire, budget));
+  }
+
+  private async armQuota(
+    run: AgentRun,
+    turn: Turn,
+  ): Promise<(() => void) | undefined> {
+    const monitoring = this.options.workspaceQuota;
+    if (monitoring === undefined || this.workspaceEnforce === "off") return;
+    const baseline =
+      this.workspaceEnforce === "fail"
+        ? await Promise.race([
+            monitoring.observer.measureNow(),
+            turn.settled.then(() => undefined),
+            this.abandoned.then(() => undefined),
+          ])
+        : undefined;
+    if (turn.closed || this.ownerLost) return;
+    const quota = new WorkspaceQuota(monitoring.limits, baseline);
+    return monitoring.observer.watch((usage, mode) => {
+      if (
+        this.turn !== turn ||
+        turn.closed ||
+        turn.interrupting ||
+        turn.timedOut ||
+        turn.quotaExceeded ||
+        this.ownerLost
+      )
+        return;
+      const exceeded =
+        this.workspaceEnforce === "fail"
+          ? quota.exceeded(usage, mode)
+          : (["bytes", "inodes"] as const).some(
+              (axis) =>
+                mode[axis] !== "hard" && usage[axis] > monitoring.limits[axis],
+            );
+      if (!exceeded) return;
+      this.logger.warn("worker.turn.workspace_quota_exceeded", {
+        turn_id: turn.turnId,
+        bytes: usage.bytes,
+        inodes: usage.inodes,
+        enforce: this.workspaceEnforce,
+        metric: "workspace_quota_exceeded_total",
+        value: 1,
+      });
+      if (this.workspaceEnforce !== "fail") return;
+      turn.quotaExceeded = true;
+      turn.interruptDeadline = performance.now() + this.interruptGraceMs();
+      this.pending?.cancelAll("interrupt", "The workspace exceeded its quota");
+      this.sendInterrupt(run, turn);
+      turn.timers.push(
+        setTimeout(() => {
+          if (
+            this.turn !== turn ||
+            turn.closed ||
+            turn.interrupting ||
+            turn.timedOut ||
+            this.ownerLost
+          )
+            return;
+          this.fail(
+            "The engine did not settle after the workspace exceeded its quota",
+          );
+          this.settleTurn(
+            unknownOutcome("workspace_quota_interrupt_unanswered"),
+          );
+        }, this.interruptGraceMs()),
+      );
+    });
   }
 
   /** A timed-out turn the engine gave no terminal for: unknown, and the engine is not trusted again. */
@@ -2237,10 +2329,12 @@ export class WorkerHost {
           } else if (event.type === "inputs.named") {
             this.frameTurn(event.inputs);
           } else if (event.type === "tool.called") {
+            this.options.workspaceQuota?.observer.nudge();
             this.publisher?.toolCalled(event.toolCallId);
           } else if (event.type === "runtime.warning") {
             this.onWarning(event);
           } else if (event.type === "turn.ended") {
+            this.options.workspaceQuota?.observer.nudge();
             await this.onTurnEnded(event.turn);
           } else if (event.type === "approval.requested") {
             this.onApprovalRequested(run, event.request);
@@ -2355,7 +2449,7 @@ export class WorkerHost {
       // after the terminal, with engine_stopped ahead of it if it applies.
       this.closeTurn(turn);
       return this.onceAnswered(turn, (acknowledged) => ({
-        ...terminalOf(ended, acknowledged),
+        ...this.quotaTerminal(turn, terminalOf(ended, acknowledged)),
         ...cost,
       })).then((settlement) => this.cutTurn(turn, settlement));
     }
@@ -2368,7 +2462,10 @@ export class WorkerHost {
               status: "failed",
               reason: "turn_timeout",
             }
-          : terminalOf(ended, turn.interruptReceipt === "acknowledged")
+          : this.quotaTerminal(
+              turn,
+              terminalOf(ended, turn.interruptReceipt === "acknowledged"),
+            )
         : {
             status: "outcome_unknown",
             reason: turn.timedOut
@@ -2379,6 +2476,22 @@ export class WorkerHost {
           }),
       ...cost,
     });
+  }
+
+  private quotaTerminal(turn: Turn, terminal: Settlement): Settlement {
+    if (
+      !turn.quotaExceeded ||
+      turn.interrupting ||
+      turn.timedOut ||
+      this.ownerLost ||
+      terminal.status === "outcome_unknown"
+    )
+      return terminal;
+    return {
+      ...terminal,
+      status: "failed",
+      reason: TURN_WORKSPACE_QUOTA_EXCEEDED_REASON,
+    };
   }
 
   /**
