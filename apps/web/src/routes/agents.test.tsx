@@ -2971,6 +2971,7 @@ describe("편집 중 다른 곳의 저장", () => {
       renderAt(CARD_TAB, {
         ...meOk,
         ...server.routes,
+        "GET /v1/profiles": bothProfiles(server),
         [`PATCH /v1/agents/${AGENT_ID}`]: async () => {
           server.versions.push({
             ...first,
@@ -2992,9 +2993,12 @@ describe("편집 중 다른 곳의 저장", () => {
       });
       const user = await setupUser();
       await openCardEditor(user);
-      const instructions = await screen.findByLabelText("에이전트 지시문");
-      await user.clear(instructions);
-      await user.type(instructions, "다른 지시.");
+      // Only the profile changes, so the card sent is the first version's.
+      const card = screen.getByRole("tabpanel", { name: "상세 설정" });
+      await user.selectOptions(
+        await within(card).findByLabelText("프로필"),
+        "claude-coding-both",
+      );
       await user.click(screen.getByRole("button", { name: "저장" }));
       expect(
         await screen.findByText(
