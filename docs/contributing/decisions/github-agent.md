@@ -222,7 +222,10 @@ D11 개정(PR 0). 이전 결정: PR 템플릿 설계 4.1절이 "App 선택은 �
 
 - **허용 조건.** 세션의 주 저장소가 콘솔에 등록한 App으로 연결돼 있고(카탈로그가 직접 지정한 App과 PAT 연결 저장소는 해당 없음), 그 저장소의 작성용 고정이 아직 없을 때만 claim이 고정을 남긴다. 고르는 규칙은 토큰 발급의 위 표와 같은 resolver다. 작성용 연결 가운데 그 저장소에 닿는 것이 정확히 하나일 때만 고정하고, 둘 이상이면 `ambiguous_app`, 닿는 연결이 없으면 `none_unreachable`, GitHub가 답하지 않으면 `lookup_failed`로 고정하지 않는다. 고정이 이미 있으면 그것을 따르고 새로 쓰지 않는다. 고정은 `INSERT … ON CONFLICT DO NOTHING`이고 연결이 그 사이 교체됐는지를 쓰기 잠금 안에서 다시 확인한다.
 - **출처와 감사.** `pinned_by = 'claim'`이다. `first_mint`로 적지 않는다. 같은 트랜잭션에서 `set_repository_github_app` receipt를 쓰고 result의 `event`가 `pinned_at_claim`이다([4절](#4-데이터-모델)의 receipt 표). 사람이 한 일이 아니므로 actor는 null이고 result에 `session_id`와 `app_id`가 들어간다. 고정이 생기지 않았으면 receipt도 없다.
-- **실패해도 claim은 계속한다.** 고정을 만들지 못하거나(위 거절 사유, `no_author_app`, 저장소 URL을 읽지 못함, 예외) 만든 뒤 읽어 보니 App이 없거나(`not_pinned`) bot 사용자 조회가 실패하면, claim은 막히지 않고 commit 작성자를 `Werft`(`noreply@werft.invalid`)로 하여 그대로 발급된다. 고정을 만들지 못한 경우(`not_pinned` 포함)는 경고 로그(`Commit author pin not made at claim`, 사유 포함)만 남기고 receipt는 쓰지 않는다. bot 사용자 조회가 실패한 경우는 고정과 `pinned_at_claim` receipt가 이미 같은 트랜잭션에 남아 있고, 위 경고 대신 bot 조회 쪽 로그(`App bot user lookup`)만 남는다.
+- **실패해도 claim은 계속한다.** 아래 어느 경우에도 claim은 막히지 않고 commit 작성자를 `Werft`(`noreply@werft.invalid`)로 하여 그대로 발급된다. 이미 만든 고정과 receipt는 되돌리지 않는다.
+  - 고정을 만들지 못함(위 거절 사유, `no_author_app`, 저장소 URL을 읽지 못함, resolver의 예외): 경고 로그(`Commit author pin not made at claim`, 사유 포함)만 남고 receipt는 없다.
+  - 고정은 만들었으나 다시 읽은 결과가 없거나(`not_pinned`) 읽기가 예외로 끝남: 같은 경고 로그가 남는다. 이 claim이 고정을 만들었다면 `pinned_at_claim` receipt는 이미 남아 있다.
+  - 고정을 읽었으나 bot 사용자 조회가 실패함: 고정과 receipt가 남고, 위 경고는 남지 않으며 bot 조회 쪽 로그(`App bot user lookup`)만 남는다.
 
 #### 그대로 지키는 것
 
