@@ -189,6 +189,8 @@ describe("WorkerHost workspace quota", () => {
       | undefined;
     let stale: typeof listener;
     const observer = {
+      onClassified: (callback: (mode: WorkspaceLimitMode) => void) =>
+        callback(mode),
       measureNow: async () => usage(baseline),
       nudge: () => {},
       watch(callback: NonNullable<typeof listener>) {
@@ -245,6 +247,23 @@ describe("WorkerHost workspace quota", () => {
     );
     h.late(999);
     expect(h.gateway.finalized).toHaveLength(1);
+  });
+
+  test("classification is durably published even when enforcement is off", async () => {
+    const h = quotaHarness("off");
+    h.gateway.enqueue("observe");
+    await h.host.runLoop();
+    const classifications = h.gateway.events.filter(
+      (event) =>
+        event.event === "system" &&
+        event.data.subtype === "workspace_limit_mode",
+    );
+    expect(classifications).toHaveLength(1);
+    expect(classifications[0]?.data).toMatchObject({
+      type: "system",
+      subtype: "workspace_limit_mode",
+      ...mode,
+    });
   });
 
   test.each([undefined, "warn", "off"] as const)(
@@ -422,11 +441,21 @@ describe("WorkerHost workspace quota", () => {
         reason: "workspace_quota_exceeded",
       });
       expect(summary.outcome).toBe("idle");
+      const classification = gateway.events.find(
+        (event) =>
+          event.event === "system" &&
+          event.data.subtype === "workspace_limit_mode",
+      );
+      expect(classification?.data).toMatchObject({
+        type: "system",
+        subtype: "workspace_limit_mode",
+      });
       expect(await readFile(join(root, "keep"), "utf8")).toBe("preserved");
       expect((await readFile(join(root, "large"))).length).toBe(64 * 1024);
       console.log(
         JSON.stringify({
           workspace_quota: "VERIFIED",
+          workspace_limit_mode: classification?.data,
           before: before.bytes,
           after: after?.bytes,
           terminal: summary.turns[0],

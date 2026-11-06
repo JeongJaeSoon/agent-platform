@@ -150,7 +150,10 @@ export type WorkerHostOptions = {
   timeouts: WorkerTimeouts;
   workspace: WorkspacePreparer;
   workspaceQuota?: {
-    observer: Pick<WorkspaceObserver, "measureNow" | "watch" | "nudge">;
+    observer: Pick<
+      WorkspaceObserver,
+      "measureNow" | "watch" | "nudge" | "onClassified"
+    >;
     limits: WorkspaceQuotaLimits;
   };
   logger?: WorkerLogger;
@@ -493,6 +496,23 @@ export class WorkerHost {
       },
     });
     this.publisher = publisher;
+    this.options.workspaceQuota?.observer.onClassified((mode) => {
+      if (this.ownerLost || this.stopping !== undefined) return;
+      publisher.publish(
+        [
+          {
+            id: "workspace-limit-mode",
+            event: "system",
+            data: {
+              type: "system",
+              subtype: "workspace_limit_mode",
+              ...mode,
+            },
+          },
+        ],
+        null,
+      );
+    });
     this.pending = new PendingRequestRegistry({
       gateway: scrubbed,
       eventsStored: (toolUseId, askedAt) =>

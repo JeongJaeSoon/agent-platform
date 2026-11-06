@@ -14,6 +14,39 @@ const complete: WorkspaceMeasurement = {
 };
 const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
 
+test("classification is replayed to a host that claims after sampling and never invented on failure", async () => {
+  let fails = true;
+  const observer = new WorkspaceObserver(
+    { root: "/workspace" },
+    { info: () => {}, warn: () => {}, error: () => {} },
+    async () => {
+      if (fails) throw new Error("unavailable");
+      return complete;
+    },
+  );
+  const modes: unknown[] = [];
+  try {
+    observer.onClassified((mode) => modes.push(mode));
+    await observer.measureNow();
+    expect(modes).toEqual([]);
+    fails = false;
+    await observer.measureNow();
+    await observer.measureNow();
+    expect(modes).toEqual([
+      {
+        bytes: "unknown",
+        inodes: "unknown",
+        reason: "filesystem_evidence_unavailable",
+      },
+    ]);
+    observer.onClassified((mode) => modes.push(mode));
+    expect(modes).toHaveLength(2);
+    expect(modes[1]).toEqual(modes[0]);
+  } finally {
+    observer.stop();
+  }
+});
+
 test("interval targets at most ten percent duty with a thirty second floor", () => {
   expect(measurementInterval(300)).toBe(30_000);
   expect(measurementInterval(8000)).toBe(80_000);

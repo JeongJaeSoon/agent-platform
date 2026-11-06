@@ -1,4 +1,9 @@
 export const sessionListKo = {
+  "session.workspaceLimit.line":
+    "Workspace 상한 · 바이트 {bytes} · inode {inodes}",
+  "session.workspaceLimit.hard": "하드",
+  "session.workspaceLimit.soft": "소프트",
+  "session.workspaceLimit.unknown": "미확인",
   "sessionList.filter.label": "상태로 보기",
   "sessionList.filter.all": "전체",
   "sessionList.filter.empty": "이 상태의 세션이 없습니다.",
@@ -40,6 +45,11 @@ export const sessionListKo = {
 };
 
 export const sessionListEn: Record<keyof typeof sessionListKo, string> = {
+  "session.workspaceLimit.line":
+    "Workspace limits · bytes {bytes} · inodes {inodes}",
+  "session.workspaceLimit.hard": "Hard",
+  "session.workspaceLimit.soft": "Soft",
+  "session.workspaceLimit.unknown": "Unverified",
   "sessionList.filter.label": "Show by status",
   "sessionList.filter.all": "All",
   "sessionList.filter.empty": "No sessions in this status.",
@@ -81,6 +91,11 @@ export const sessionListEn: Record<keyof typeof sessionListKo, string> = {
 };
 
 export const sessionListJa: Record<keyof typeof sessionListKo, string> = {
+  "session.workspaceLimit.line":
+    "Workspace 上限 · バイト {bytes} · inode {inodes}",
+  "session.workspaceLimit.hard": "ハード",
+  "session.workspaceLimit.soft": "ソフト",
+  "session.workspaceLimit.unknown": "未確認",
   "sessionList.filter.label": "状態で表示",
   "sessionList.filter.all": "すべて",
   "sessionList.filter.empty": "この状態のセッションはありません。",
