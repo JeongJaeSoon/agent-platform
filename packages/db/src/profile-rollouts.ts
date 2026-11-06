@@ -444,11 +444,12 @@ export function createPostgresProfileRolloutStore(
         await lockWrites(tx);
         const { latest, behind } = await behindLatest(tx);
         if (behind.length > 0) {
-          const written = await rows(
+          const opened = await rows(
             tx,
-            sql`SELECT 1 FROM profile_rollouts LIMIT 1`,
+            sql`SELECT 1 FROM profile_rollouts
+              UNION ALL SELECT 1 FROM profile_fill LIMIT 1`,
           );
-          if (written.length === 0)
+          if (opened.length === 0)
             return { rollouts: 0, items: 0, held: behind.length };
         }
         let rollouts = 0;
@@ -617,6 +618,9 @@ export function createPostgresProfileRolloutStore(
           }
           pinned = pinnedNow;
           modelFollowsProfile = followedNow;
+          await tx.execute(
+            sql`INSERT INTO profile_fill (id) VALUES (1) ON CONFLICT DO NOTHING`,
+          );
         }
         return { dryRun, pinned, modelFollowsProfile };
       });

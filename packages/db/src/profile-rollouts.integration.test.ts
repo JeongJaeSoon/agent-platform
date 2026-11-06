@@ -37,6 +37,7 @@ import {
   installationProfiles,
   memberships,
   memberTeams,
+  profileFill,
   profileRolloutItems,
   profileRollouts,
   users,
@@ -635,6 +636,35 @@ integration("profile rollouts on PostgreSQL (U3b reader)", () => {
       expect("refused" in filled).toBe(false);
       expect((await agentRow(behind.agent.id))?.profileTracking).toBe("pinned");
       expect(await rollouts().sweep()).toEqual({ rollouts: 0, items: 0 });
+    });
+
+    test("after a real fill, an agent created later on an old version is swept, not held; a dry run does not count as the fill", async () => {
+      const caller = await owner();
+      await lineage(caller);
+      await follower(caller);
+
+      await rollouts().backfill({ dryRun: true });
+      expect(await db.select().from(profileFill)).toEqual([]);
+      expect(await rollouts().sweep()).toMatchObject({ held: 1 });
+
+      await rollouts().backfill({ dryRun: false });
+      expect(await db.select().from(profileFill)).toHaveLength(1);
+
+      const late = await follower(caller);
+      const swept = await rollouts().sweep();
+      expect(swept).toMatchObject({ rollouts: 1, items: 1 });
+      expect("held" in swept).toBe(false);
+      expect(
+        await db
+          .select()
+          .from(profileRolloutItems)
+          .where(eq(profileRolloutItems.agentId, late.agent.id)),
+      ).toHaveLength(1);
+      // The fill is one-time: its marker is not a rollout, but a rollout now
+      // exists, so a second real fill is refused as before.
+      expect(await rollouts().backfill({ dryRun: false })).toEqual({
+        refused: "rollouts_exist",
+      });
     });
 
     test("with nobody behind, an empty outbox is nothing to hold back", async () => {
