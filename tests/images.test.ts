@@ -1188,8 +1188,27 @@ describe("compose and workflow agree with the Dockerfiles", () => {
         expression("github.ref == 'refs/heads/main' && 'main' || 'release'"),
       ]);
       expect(runsOf(jobs.sources)).toContain(
-        'image-sources.sh debian-sources unverified-sources "$SOURCES_MODE"',
+        'image-sources.sh debian-sources unverified-sources "$SOURCES_MODE" held-sources-prior held-sources',
       );
+      // A failed attempt hands its answers on, and the next one takes them
+      // only from its own run and its own job.
+      for (const name of ["sources", "sources-main"]) {
+        const steps = jobs[name]?.steps ?? [];
+        const upload = steps.find((step) =>
+          String(step.with?.name).startsWith("held-sources-"),
+        );
+        expect(upload?.if).toBe("always()");
+        expect(upload?.with?.name).toBe(
+          `held-sources-${expression("github.job")}-${expression("github.run_attempt")}`,
+        );
+        const download = steps.find((step) =>
+          String(step.with?.pattern).startsWith("held-sources-"),
+        );
+        expect(download?.if).toBe("github.run_attempt > 1");
+        expect(download?.with?.pattern).toBe(
+          `held-sources-${expression("github.job")}-*`,
+        );
+      }
       expect(
         jobs.publish?.steps.flatMap((step) => step.with?.push ?? []),
       ).toEqual([true]);
@@ -1749,6 +1768,86 @@ exit "$FAKE_EXIT"
 
     test("an unknown mode is refused", () => {
       expect(run("relaese", 0).code).toBe(2);
+    });
+
+    test("earlier attempts' held files are joined and passed on, and this attempt's goes out", () => {
+      const directory = mkdtempSync(join(tmpdir(), "image-sources-prior-"));
+      mkdirSync(join(directory, "bin"));
+      mkdirSync(join(directory, "lists"));
+      mkdirSync(join(directory, "prior/held-sources-sources-1"), {
+        recursive: true,
+      });
+      mkdirSync(join(directory, "prior/held-sources-sources-2"));
+      // Copies what it was handed as --prior and writes a held set of its own
+      // before failing, as the real check does.
+      writeFileSync(
+        join(directory, "bin/bun"),
+        `#!/usr/bin/env bash
+echo "$*" >"$FAKE/check"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --prior) cp "$2" "$FAKE/prior-seen"; shift ;;
+    --held-out) echo "acl 2.3.2-2" >"$2"; shift ;;
+  esac
+  shift
+done
+printf '%b' "$FAKE_STDERR" >&2
+exit 3
+`,
+        { mode: 0o755 },
+      );
+      writeFileSync(
+        join(directory, "prior/held-sources-sources-1/held.txt"),
+        "acl 2.3.2-2\n",
+      );
+      writeFileSync(
+        join(directory, "prior/held-sources-sources-2/held.txt"),
+        "gh 1\n",
+      );
+      for (const { app, arch } of lists) {
+        writeFileSync(
+          join(directory, "lists", `${app}-${arch}.md`),
+          `| acl | 2.3.2-2 | acl |  | ${shared} |\n`,
+        );
+      }
+      const result = Bun.spawnSync(
+        [
+          "bash",
+          join(root, ".github/scripts/image-sources.sh"),
+          "lists",
+          "results",
+          "release",
+          "prior",
+          "held",
+        ],
+        {
+          cwd: directory,
+          env: {
+            PATH: `${join(directory, "bin")}:${process.env.PATH ?? ""}`,
+            FAKE: directory,
+            FAKE_EXIT: "3",
+            FAKE_STDERR: unreachable,
+          },
+        },
+      );
+      // Strict as ever: the sources still unanswered stop a release.
+      expect(result.exitCode).toBe(1);
+      const check = readFileSync(join(directory, "check"), "utf8");
+      expect(check).toContain("--snapshot-check 1800 --prior ");
+      expect(check).toContain(`--held-out held/held.txt `);
+      expect(
+        readFileSync(join(directory, "prior-seen"), "utf8").split("\n").sort(),
+      ).toEqual(["", "acl 2.3.2-2", "gh 1"]);
+      // The failed check's own set is where the workflow uploads from.
+      expect(readFileSync(join(directory, "held/held.txt"), "utf8")).toBe(
+        "acl 2.3.2-2\n",
+      );
+    });
+
+    test("with no earlier attempt the check gets no prior file", () => {
+      const { check } = run("release", 0);
+      expect(check).not.toContain("--prior");
+      expect(check).not.toContain("--held-out");
     });
   });
 

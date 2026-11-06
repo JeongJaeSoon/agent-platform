@@ -15,6 +15,7 @@ import {
   mentionsGpl,
   parseDebianSources,
   parseDpkgStatus,
+  parseHeld,
   parseLockfile,
   parseRows,
   problemsOf,
@@ -23,6 +24,9 @@ import {
   render,
   renderDebianSources,
   snapshotAnswers,
+  snapshotAnswersWithPrior,
+  snapshotHolds,
+  snapshotResponses,
   snapshotUrl,
 } from "../scripts/third-party-notices.ts";
 
@@ -568,6 +572,108 @@ describe("Debian corresponding source", () => {
     expect(answers).toEqual(["missing", "missing"]);
     expect(denied.get("source-0")).toBe(2);
     expect(denied.get("source-1")).toBeGreaterThan(2);
+  });
+
+  test("an earlier attempt's held sources are not asked again, and the rest still decide", async () => {
+    const asked: string[] = [];
+    const { answers, held } = await snapshotAnswersWithPrior(
+      sources(3),
+      parseHeld("source-0 1\nsource-2 1\nnot-in-this-run 9\n"),
+      5,
+      async (source) => {
+        asked.push(source);
+        return "unreachable";
+      },
+      noPause,
+    );
+    // Silence repeats until the budget ends; the carried-over ones never appear.
+    expect(asked.length).toBeGreaterThan(0);
+    expect(new Set(asked)).toEqual(new Set(["source-1"]));
+    expect(answers).toEqual(["held", "unreachable", "held"]);
+    // The next attempt inherits the whole earlier set plus this attempt's finds.
+    expect([...held].sort()).toEqual([
+      "not-in-this-run 9",
+      "source-0 1",
+      "source-2 1",
+    ]);
+  });
+
+  test("what this attempt finds is added to the set handed on", async () => {
+    const { answers, held } = await snapshotAnswersWithPrior(
+      sources(2),
+      parseHeld("source-0 1"),
+      60_000,
+      async () => "held",
+      noPause,
+    );
+    expect(answers).toEqual(["held", "held"]);
+    expect([...held].sort()).toEqual(["source-0 1", "source-1 1"]);
+  });
+
+  test("a denial is not hidden by the carried-over set", async () => {
+    const { answers } = await snapshotAnswersWithPrior(
+      sources(2),
+      parseHeld("source-0 1"),
+      5,
+      async () => "missing",
+      noPause,
+    );
+    expect(answers).toEqual(["held", "missing"]);
+  });
+
+  test("with no earlier attempt every source is asked", async () => {
+    const asked: string[] = [];
+    const { answers, held } = await snapshotAnswersWithPrior(
+      sources(2),
+      parseHeld(""),
+      60_000,
+      async (source) => {
+        asked.push(source);
+        return "held";
+      },
+      noPause,
+    );
+    expect(asked).toEqual(["source-0", "source-1"]);
+    expect(answers).toEqual(["held", "held"]);
+    expect(held.size).toBe(2);
+  });
+
+  test("the response tally tells a bad body from a failure while reading it", async () => {
+    const realFetch = globalThis.fetch;
+    const reply = (json: () => Promise<unknown>) => {
+      globalThis.fetch = (async () => ({
+        status: 200,
+        ok: true,
+        json,
+      })) as unknown as typeof fetch;
+    };
+    try {
+      snapshotResponses.clear();
+      reply(async () => {
+        throw new SyntaxError("Unexpected token");
+      });
+      expect(await snapshotHolds("a", "1", 1000)).toBe("unreachable");
+      reply(async () => {
+        throw new TypeError("connection reset");
+      });
+      expect(await snapshotHolds("a", "1", 1000)).toBe("unreachable");
+      reply(async () => ({ result: [{ hash: "x" }] }));
+      expect(await snapshotHolds("a", "1", 1000)).toBe("held");
+      expect(Object.fromEntries(snapshotResponses)).toEqual({
+        "200": 3,
+        "not-json": 1,
+        error: 1,
+      });
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  test("parseHeld keeps only well-formed lines", () => {
+    expect([...parseHeld("a 1\n\n  b 2 \nbroken\nc 3 extra\n")]).toEqual([
+      "a 1",
+      "b 2",
+    ]);
   });
 
   test("a budget that runs out with a no reports the no", async () => {
