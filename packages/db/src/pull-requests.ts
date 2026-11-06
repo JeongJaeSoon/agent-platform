@@ -396,19 +396,19 @@ export function createPostgresPullRequests(db: Database): PullRequestStore {
           (stage !== null && stage !== "due" && stage !== "opening") ||
           (request.state === "pushed" &&
             request.flow === "legacy" &&
-            stage === null &&
-            request.pullRequestIntent === null)
+            stage === null)
         ) {
           return { kind: "open_now", pushRequestId: request.id };
         }
         // Only the actions flow schedules. A legacy request that is not
         // pushed yet is refused as it was before scheduling existed (flag
-        // off is every legacy request): holding content would make the push
-        // due a pull request that the follow-up turn opens as well.
+        // off is every legacy request), even when an earlier build stored
+        // content on it: the follow-up turn opens its pull request, and a
+        // due stage would have the drain open it as well.
         if (
           request.state === "rejected" ||
           request.state === "failed" ||
-          (request.flow === "legacy" && request.pullRequestIntent === null)
+          request.flow === "legacy"
         ) {
           return refused("not_pushed", {
             pushRequestState: request.state as PushRequestState,

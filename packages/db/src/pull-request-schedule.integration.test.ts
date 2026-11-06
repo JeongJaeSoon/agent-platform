@@ -265,6 +265,24 @@ integration("scheduling a pull request on PostgreSQL", () => {
     });
   });
 
+  test("a legacy request an earlier build gave content is refused too, and its push makes no due stage", async () => {
+    const sessionId = await newSession();
+    const made = await request(sessionId, "legacy");
+    await db
+      .update(pushRequests)
+      .set({ pullRequestIntent: FIRST })
+      .where(eq(pushRequests.id, made.id));
+    expect(await schedule(sessionId, { pushRequestId: made.id })).toMatchObject(
+      { kind: "refused", refusal: "not_pushed" },
+    );
+    await approve(sessionId, made.id);
+    await push(made.id, "pushed");
+    expect(await row(made.id)).toMatchObject({
+      state: "pushed",
+      prState: null,
+    });
+  });
+
   test("a rejected or failed request is refused with its state and id", async () => {
     const sessionId = await newSession();
     const made = await request(sessionId, "actions");

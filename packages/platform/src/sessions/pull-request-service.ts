@@ -575,12 +575,13 @@ export function createPullRequestService(deps: {
         throw error;
       }
       const { created } = opened;
-      // A pull request this call did not make is adopted only when it holds
-      // the pushed commit, as the drain requires. One that does not is not
-      // this push's result, whatever the stage says. A head that is an
+      // A pull request is recorded only when it holds the pushed commit, as
+      // the drain requires, whether it was found, answered to a 422 or just
+      // created (the branch may have moved since the push). One that does not
+      // is not this push's result, whatever the stage says. A head that is an
       // ancestor of the pushed commit is GitHub's lag, so the caller may ask
       // again; any other head, and a compare that fails, end it.
-      if (!created && opened.headSha !== source.gitCommit) {
+      if (opened.headSha !== source.gitCommit) {
         let lag = false;
         try {
           lag = await forge.isAncestor(opened.headSha, source.gitCommit);

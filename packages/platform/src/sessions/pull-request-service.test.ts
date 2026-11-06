@@ -111,6 +111,8 @@ function harness(
     failUpdate?: boolean;
     /** Someone opened #9 for the head between the find and the create. */
     raced?: boolean;
+    /** The head the forge reports for a pull request this call creates or races. */
+    madeHead?: string;
     /** The repository's default branch, as the tree and blob reads see it. */
     repository?: ReturnType<typeof fakeRepositoryReads>;
     maxBodyLength?: number;
@@ -240,7 +242,7 @@ function harness(
           url: "https://github.com/acme/app/pull/9",
           state: "open",
           head: input.head,
-          headSha: "a".repeat(40),
+          headSha: options.madeHead ?? "a".repeat(40),
           base: input.base,
           mergedAt: null,
           closedAt: null,
@@ -254,7 +256,7 @@ function harness(
         url: "https://github.com/acme/app/pull/7",
         state: "open",
         head: input.head,
-        headSha: "a".repeat(40),
+        headSha: options.madeHead ?? "a".repeat(40),
         base: input.base,
         mergedAt: null,
         closedAt: null,
@@ -583,6 +585,17 @@ describe("opening a pull request", () => {
       expect(caught.code).toBe("BACKEND_UNAVAILABLE");
       expect(saved).toEqual([]);
       expect(calls).not.toContain("update 3");
+    });
+
+    test("a pull request just created, or answered to a 422, on a moved head is not recorded either", async () => {
+      for (const raced of [false, true]) {
+        const { service, saved } = harness({ madeHead: MOVED, raced });
+        const caught = await refusal(
+          service.open(actor, SESSION, PUSH, { readBody: async () => ({}) }),
+        );
+        expect(caught.details).toMatchObject({ refusal: "head_moved" });
+        expect(saved).toEqual([]);
+      }
     });
 
     test("a compare GitHub fails closes the same way as a head that is not an ancestor", async () => {

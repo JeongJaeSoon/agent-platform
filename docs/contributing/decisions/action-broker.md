@@ -232,7 +232,7 @@ type ActionResult<T> = { ok: true; result: T } | { ok: false; refusal: ActionRef
 | `forge_failed` | github | true |
 | `github_refused`, `pull_request_closed`, `head_moved`, `closed_unrecorded` | github | false |
 
-MCP에서 `not_pushed`는 더 나오지 않는다(예약). REST는 이행 기간 동안 기본이 지금처럼 `409 not_pushed`이고, `?schedule=true`일 때만 예약한다.
+MCP에서 `not_pushed`는 flag on(actions 흐름)에서만 나오지 않는다(예약). flag off의 legacy 요청은 push 전이면 예전처럼 `not_pushed`로 거절한다. REST는 이행 기간 동안 기본이 지금처럼 `409 not_pushed`이고, `?schedule=true`일 때만 예약한다.
 
 ### 5.7 T7 `git push`: 안내만
 

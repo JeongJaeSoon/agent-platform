@@ -91,7 +91,7 @@ The agent in a session does the same work with built-in MCP tools: `open_pull_re
 
 ## How the pull request opens after a push
 
-When a push request carries a pull request request, the action-broker inside the control-host opens the pull request once the push ends as `pushed`. The agent does not have to call `open_pull_request` in a follow-up turn. This work starts with the control-host whether or not the `AGENT_ACTION_FLOWS` setting is on. A stage that was already started is finished even if you restart with the setting off. Over REST, calling `POST /v1/sessions/{id}/push-requests/{push_request_id}/pull-request?schedule=true` before the push ends returns 202 with `status: "scheduled"` instead of 409 `PUSH_NOT_PUSHED`, and the pull request opens as soon as the push ends. Without the `schedule` query the call answers 409 as before.
+When a push request carries a pull request request, the action-broker inside the control-host opens the pull request once the push ends as `pushed`. The agent does not have to call `open_pull_request` in a follow-up turn. This work starts with the control-host whether or not the `AGENT_ACTION_FLOWS` setting is on. A stage that was already started is finished even if you restart with the setting off. Over REST, calling `POST /v1/sessions/{id}/push-requests/{push_request_id}/pull-request?schedule=true` before the push ends returns 202 with `status: "scheduled"` instead of 409 `PUSH_NOT_PUSHED`, and the pull request opens as soon as the push ends. Without the `schedule` query, or with `AGENT_ACTION_FLOWS` off, the call answers 409 as before.
 
 There is one pull request stage per push request, and its state moves like this.
 

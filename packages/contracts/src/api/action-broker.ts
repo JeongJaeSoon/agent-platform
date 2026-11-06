@@ -104,7 +104,8 @@ export const ACTION_REFUSAL_CODES = {
   // The push intent ended before it became a push request.
   intent_ended: actionRefusalSpec("platform"),
   // The branch's open pull request holds another commit than the push; it was
-  // not adopted. Calling again cannot help unless GitHub only lags.
+  // not adopted. A compare GitHub failed ends here too; a head that only lags
+  // behind the push is `forge_failed` instead.
   head_moved: byGitHub,
   // `request_push.pull_request` needs the PR tool trusted in this session;
   // nothing was created. Call request_push without it, then open_pull_request.
