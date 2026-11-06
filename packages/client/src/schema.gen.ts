@@ -6124,7 +6124,7 @@ export interface components {
                 target_branch: string;
                 /** @enum {string} */
                 status: "deferred" | "pinned" | "requested" | "failed" | "cancelled";
-                refusal_code: ("turn_ended_without_checkpoint" | "turn_finalized_without_pin" | "session_closed" | "rejected_before" | "request_open" | "github_disabled" | "over_workspace_ceiling" | "repository_not_allowed" | "checkpoint_unavailable" | "source_missing" | "attribution_mismatch" | "uncommitted_changes" | "pinned_source_invalid") | null;
+                refusal_code: ("turn_ended_without_checkpoint" | "turn_finalized_without_pin" | "superseded_by_turn" | "session_closed" | "rejected_before" | "request_open" | "github_disabled" | "over_workspace_ceiling" | "repository_not_allowed" | "checkpoint_unavailable" | "source_missing" | "attribution_mismatch" | "uncommitted_changes" | "pinned_source_invalid") | null;
                 push_request_id: string | null;
                 /** Format: date-time */
                 created_at: string;
