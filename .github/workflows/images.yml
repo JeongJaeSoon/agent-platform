@@ -2,12 +2,8 @@ name: Images
 
 # Builds the three app images (apps/*/Dockerfile) on every pull request and
 # main push, smokes the worker's bundled Claude Code executable, and records
-# every digest as an artifact. A push to main and a v* tag publish to
-# ghcr.io, and nothing else does. A tag arrives by push, or by a dispatch on
-# the tag ref that release.yml makes right after creating the tag (a tag made
-# with GITHUB_TOKEN starts no push run). Both run the same jobs with
-# GITHUB_REF=refs/tags/vX and wait for the same single approval; a dispatch on
-# a branch publishes nothing. A main push publishes main-<12> tags with no
+# every digest as an artifact. A push to main and a v* tag push publish to
+# ghcr.io, and nothing else does. A main push publishes main-<12> tags with no
 # approval; a tag waits for the `release` environment once, at `publish`, and
 # its digests are what the release manifest pins. Registry CD
 # beyond the push is D5. After the promotion the chart follows, with that run's
@@ -39,12 +35,10 @@ permissions:
   contents: read
 
 # One group per main commit, never cancelled: a later merge must neither drop
-# this commit's images nor stop a promotion between repositories. A tag is one
-# group whether pushed or dispatched, and never cancelled either: a second
-# dispatch must queue behind a publish already under way, not stop it.
+# this commit's images nor stop a promotion between repositories.
 concurrency:
-  group: images-${{ startsWith(github.ref, 'refs/tags/v') && 'tag' || github.event_name }}-${{ github.event.pull_request.number || (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.sha) || github.ref }}
-  cancel-in-progress: ${{ !(github.event_name == 'push' && github.ref == 'refs/heads/main') && !startsWith(github.ref, 'refs/tags/v') }}
+  group: images-${{ github.event_name }}-${{ github.event.pull_request.number || (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.sha) || github.ref }}
+  cancel-in-progress: ${{ !(github.event_name == 'push' && github.ref == 'refs/heads/main') }}
 
 env:
   REGISTRY: ghcr.io
@@ -249,12 +243,11 @@ jobs:
   # write main-<12> on a push to main, reviewed by the merge itself, so no
   # environment. sha-<12> is not reused there: a build on another day has
   # another digest, and promote would refuse the tag.
-  # `workflow_dispatch` can name any ref, so the ref is checked as well as the
-  # event: only a tag ref opens this path, the same reach as pushing the tag.
-  # The commit must be on main — a tag is not a review.
+  # `workflow_dispatch` can name any ref, so the event is checked as well as
+  # the ref. The commit must be on main — a tag is not a review.
   publish:
     needs: [build, supply-chain]
-    if: contains(fromJSON('["push","workflow_dispatch"]'), github.event_name) && startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     timeout-minutes: 20
     environment: release
@@ -384,7 +377,7 @@ jobs:
 
   sources:
     needs: publish
-    if: contains(fromJSON('["push","workflow_dispatch"]'), github.event_name) && startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps: &sources-steps
@@ -407,7 +400,7 @@ jobs:
 
   index:
     needs: sources
-    if: contains(fromJSON('["push","workflow_dispatch"]'), github.event_name) && startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -442,7 +435,7 @@ jobs:
 
   promote:
     needs: index
-    if: contains(fromJSON('["push","workflow_dispatch"]'), github.event_name) && startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     # One promotion at a time across the whole repository: two v* tags on the
     # same commit share the sha-<12> tag, and the check-then-write below is
     # only safe when no other promotion runs between the check and the write.
@@ -532,7 +525,7 @@ jobs:
   #   chart-publish  push the package and read it back with no login
   chart:
     needs: promote
-    if: contains(fromJSON('["push","workflow_dispatch"]'), github.event_name) && startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps: &chart-steps
@@ -604,7 +597,7 @@ jobs:
 
   chart-publish:
     needs: chart
-    if: contains(fromJSON('["push","workflow_dispatch"]'), github.event_name) && startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -633,7 +626,7 @@ jobs:
   # content (.github/scripts/release-publish.sh). Main runs publish no release.
   release:
     needs: chart-publish
-    if: contains(fromJSON('["push","workflow_dispatch"]'), github.event_name) && startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     concurrency:
       group: images-release
       cancel-in-progress: false
@@ -684,7 +677,7 @@ jobs:
   # reports too, so the path can be exercised on demand.
   vulnerability-report:
     needs: [build, supply-chain]
-    if: always() && contains(fromJSON('["schedule","workflow_dispatch"]'), github.event_name) && !startsWith(github.ref, 'refs/tags/') && needs.supply-chain.result != 'success'
+    if: always() && contains(fromJSON('["schedule","workflow_dispatch"]'), github.event_name) && needs.supply-chain.result != 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:

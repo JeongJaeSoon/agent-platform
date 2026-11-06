@@ -32,11 +32,11 @@ composeのエントリファイルは`infra/compose.yml`、復元用のlayerは`
 
 同じdaemonに2つのインストールを載せるなら、`EXECUTION_INSTALLATION_ID`をインストールごとに変えます。composeの`egress-proxy` labelはこの値に従うので、インストールごとに自分のproxyが付きます。別のworktreeのcompose projectが既定のポートを使っているなら、`-p <name>`と`ports: !override`のoverrideファイルで分離します。
 
-`.github/workflows/images.yml`は、PR・main pushのたびに3つのイメージを`linux/amd64`と`linux/arm64`で、アーキテクチャごとにそのアーキテクチャのrunnerでビルドします。workerで`claude --version`が2.1.270であること、api・schedulerに`@anthropic-ai`がないことを確認したうえで、digest JSONを`image-digest-<app>-<arch>` artifactとして残します。公開は`main` pushと`v*` tag(pushまたはそのtag refへのdispatch)でだけ行われます。`main` pushについては、下の[mainへのマージごとに公開されるイメージ](#mainへのマージごとに公開されるイメージ)を参照してください。`v*` tagの**pushイベント**と、そのtag refで始めた`workflow_dispatch`では(`workflow_dispatch`はどのrefでも指定できるのでrefも見ます。このdispatchは[Run workflowでリリースする](#リポジトリ管理者-run-workflowでリリースする)が作ります)、`publish`・`index`・`promote` jobが`ghcr.io/jeongjaesoon/werft-<app>`に公開します。package write権限は公開jobだけが持ちます。`publish`は`release` environmentで動いて承認を1回受け、tagが指すcommitが`main`の祖先でなければ失敗します(tagはレビューではありません)。`publish`はイメージ・アーキテクチャごとにrun専用のstaging tagにpushしてから、そのdigestをpullして同じsmoke(`.github/scripts/image-smoke.sh`)を通します。`sources`は6つのイメージのDebianソースがsnapshot.debian.orgにあるかを問い合わせます。package writeもenvironmentもありません。`index`はイメージごとに2つのdigestを1つのindexにまとめてrun専用のstaging tagに載せ、indexが正確にその2つのdigestを指しているかを確認します。`promote`は3つのindexが揃ってから初めて`vX`・`sha-…` tagにretagします(registry-side、再ビルドなし)。このrunのstaged index digestがrelease candidateです。既存のtagが別のdigestを指していれば、どのtagも書く前に失敗し(1つのバージョンが2つのbuild attemptのイメージで混ざりません)、照会自体が失敗すれば(認証・rate limit・5xx)「ない」とはみなさずに中断します(fail-closed)。tagを書いた後、6つのreference(3イメージ × 2 tag)を読み直し、candidateと同じときだけ`image-digests-published` artifactを作ります。retagはリポジトリごとに順に行われるので、途中で失敗するとセットが半分だけtagされたまま残ります。そのときはstaged artifactが残っている間に、**同じrunの"Re-run failed jobs"**で埋めます(publish・index jobは再実行されないので、staged artifactとdigestはそのままです)。tagをもう一度pushすると新しいbuild(workerのapt layerはpinされません)になるので拒否されます。3つのdigestをまとめて含む利用者向けの記録は、タグのGitHub Releaseに添付される[`release-manifest.json`](#リリースmanifestを読む)です。`release` environmentのrequired reviewer・deployment branchのルールは、リポジトリ設定で掛けます。registry CDはまだありません。
+`.github/workflows/images.yml`は、PR・main pushのたびに3つのイメージを`linux/amd64`と`linux/arm64`で、アーキテクチャごとにそのアーキテクチャのrunnerでビルドします。workerで`claude --version`が2.1.270であること、api・schedulerに`@anthropic-ai`がないことを確認したうえで、digest JSONを`image-digest-<app>-<arch>` artifactとして残します。公開は`main` pushと`v*` tag pushでだけ行われます。`main` pushについては、下の[mainへのマージごとに公開されるイメージ](#mainへのマージごとに公開されるイメージ)を参照してください。`v*` tagの**pushイベント**では(`workflow_dispatch`はどのrefでも指定できるのでイベントも見ます)、`publish`・`index`・`promote` jobが`ghcr.io/jeongjaesoon/werft-<app>`に公開します。package write権限は公開jobだけが持ちます。3つのjobは`release` environmentで動き、tagが指すcommitが`main`の祖先でなければ失敗します(tagはレビューではありません)。`publish`はイメージ・アーキテクチャごとにrun専用のstaging tagにpushしてから、そのdigestをpullして同じsmoke(`.github/scripts/image-smoke.sh`)を通します。`sources`は6つのイメージのDebianソースがsnapshot.debian.orgにあるかを問い合わせます。package writeもenvironmentもありません。`index`はイメージごとに2つのdigestを1つのindexにまとめてrun専用のstaging tagに載せ、indexが正確にその2つのdigestを指しているかを確認します。`promote`は3つのindexが揃ってから初めて`vX`・`sha-…` tagにretagします(registry-side、再ビルドなし)。このrunのstaged index digestがrelease candidateです。既存のtagが別のdigestを指していれば、どのtagも書く前に失敗し(1つのバージョンが2つのbuild attemptのイメージで混ざりません)、照会自体が失敗すれば(認証・rate limit・5xx)「ない」とはみなさずに中断します(fail-closed)。tagを書いた後、6つのreference(3イメージ × 2 tag)を読み直し、candidateと同じときだけ`image-digests-published` artifactを作ります。retagはリポジトリごとに順に行われるので、途中で失敗するとセットが半分だけtagされたまま残ります。そのときはstaged artifactが残っている間に、**同じrunの"Re-run failed jobs"**で埋めます(publish・index jobは再実行されないので、staged artifactとdigestはそのままです)。tagをもう一度pushすると新しいbuild(workerのapt layerはpinされません)になるので拒否されます。3つのdigestをまとめて含む利用者向けの記録は、タグのGitHub Releaseに添付される[`release-manifest.json`](#リリースmanifestを読む)です。`release` environmentのrequired reviewer・deployment branchのルールは、リポジトリ設定で掛けます。registry CDはまだありません。
 
 ### mainへのマージごとに公開されるイメージ
 
-`main` push runの`publish-main`・`index-main`・`promote-main` jobが、3つのイメージを`ghcr.io/jeongjaesoon/werft-<app>:main-<12>`として公開します。`<12>`はcommit SHAの先頭12文字です。namespaceは`github.repository_owner`から来ます。schedule、pull requestのrunと、ブランチrefの`workflow_dispatch`のrunは公開しません。
+`main` push runの`publish-main`・`index-main`・`promote-main` jobが、3つのイメージを`ghcr.io/jeongjaesoon/werft-<app>:main-<12>`として公開します。`<12>`はcommit SHAの先頭12文字です。namespaceは`github.repository_owner`から来ます。schedule、pull request、`workflow_dispatch`のrunは公開しません。
 
 - **検査。** これらのjobと`sources-main`は、タグ経路の`publish`・`sources`・`index`・`promote`と同じstepを実行します。`build`と`supply-chain`が通った後、イメージ・アーキテクチャごとに再びビルドしてrun専用のstaging tagにpushし、そのdigestでsmoke、ライセンス照合、Grype検査を実行します。6つのdigestがすべて通り、`sources-main`が終わってから、indexをまとめて`main-<12>`にretagします(再ビルドなし)。`release`の承認は受けません。マージがレビューだからです。
 - **`main-<12>`はdigestで使います。** タグはcommitを探すためだけに使い、デプロイには`name@sha256:…`を書きます。動くタグはありません。`sha-<12>`は`v*`公開のタグで、main公開では使いません。
@@ -75,20 +75,6 @@ docker pull "ghcr.io/jeongjaesoon/werft-worker@<digest read above>"
 
 リリース後は、`Chart.yaml`の`version`を次のバージョンに上げます。`main`のchartバージョンはこの値の後ろに付くので、そうすることでプレリリースが直前に出したリリースより後ろに並びます。
 
-### リポジトリ管理者: Run workflowでリリースする
-
-ローカルでタグを作ってpushする代わりに、Actionsの画面から始める経路です。上の手順の1番(タグのpush)を`release.yml`が代わりに行い、承認は同じ場所、`publish`の前の1回だけです。この経路はまだ実行されていません。最初の実測は次のリリースで行います。
-
-1. リリースするcommitを決めます。`main`にあり、そのcommitの`CI`と`Images`のpush runが終わって緑である必要があります。変更履歴はタグを作る前に書きます。
-2. Actionsの**Release** workflowで**Run workflow**を押します。ブランチは`main`です。`version`に`v0.1.2`の形のタグを、`sha`にcommitの40文字を入れます。
-3. workflowはタグを作る前に次の順で検査し、1つでも外れたらそこで失敗します。実行したrefが`main`であること、`version`が`vX.Y.Z`または`vX.Y.Z-<プレリリース>`であること(`v1.2`と`v1.2.3+build`は拒否)、`sha`が40文字の小文字hexで`main`の祖先であること、同じタグと同じ名前のRelease(draft含む)がないこと、そのcommitの`CI`と`Images`のpush runが緑であること(実行中なら終わるのを待つよう伝えて失敗)、そのcommitの`images.yml`がタグrefへのdispatchを受けること。
-4. 通れば、annotated tagを作り、そのタグrefで`Images`を始めます。`GITHUB_TOKEN`で作ったタグはpush runを起こさないため、dispatchがその役を担います。このrunは`GITHUB_REF=refs/tags/vX.Y.Z`なので、上の手順の2番以降と同じjobを通ります。
-5. `Images` runの`publish`で`release`の承認を1回押します。`release.yml`はenvironmentもpackage writeも持ちません。`contents: write`(タグref)と`actions: write`(dispatch)は、このworkflowの1つのjobだけが持ちます。
-
-**タグは承認より先にできます。** 承認が守るのはレジストリへの書き込みとReleaseです。承認を拒否した場合や`publish`の前に失敗した場合は、タグだけが残り、公開されたものはありません。同じバージョンでRun workflowをやり直すと、タグがあるため拒否されます。タグは動かしも書き直しもしません。続けるには、その`Images` runを「Re-run failed jobs」で再実行します。runがなければ、Actionsの`Images`をそのタグをrefにして直接Run workflowします。dispatchの要求が失敗してもタグは消しません。要求は受理されたのに応答だけ失った可能性があるためです。
-
-**知っておくこと。** 書き込み権限のある人は、既存のタグrefにも`Images`をdispatchできます。タグの作成をrulesetで制限してもこのdispatchは止まらないため、タグをpushする権限より範囲が広くなります。ただし`release`の承認と`main`上の検査は同じように通ります。`promote`は別のdigestを指すタグを拒否し、`release-publish.sh`は内容の違うmanifestを上書きしません。タグの作成をrulesetで制限している場合、このworkflowのタグも止まる可能性があります。最初の実行で確認します。
-
 ### リリースmanifestを読む
 
 `v*`タグごとにGitHub Releaseが1つでき、ファイル`release-manifest.json`が添付されます。運用者はrunやartifactを探しません。リポジトリのcheckoutも不要で、`gh`と`jq`があれば足ります。最初のReleaseは`v0.1.0`です(assetは`release-manifest.json`、記録されたcommitは`9e2098e5`)。下の`TAG`には読みたいReleaseのタグを入れます。
@@ -120,7 +106,7 @@ helm show chart "$(jq -r .chart.ref "$TAG/release-manifest.json")" --version "$(
 
 ### Helm chartの公開
 
-イメージのpromoteが終わると、同じrunがchart `werft`を`oci://ghcr.io/jeongjaesoon/werft`に公開します。経路は`main` push(`chart-main`、`chart-publish-main`)と`v*`タグpush(`chart`、`chart-publish`)の2つで、stepは同じです。schedule、pull requestのrunと、ブランチrefの`workflow_dispatch`のrunは公開しません。
+イメージのpromoteが終わると、同じrunがchart `werft`を`oci://ghcr.io/jeongjaesoon/werft`に公開します。経路は`main` push(`chart-main`、`chart-publish-main`)と`v*`タグpush(`chart`、`chart-publish`)の2つで、stepは同じです。schedule、pull request、`workflow_dispatch`のrunは公開しません。
 
 - **バージョン。** タグ`v1.2.3`はchart `1.2.3`、appVersion `v1.2.3`です。`main`は`<Chart.yaml version>-main-<12>`、appVersion `main-<12>`です。`-main.<12>`でない理由は、12桁がすべて数字で0から始まるとsemverではなく、helmが拒否するためです。
 - **値。** `.github/scripts/chart-package.ts`が、そのrunの`image-digests-published`から3つのdigestとworker runtimeを読み、パッケージ内の`values.yaml`に入れます。3つのアプリがちょうど1回ずつ、このcommitのpromoteされたイメージであり、repositoryがchartの既定値と同じである必要があります。リポジトリの`values.yaml`はそのままです。同じ値を`chart` artifactの`werft-<version>.values.yaml`にも残します。運用者はartifactなしで`helm show values`で読みます。digestはindexのdigestです。worker runtimeはアーキテクチャに依存しない値で、2つのアーキテクチャの値が異なれば`index`が止まります。workerの比較はdigestではなくこの値を見るので、単一manifestで公開されたchartからindexのchartに上げても、digestの値が変わるだけで再インストールの動作は変わりません。
