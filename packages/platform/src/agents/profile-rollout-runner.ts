@@ -107,7 +107,6 @@ export function createProfileRolloutRunner(deps: {
     let settled = 0;
     for (const [index, item] of items.entries()) {
       if (stopped()) {
-        // A stopping replica gives the rest back instead of holding the lease.
         await rollouts.abandon(items.slice(index));
         break;
       }
@@ -121,7 +120,6 @@ export function createProfileRolloutRunner(deps: {
           });
         }
       } catch (error) {
-        // The lease runs out and the item is judged again.
         logger.warn("Profile rollout item could not be applied", {
           agent: item.agentId,
           rollout: item.rolloutId,

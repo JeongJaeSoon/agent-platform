@@ -233,14 +233,14 @@ export function createPostgresProfileRolloutStore(
         const { latest, behind } = await behindLatest(tx);
         let rollouts = 0;
         let items = 0;
+        // The head is the lineage's last behavior-changing rollout. When the
+        // newest version's form differs from the head target's (an image
+        // without the writer made it), it gets its own rollout.
         const headOf = new Map<string, string>();
         for (const lineage of new Set(
           behind.map((agent) => agent.lineage as string),
         )) {
           const newest = latest.get(lineage) as ProfileRow;
-          // The head is the lineage's last behavior-changing rollout. When
-          // the newest version's form differs from the head target's (an
-          // image without the writer made it), it gets its own rollout.
           const [current] = await rows<{
             id: string;
             definition: ProfileRow["definition"];

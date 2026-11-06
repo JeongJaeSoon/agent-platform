@@ -62,19 +62,16 @@ const V1: CatalogProfile = {
     },
   },
 };
-// A new default model and one more tool: a different execution form.
 const V2: CatalogProfile = {
   ...V1,
   model: "claude-opus-5",
   models: ["claude-opus-5", "claude-sonnet-5"],
   tools: ["Read", "Grep", "Edit", "Write"],
 };
-// Only the order of the allowed models differs: the same form as V2.
 const V3: CatalogProfile = {
   ...V2,
   models: ["claude-sonnet-5", "claude-opus-5"],
 };
-// The default model leaves the allowed models of the fixed agents.
 const V4: CatalogProfile = {
   ...V2,
   model: "claude-opus-5",
@@ -133,7 +130,6 @@ integration("profile rollouts on PostgreSQL (U3b reader)", () => {
   let pool: Pool;
   let db: NodePgDatabase<typeof schema>;
 
-  // Sweeps and fills read every agent, so each test gets its own database.
   beforeEach(async () => {
     database = await createTempDatabase({ prefix: "profile_rollout_it" });
     pool = new Pool({ connectionString: database.url, max: 16 });
@@ -197,7 +193,6 @@ integration("profile rollouts on PostgreSQL (U3b reader)", () => {
     );
   }
 
-  // The lineage `ops`: its versions are rows, the catalog above runs them.
   async function lineage(
     caller: Caller,
     versions: [number, CatalogProfile][] = [
@@ -301,7 +296,6 @@ integration("profile rollouts on PostgreSQL (U3b reader)", () => {
     expect(after?.activationRevision).toBe(
       (before?.activationRevision as number) + 1,
     );
-    // A rollout is not a new intent: no revision, no draft.
     expect(after?.behaviorRevision).toBe(before?.behaviorRevision as number);
     expect(after?.draftVersionId).toBeNull();
     expect((await items(rolloutId))[0]?.status).toBe("applied");
@@ -400,14 +394,10 @@ integration("profile rollouts on PostgreSQL (U3b reader)", () => {
     const rolloutId = await rolloutOf(caller, [made.agent.id]);
     const gone = await rollouts().claim({ leaseMs: 60, limit: 5 });
     expect(gone).toHaveLength(1);
-    // While the lease lives, nobody else gets the item.
     expect(await rollouts().claim({ leaseMs: 60, limit: 5 })).toHaveLength(0);
     await Bun.sleep(120);
-    // The replica that held it never answers; another takes the item over.
     const [taker] = await rollouts().claim({ leaseMs: 60_000, limit: 5 });
     expect(taker?.claim).not.toBe(gone[0]?.claim);
-    // The first holder wakes up while the new lease lives: its result is
-    // dropped, even though the item is still pending.
     expect(
       await rollouts().settle(gone[0] as NonNullable<(typeof gone)[0]>, {
         status: "failed",
@@ -418,11 +408,9 @@ integration("profile rollouts on PostgreSQL (U3b reader)", () => {
       status: "pending",
       lockedBy: taker?.claim,
     });
-    // The new holder gives it back (a stop), and a run finishes the item.
     await rollouts().abandon([taker as NonNullable<typeof taker>]);
     expect(await runner().runOnce()).toEqual({ claimed: 1, settled: 1 });
     expect((await items(rolloutId))[0]?.status).toBe("applied");
-    // The first holder wakes up late: its claim token no longer matches.
     const [stale] = gone;
     expect(
       await rollouts().settle(stale as NonNullable<typeof stale>, {
@@ -442,7 +430,6 @@ integration("profile rollouts on PostgreSQL (U3b reader)", () => {
       caller,
       made.map((m) => m.agent.id),
     );
-    // SIGTERM arrived after the claim: nothing is started, the lease is freed.
     expect(await runner().runOnce(() => true)).toEqual({
       claimed: 2,
       settled: 0,
@@ -462,7 +449,6 @@ integration("profile rollouts on PostgreSQL (U3b reader)", () => {
       caller,
       made.map((m) => m.agent.id),
     );
-    // One claim holds both under one token; the first was tried and threw.
     const held = await rollouts().claim({ leaseMs: 60_000, limit: 5 });
     expect(held).toHaveLength(2);
     expect(await rollouts().abandon(held.slice(1))).toBe(1);
@@ -484,7 +470,6 @@ integration("profile rollouts on PostgreSQL (U3b reader)", () => {
     await lineage(caller);
     const made = await follower(caller);
     const rolloutId = await rolloutOf(caller, [made.agent.id]);
-    // The person who made the profile is no longer an owner or admin.
     await db
       .update(memberships)
       .set({ role: "member" })
@@ -502,7 +487,6 @@ integration("profile rollouts on PostgreSQL (U3b reader)", () => {
     });
     expect(await releasesOf(made.agent.id)).toHaveLength(1);
 
-    // Time passes, passes run: the failed item is not claimed again.
     expect(await runner({ sweep: false }).runOnce()).toEqual({
       claimed: 0,
       settled: 0,
@@ -518,7 +502,6 @@ integration("profile rollouts on PostgreSQL (U3b reader)", () => {
       generation: failed?.generation as number,
     };
     expect(await rollouts().retry(ref)).toBe(true);
-    // Only a failed item can be retried.
     expect(await rollouts().retry(ref)).toBe(false);
     await runner().runOnce();
     expect((await items(rolloutId))[0]?.status).toBe("applied");
@@ -558,7 +541,6 @@ integration("profile rollouts on PostgreSQL (U3b reader)", () => {
       targetProfileId: "op_ops_v2",
     });
     expect(outcome.status).toBe("superseded");
-    // The release row may exist (its id is fixed); it was not switched on.
     const row = await agentRow(made.agent.id);
     expect(row?.activeReleaseId).toBe(made.agent.active_release_id);
     expect(row?.activationRevision).toBe(made.agent.activation_revision);
@@ -578,8 +560,6 @@ integration("profile rollouts on PostgreSQL (U3b reader)", () => {
       repositoryIds: [],
       createdBy: userOf(caller),
     });
-    // The agent follows, but its release is on another lineage than the
-    // rollout's target: the rollout must not switch it to `ops`.
     const made = await follower(caller, { profile: "op_other_v1" });
     const outcome = await service().rolloutRelease({
       workspaceId: caller.ownerId,
@@ -604,7 +584,6 @@ integration("profile rollouts on PostgreSQL (U3b reader)", () => {
     const sameForm = await follower(caller, { profile: "op_ops_v2" });
     const oldRelease = old.agent.active_release_id as string;
     const v2Release = sameForm.agent.active_release_id as string;
-    // Each agent moves to the newest version (a person saves with the profile).
     for (const made of [old, sameForm]) {
       const moved = await service().updateAgent(caller, made.agent.id, {
         runtime_profile_id: "op_ops_v3",
@@ -668,10 +647,8 @@ integration("profile rollouts on PostgreSQL (U3b reader)", () => {
         createdBy: userOf(caller),
       });
 
-      // A pending item holds the agent back; the sweep is idempotent.
       expect(await rollouts().sweep()).toEqual({ rollouts: 0, items: 0 });
 
-      // The same generation failed: no automatic new attempt.
       await db
         .update(profileRolloutItems)
         .set({ status: "failed", reasonCode: "release_refused" })
@@ -691,7 +668,6 @@ integration("profile rollouts on PostgreSQL (U3b reader)", () => {
         .update(profileRolloutItems)
         .set({ status: "failed", reasonCode: "release_refused" })
         .where(eq(profileRolloutItems.agentId, made.agent.id));
-      // The writer-less image makes version 4 (a different form): no rollout.
       await lineage(caller, [
         [3, V3],
         [4, V4],
@@ -737,10 +713,8 @@ integration("profile rollouts on PostgreSQL (U3b reader)", () => {
       if ("refused" in dry) throw new Error("dry run refused");
       expect(dry.pinned).toContain(behind.agent.id);
       expect(dry.pinned).not.toContain(upToDate.agent.id);
-      // The card model is the profile's default.
       expect(dry.modelFollowsProfile).toContain(behind.agent.id);
       expect(dry.modelFollowsProfile).toContain(upToDate.agent.id);
-      // A dry run writes nothing.
       expect((await agentRow(behind.agent.id))?.profileTracking).toBe("follow");
       expect((await agentRow(behind.agent.id))?.modelSource).toBe("fixed");
 

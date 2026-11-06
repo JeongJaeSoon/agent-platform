@@ -84,7 +84,6 @@ describe("the rollout runner", () => {
     release();
     await stopping;
 
-    // The item in flight finished; the two not started were given back.
     expect(settled.map(([agent]) => agent)).toEqual(["agent-1"]);
     expect(abandoned).toEqual([["agent-2", "agent-3"]]);
   });
