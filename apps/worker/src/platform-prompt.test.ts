@@ -212,10 +212,10 @@ describe("platformPromptText (revision 3, action flows on)", () => {
     expect(text).not.toContain("Once the push is done, open the pull request");
   });
 
-  test("pushes one commit per turn, one repository at a time, from the workspace and never a worktree or clone", () => {
+  test("pushes one HEAD per turn, one repository at a time, from the workspace and never a worktree or clone", () => {
     const text = platformPromptText(three);
     expect(text).toContain(
-      "carries one commit: the HEAD the workspace has when the turn ends",
+      "carries the HEAD the workspace has when the turn ends and the history before it",
     );
     expect(text).toContain("push one repository per turn");
     expect(text).toContain("never from a git worktree or a clone");
@@ -312,7 +312,7 @@ describe("runtimeProfile with a platform prompt", () => {
       "3b5a2f6b048c9240abb2dddfe1354935fd27a7fd499e7fc8ea7c3ec8063567ce",
     );
     expect(digest({ ...withRepository, prompt_revision: 3 })).toBe(
-      "63a943ba34702b6326a3f81b555278e331cb9a8cbfd9f954c63db8a786eb6db4",
+      "cee5226abc6fe9f9a5c34bd9a98ab4a06ba3e30c8f5c1b416f73aa8c7c6830e7",
     );
   });
 

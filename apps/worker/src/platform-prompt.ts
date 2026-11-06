@@ -55,13 +55,13 @@ const PUSH_THIS_TURN = [
 ];
 
 // Revision 3 (AGENT_ACTION_FLOWS on): revision 2's push, with the pull request
-// scheduled in the turn that asks for the push, and the one commit a turn
+// scheduled in the turn that asks for the push, and the one HEAD a turn
 // pushes. Revisions 1 and 2 keep their words; they are part of the checkpoint
 // fingerprint of the sessions that run them.
 const PUSH_THIS_TURN_SCHEDULED_PR = [
   ...PUSH_THIS_TURN,
   "To open a pull request, call mcp__github__open_pull_request with that push_intent_id in this same turn, right after request_push answers deferred, even when a person has to approve the push: it answers scheduled, the platform opens the pull request once the push is done, and no later turn will, so do not end the turn with a promise to open it next turn.",
-  "A push carries one commit: the HEAD the workspace has when the turn ends, whichever repository the request names. Work on one repository per turn and push one repository per turn, with that repository's branch checked out in the workspace and never from a git worktree or a clone elsewhere, which a push does not capture; push a second repository in a later turn.",
+  "A push carries the HEAD the workspace has when the turn ends and the history before it, whichever repository the request names. Work on one repository per turn and push one repository per turn, with that repository's branch checked out in the workspace and never from a git worktree or a clone elsewhere, which a push does not capture; push a second repository in a later turn.",
 ];
 
 const PUSH_APPROVAL =
