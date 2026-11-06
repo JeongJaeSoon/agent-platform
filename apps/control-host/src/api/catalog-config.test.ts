@@ -340,6 +340,33 @@ describe("the settings fixtures", () => {
     }
   });
 
+  test("the real-model fixture needs no key to start: without one its ceiling is connection_missing, with one usable", async () => {
+    const config = await fixture("real-model");
+    const states = (env: Record<string, string>) => {
+      const sources = profileSources(env);
+      const lookup = (ref: object) =>
+        "value_env" in ref ? env[String(ref.value_env)] : undefined;
+      return new Map(
+        [
+          ...installationProfileSnapshot(
+            {
+              ...sources,
+              connections: config.entries.connections,
+              lookup,
+              materialize: (id, definition) =>
+                sources.materialize(id, definition, lookup),
+            },
+            catalogRows(config.profiles, config.repositories),
+          ).installation.values(),
+        ].map((entry) => [entry.id, entry.state]),
+      );
+    };
+    expect(states({}).get("claude-coding-real")).toBe("connection_missing");
+    expect(states({ ANTHROPIC_API_KEY: "placeholder-key" })).toEqual(
+      new Map([["claude-coding-real", "usable"]]),
+    );
+  });
+
   test("a repository names only ceilings the fixture seeds", async () => {
     for (const name of EXAMPLES) {
       const config = await fixture(name);

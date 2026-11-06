@@ -29,6 +29,9 @@ export type WorkerEnvironment = WorkerObjectStoreEnvironment & {
   WORKER_GATEWAY_URL?: string | undefined;
   WORKER_STOP_GRACE_SEC?: string | undefined;
   WORKER_WORKSPACE_DIR?: string | undefined;
+  WORKER_WORKSPACE_MOUNT_DIR?: string | undefined;
+  WORKER_WORKSPACE_QUOTA_BYTES?: string | undefined;
+  WORKER_WORKSPACE_QUOTA_MODE?: string | undefined;
 
   WORKER_CLAUDE_CONFIG_DIR?: string | undefined;
 

@@ -412,18 +412,22 @@ echo '{"status":"ready"}'
     };
   }
 
-  test("stops before Docker when the key is unset or empty", async () => {
+  test("starts on the real-model overlay with no model connection when the key is unset or empty", async () => {
     for (const [name, env] of [
       ["unset", {}],
       ["empty", { [KEY_VARIABLE]: "" }],
     ] as const) {
-      for (const verb of ["up", "reset"]) {
-        const result = await local(`no-key-${verb}-${name}`, [verb], env);
-        expect(result.status).toBe(2);
-        expect(result.stderr).toContain(`up needs ${KEY_VARIABLE} exported`);
-        expect(result.argv).toBe("");
-      }
+      const result = await local(`no-key-up-${name}`, ["up"], env);
+      expect(result.status).toBe(0);
+      expect(result.stderr).toContain(
+        "the stack starts with no model connection",
+      );
+      expect(result.argv).toContain(`-f ${OVERLAY} up -d --build`);
+      expect(result.argv).not.toContain("compose.fake-model.yml");
     }
+  });
+
+  test("stops before Docker on an unknown argument", async () => {
     const unknown = await local("bad-arg", ["up", "--real"], {
       [KEY_VARIABLE]: PROBE,
     });

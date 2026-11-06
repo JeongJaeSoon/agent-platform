@@ -1409,13 +1409,13 @@ export interface paths {
         put?: never;
         /**
          * Open a pull request from a pushed request
-         * @description Opens a pull request on the request's repository's forge (GitHub or GHES) from the request's branch (`agent/<session-id>` or `agent/<session-id>-<branch>`) into that catalog entry's `branch`. Only a `pushed` request opens one (without `?schedule=true`; a request that is not pushed yet is refused with `PUSH_NOT_PUSHED`, as before; with `?schedule=true` the call is held until the push finishes, and `PUSH_REQUEST_RESOLVED` answers a request a later one superseded), and only while the catalog entry is still the one the request pinned. The platform calls GitHub with its own credential: an installation token of the catalog's GitHub App, scoped to this repository with `contents: read` and `pull_requests: write`.
+         * @description Opens a pull request on the request's repository's forge (GitHub or GHES) from the request's branch (`agent/<session-id>` or `agent/<session-id>-<branch>`) into that catalog entry's `branch`. Only a `pushed` request opens one (without `?schedule=true`; a request that is not pushed yet is refused with `PUSH_NOT_PUSHED`, as before; with `?schedule=true` the call is held until the push finishes for a push request made with the agent action flows on, and refused with `PUSH_NOT_PUSHED` for one made with them off (the legacy flow), and `PUSH_REQUEST_RESOLVED` answers a request a later one superseded), and only while the catalog entry is still the one the request pinned. The platform calls GitHub with its own credential: an installation token of the catalog's GitHub App, scoped to this repository with `contents: read` and `pull_requests: write`.
          *
          *     The content is the structured fields `summary`, `changes`, `rationale`, `testing`, `notes` and `related`, or the legacy `body` text, never both. The platform lays the fields out on the repository's pull request template when its default branch has one (`.github/`, the repository root or `docs/`, a `pull_request_template.md` or the one file of a `PULL_REQUEST_TEMPLATE/` directory; read at the default branch's commit as it is when the request is handled, never from the pull request's own branch), under the template's headings or at its `<!-- werft:slot summary -->` lines, keeping the template's own text, comments and checkboxes; otherwise on its default template, a heading per field that has content, in Korean. A template that is over 16 KiB, not a plain UTF-8 file, ambiguous (several in a directory), unreadable, or written with HTML, tables, reference definitions or comments that share a row with text is passed over for the default template, and the pull request still opens; `body_source.kind` is `repository` with the template's `path`, or `platform` with `skipped` saying why, and the receipt's `template` records the commit, path and blob read. The template's own mentions, closing keywords and references are broken like the fields', a line that looks like a secret is replaced like theirs, and it cannot pass for the platform's tail. On either layout, `related` items become `Closes #N` (an issue of the pull request's own repository, when `closes` is true) or `Refs owner/repo#N`, written by the platform from the catalog, and an item whose `repository_id` the session's catalog does not have is left out (`body_source.related_dropped` counts them). A legacy `body` is used as written. `body_source` says which one the platform wrote, and is null when the pull request was already open and its body was left alone.
          *
          *     `title` (default `Agent session <session-id>`) and the text are cleaned before GitHub sees them: `@` mentions, cross-repository references (`owner/repo#N`), closing keywords (`Closes #N` and the like) and HTML comments are broken with a zero-width space, a line that looks like a secret is replaced by `[REDACTED]`, an engine's own signature line (Claude Code's `Generated with` link) is removed, and the body is cut to GitHub's limit, the last fields first. The body ends with a line naming the session and the commit. The platform never approves, merges or asks for reviews.
          *
-         *     Safe to retry: a request opens at most one pull request. When one is already recorded, or GitHub already has an open one for the branch, it is answered with `created: false` (200). Every attempt, refused ones included, leaves an `open_pull_request` receipt; `receipt_id` names this one, and a refusal's `error.details.receipt_id` names it.
+         *     Safe to retry: a request opens at most one pull request. When one is already recorded, or GitHub already has an open one for the branch on the pushed commit, it is answered with `created: false` (200). An open one on another commit is not adopted: `PUSH_REQUEST_RESOLVED` with `refusal: head_moved` (`expected_sha`, `actual_sha`), or `BACKEND_UNAVAILABLE` when GitHub only lags behind the push. A pull request this call created on a moved head ends the stage for good: later calls answer the same `head_moved` without asking GitHub. Every attempt, refused ones included, leaves an `open_pull_request` receipt; `receipt_id` names this one, and a refusal's `error.details.receipt_id` names it.
          *
          *     A verified credential that holds `sessions:approve` opens one, as for a push decision. One that may only submit to the session (an agent's key without `sessions:approve`, or the key that started the session) opens one too, since the request was already pushed. The token is issued through the agent's GitHub settings: with GitHub off for the agent, or the repository outside its release, the call is refused with `GITHUB_REFUSED`. Worker credentials are not accepted on `/v1` (401).
          *
@@ -2256,7 +2256,7 @@ export interface paths {
         put?: never;
         /**
          * Create an agent and its first card version
-         * @description Nothing is released or activated. The creator administers the agent. `managing_team_id` is required (400 BAD_REQUEST with a `details.issues` entry at `managing_team_id` when absent): an owner or admin names any live team (404 when there is none by that id), anyone else only a team they are in (403 FORBIDDEN, `details.reason_code` `team_not_allowed`). A slug already used in the workspace answers 409 ALREADY_EXISTS. API keys are refused.
+         * @description Without `runtime_profile_id` nothing is released or activated. With it the save makes the first release on that profile and activates it, as `PATCH /v1/agents/{id}` does; `model_source` defaults to `profile`, which runs the profile's default model. The agent and its card are kept when the release is refused: `release.status` is then `failed` with the reason, and the agent's `draft` holds the request until a new save. The creator administers the agent. `managing_team_id` is required (400 BAD_REQUEST with a `details.issues` entry at `managing_team_id` when absent): an owner or admin names any live team (404 when there is none by that id), anyone else only a team they are in (403 FORBIDDEN, `details.reason_code` `team_not_allowed`). A slug already used in the workspace answers 409 ALREADY_EXISTS. API keys are refused.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -2309,8 +2309,8 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Rename or describe an agent, or add a card version
-         * @description `name` and `description` change the agent itself: no version is made, and `description: null` clears it. Neither reaches a run. A `card` becomes a new version; existing versions never change. A card equal to one the agent already has adds nothing.
+         * Rename or describe an agent, or save its card and profile
+         * @description `name` and `description` change the agent itself: no version is made, and `description: null` clears it. Neither reaches a run. A `card` becomes a new version; existing versions never change, and a card equal to one the agent already has reuses it. A card, `runtime_profile_id` or `model_source` changes what the agent does: unless it equals what the agent runs (`release.status: unchanged`, nothing released), the save makes a release of it and activates it (`applied`). `runtime_profile_id` alone saves the card the agent runs now on that profile; without a card or profile the agent's current ones are used. `model_source: profile` runs the profile's default model and writes it into the card; `fixed` keeps the card's model; absent, the current source is kept while the card's model is the one running. A refused release (`failed`, with its `reason`) keeps the card version and leaves the request as the agent's `draft`; a save a newer one replaced answers `superseded` and changes nothing.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -4751,6 +4751,9 @@ export interface components {
                     source: "user" | "correction";
                 }[];
             };
+            runtime_profile_id?: string;
+            /** @enum {string} */
+            model_source?: "fixed" | "profile";
         };
         UpdateAgentRequest: {
             name?: string;
@@ -4793,6 +4796,9 @@ export interface components {
                     source: "user" | "correction";
                 }[];
             };
+            runtime_profile_id?: string;
+            /** @enum {string} */
+            model_source?: "fixed" | "profile";
         };
         CreateAgentReleaseRequest: {
             /** Format: uuid */
@@ -8688,6 +8694,252 @@ export interface components {
                 activated_at: string | null;
                 deactivated_at: string | null;
             } | null;
+            behavior_revision: number;
+            /** @enum {string} */
+            model_source: "fixed" | "profile";
+            draft: {
+                /** Format: uuid */
+                version_id: string;
+                runtime_profile_id: string;
+                /** @enum {string} */
+                model_source: "fixed" | "profile";
+                failure: string | null;
+            } | null;
+            effective_behavior: {
+                applied: {
+                    runtime_profile_id: string;
+                    model: string;
+                    /** @enum {string} */
+                    model_source: "fixed" | "profile";
+                    title_model: string | null;
+                    agent_instructions: string | null;
+                } | null;
+                draft: {
+                    runtime_profile_id: string;
+                    model: string;
+                    /** @enum {string} */
+                    model_source: "fixed" | "profile";
+                    title_model: string | null;
+                    agent_instructions: string | null;
+                } | null;
+            };
+        };
+        SaveAgentResponse: {
+            agent: {
+                /** Format: uuid */
+                id: string;
+                /** Format: uuid */
+                workspace_id: string;
+                slug: string;
+                name: string;
+                description: string | null;
+                managing_team_id: string | null;
+                managing_team_name: string | null;
+                /** @enum {string} */
+                status: "active" | "paused" | "archived";
+                active_release_id: string | null;
+                activation_revision: number;
+                created_by: string | null;
+                /** Format: date-time */
+                created_at: string;
+                /** Format: date-time */
+                updated_at: string;
+            };
+            versions: {
+                /** Format: uuid */
+                id: string;
+                /** Format: uuid */
+                agent_id: string;
+                version_no: number;
+                card: {
+                    role?: string;
+                    instructions?: string;
+                    agent_instructions?: string;
+                    /**
+                     * @default ko
+                     * @enum {string}
+                     */
+                    language: "ko" | "en";
+                    model: string;
+                    capabilities: {
+                        tools: string[] | null;
+                        mcp: {
+                            server: string;
+                        }[] | null;
+                        /** @default [] */
+                        forbidden: string[];
+                        tool_policy?: {
+                            default?: {
+                                /** @enum {string} */
+                                builtin?: "allow" | "ask" | "deny";
+                                /** @enum {string} */
+                                mcp?: "allow" | "ask" | "deny";
+                            };
+                            per_tool?: {
+                                [key: string]: "allow" | "ask" | "deny";
+                            };
+                        };
+                        credential_refs?: string[];
+                    };
+                    /** @default [] */
+                    rules: {
+                        id: string;
+                        text: string;
+                        /** @enum {string} */
+                        source: "user" | "correction";
+                    }[];
+                };
+                content_sha256: string;
+                created_by: string | null;
+                /** Format: date-time */
+                created_at: string;
+            }[];
+            releases: {
+                id: string;
+                /** Format: uuid */
+                agent_id: string;
+                /** Format: uuid */
+                version_id: string;
+                card_sha256: string;
+                runtime_profile_id: string;
+                repository_id: string | null;
+                profile_digest: string;
+                runtime_config_snapshot: {
+                    [key: string]: unknown;
+                };
+                effective_tools: {
+                    tools: string[];
+                    mcp: string[];
+                };
+                policy_pins: {
+                    tools?: {
+                        default: {
+                            /** @enum {string} */
+                            builtin: "allow" | "ask" | "deny";
+                            /** @enum {string} */
+                            mcp: "allow" | "ask" | "deny";
+                        };
+                        per_tool: {
+                            [key: string]: "allow" | "ask" | "deny";
+                        };
+                    };
+                    github?: {
+                        repositories: string[];
+                        push_approval: boolean;
+                        features: {
+                            workflows: boolean;
+                            actions: boolean;
+                            checks: boolean;
+                            issues: boolean;
+                            review: boolean;
+                        };
+                        actions_allow: {
+                            workflow: string;
+                            ref?: string;
+                        }[];
+                    };
+                };
+                created_by: string | null;
+                /** Format: date-time */
+                created_at: string;
+                approved_by: string | null;
+                approved_at: string | null;
+                note: string | null;
+                label: string;
+                activated_at: string | null;
+                deactivated_at: string | null;
+            }[];
+            active_release: {
+                id: string;
+                /** Format: uuid */
+                agent_id: string;
+                /** Format: uuid */
+                version_id: string;
+                card_sha256: string;
+                runtime_profile_id: string;
+                repository_id: string | null;
+                profile_digest: string;
+                runtime_config_snapshot: {
+                    [key: string]: unknown;
+                };
+                effective_tools: {
+                    tools: string[];
+                    mcp: string[];
+                };
+                policy_pins: {
+                    tools?: {
+                        default: {
+                            /** @enum {string} */
+                            builtin: "allow" | "ask" | "deny";
+                            /** @enum {string} */
+                            mcp: "allow" | "ask" | "deny";
+                        };
+                        per_tool: {
+                            [key: string]: "allow" | "ask" | "deny";
+                        };
+                    };
+                    github?: {
+                        repositories: string[];
+                        push_approval: boolean;
+                        features: {
+                            workflows: boolean;
+                            actions: boolean;
+                            checks: boolean;
+                            issues: boolean;
+                            review: boolean;
+                        };
+                        actions_allow: {
+                            workflow: string;
+                            ref?: string;
+                        }[];
+                    };
+                };
+                created_by: string | null;
+                /** Format: date-time */
+                created_at: string;
+                approved_by: string | null;
+                approved_at: string | null;
+                note: string | null;
+                label: string;
+                activated_at: string | null;
+                deactivated_at: string | null;
+            } | null;
+            behavior_revision: number;
+            /** @enum {string} */
+            model_source: "fixed" | "profile";
+            draft: {
+                /** Format: uuid */
+                version_id: string;
+                runtime_profile_id: string;
+                /** @enum {string} */
+                model_source: "fixed" | "profile";
+                failure: string | null;
+            } | null;
+            effective_behavior: {
+                applied: {
+                    runtime_profile_id: string;
+                    model: string;
+                    /** @enum {string} */
+                    model_source: "fixed" | "profile";
+                    title_model: string | null;
+                    agent_instructions: string | null;
+                } | null;
+                draft: {
+                    runtime_profile_id: string;
+                    model: string;
+                    /** @enum {string} */
+                    model_source: "fixed" | "profile";
+                    title_model: string | null;
+                    agent_instructions: string | null;
+                } | null;
+            };
+            release: {
+                /** @enum {string} */
+                status: "applied" | "failed" | "unchanged" | "superseded";
+                reason: string | null;
+                release_id: string | null;
+                version_id: string | null;
+            };
         };
         CreateAgentReleaseResponse: {
             release: {
@@ -19450,6 +19702,7 @@ export interface operations {
             };
             /**
              * @description - `PUSH_NOT_PUSHED`: The push request has not been pushed (`state` is not `pushed`); a pull request opens only from a pushed branch.
+             *     - `PUSH_REQUEST_RESOLVED`: The push request was already approved or rejected.
              *     - `CATALOG_MISMATCH`: The catalog no longer allows what the request depends on: the session's (profile, repository) pair, or the repository entry a push request pinned. Here: the catalog entry for the repository changed after the push request pinned it.
              *     - `GITHUB_REFUSED`: The platform refused the GitHub work before asking GitHub, or GitHub refused the token it asked for. `error.details.reason_code` says why and `error.details.receipt_id` names the receipt of the refusal. A refusal the workspace or the agent's release decided (`github_disabled`, `repository_not_allowed`, `feature_off`, `workflow_not_allowed`, `agent_ref_refused`, `run_ref_unprovable`) is 403; one an owner fixes outside the release (`over_workspace_ceiling`, `app_required`, `app_permission_missing`, `github_host_unsupported`, `no_reviewer_app`, `github_settings_unsupported`) is 409.
              */
@@ -19462,7 +19715,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"] & {
                         error?: {
                             /** @enum {string} */
-                            code?: "PUSH_NOT_PUSHED" | "CATALOG_MISMATCH" | "GITHUB_REFUSED";
+                            code?: "PUSH_NOT_PUSHED" | "PUSH_REQUEST_RESOLVED" | "CATALOG_MISMATCH" | "GITHUB_REFUSED";
                         };
                     };
                 };
@@ -24764,7 +25017,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AgentDetail"];
+                    "application/json": components["schemas"]["SaveAgentResponse"];
                 };
             };
             /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
@@ -25080,7 +25333,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AgentDetail"];
+                    "application/json": components["schemas"]["SaveAgentResponse"];
                 };
             };
             /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
@@ -25154,6 +25407,21 @@ export interface operations {
                         error?: {
                             /** @enum {string} */
                             code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision. */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REVISION_CONFLICT";
                         };
                     };
                 };

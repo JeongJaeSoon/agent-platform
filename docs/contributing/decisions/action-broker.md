@@ -194,8 +194,8 @@ type ActionResult<T> = { ok: true; result: T } | { ok: false; refusal: ActionRef
 |---|---|
 | 입력 | 지금 입력(`repository_id?`, `branch?`)에 `source_ref?`(L4b 전에는 `source_ref_unsupported`). strict |
 | 플랫폼이 정하는 것 | 대상 브랜치 `agent/<session-id>[-<branch>]`, 고정 commit(이 턴 끝 checkpoint의 HEAD), 승인 방식, 실행 시점(턴 끝) |
-| 출력 | `AGENT_ACTION_FLOWS` on: `{ status: "deferred", push_intent_id, waits_for: "turn_end", repository_id, target_branch }`. off: 지금 결과를 봉투에 넣고 `message`만 뺀다 |
-| 멱등 | 같은 턴에서 같은 대상을 다시 부르면 같은 의도. 같은 대상의 열린 push 요청은 하나(`request_open`). 사람이 거절한 commit의 재요청은 `rejected_before` |
+| 출력 | `AGENT_ACTION_FLOWS` on: `{ status: "deferred", push_intent_id, waits_for: "turn_end", repository_id, target_branch, pull_request, next }` (`next`는 승인 대기여도 같은 턴에 `open_pull_request({ push_intent_id })`를 부르라고 알린다; 푸시 뒤 PR을 여는 후속 턴은 없다). off: 지금 결과를 봉투에 넣고 `message`만 뺀다 |
+| 멱등 | 같은 턴에서 같은 대상을 다시 부르면 같은 의도. 같은 턴·같은 저장소의 다른 대상(`branch` 접미사만 다름)은 `source_ref_unsupported`(`details.reason = one_target_per_turn`, `details.target_branch` = 이미 잡힌 대상)로 거절한다. 모든 의도가 같은 턴 끝 checkpoint를 가리켜 같은 commit이 두 번 push되기 때문이다(D10). 모델은 남은 묶음을 사람에게 말하고 다음 입력을 기다린다. 같은 대상의 열린 push 요청은 하나(`request_open`). 사람이 거절한 commit의 재요청은 `rejected_before` |
 | 정책 | `push.primary`·`push.attached`. `ask`면 T3 push 폼 |
 
 턴 끝 뒤의 결과는 모델이 `get_push_request`(L5, 부류 `repository.read`)로 읽고, 사람에게는 T1 `action_notice`로 나간다.
@@ -232,7 +232,7 @@ type ActionResult<T> = { ok: true; result: T } | { ok: false; refusal: ActionRef
 | `forge_failed` | github | true |
 | `github_refused`, `pull_request_closed`, `head_moved`, `closed_unrecorded` | github | false |
 
-MCP에서 `not_pushed`는 더 나오지 않는다(예약). REST는 이행 기간 동안 기본이 지금처럼 `409 not_pushed`이고, `?schedule=true`일 때만 예약한다.
+MCP에서 `not_pushed`는 flag on(actions 흐름)에서만 나오지 않는다(예약). flag off의 legacy 요청은 push 전이면 예전처럼 `not_pushed`로 거절한다. REST는 이행 기간 동안 기본이 지금처럼 `409 not_pushed`이고, `?schedule=true`일 때만 예약한다.
 
 ### 5.7 T7 `git push`: 안내만
 
@@ -379,7 +379,7 @@ T4·T8은 엔진의 셸 도구로 돌기 때문에 어댑터 계약이 따로 �
 | D8 | push·PR·저장소 읽기를 엔진 권한 단계에서 빼기 | (a) 유지, PR 8 조건 | [6절](#6-행동-부류-정책) |
 | D9 | 레이어 이름 | 폐기 | 이름은 "도구 카탈로그". 그 뒤의 control-host 모듈 이름 action-broker는 레이어 이름이 아니다([1절](#1-위치와-이름)) |
 | D10 | 한 턴에 PR 여러 개 | 폐기 + 도구 한계 | 1단계 `request_push`의 소스는 턴 끝 HEAD 하나. 여러 소스는 `source_ref`(L4b, 2단계) |
-| D11 | commit bot과 PR bot이 같은가 | 도구 기본값 | commit identity의 App은 주 저장소의 고정 연결 App이다(PR 2). 주 저장소가 콘솔에 등록한 App으로 연결되고, bot 조회가 성공하고, 연결이 바뀌지 않았을 때만 PR을 여는 App과 같은 bot이다. 예외: 첨부 저장소의 다른 App, `Werft` fallback, 연결 변경, PAT 연결 저장소, 이미 열린 PR을 이어 쓸 때 |
+| D11 | commit bot과 PR bot이 같은가 | 도구 기본값 | commit identity의 App은 주 저장소의 고정 연결 App이다(PR 2). 주 저장소가 콘솔에 등록한 App으로 연결되고, bot 조회가 성공하고, 연결이 바뀌지 않았을 때만 PR을 여는 App과 같은 bot이다. 예외: 첨부 저장소의 다른 App, `Werft` fallback, 연결 변경, PAT 연결 저장소, 이미 열린 PR을 이어 쓸 때. 개정(PR 0): 이전 결정은 PR 템플릿 설계 4.1절의 "App 선택은 지금 그대로"(이미 고정된 App만 따르고 없으면 `Werft`)였다. 바뀐 이유: commit과 PR의 bot이 갈라지지 않게 하려는 것이다. 주 저장소가 콘솔에 등록한 App으로 연결돼 있고 작성용 고정이 없으면, claim이 PR 경로와 같은 resolver로 App을 정해 고정을 남긴다. 닿는 작성용 연결이 정확히 하나일 때만이고, `ambiguous_app`·닿는 연결 없음·조회 실패면 고정하지 않는다. 출처는 `pinned_by = 'claim'`(`first_mint`가 아니다)이고, 같은 트랜잭션에서 감사 receipt `pinned_at_claim`(operation `set_repository_github_app`, actor null)을 쓴다. 고정을 만들지 못해도 claim은 막히지 않고 `Werft`로 계속 발급한다([github-agent 결정 11](github-agent.md#claim이-남기는-고정)) |
 
 ## 11. 도구 위에 얹는 것
 

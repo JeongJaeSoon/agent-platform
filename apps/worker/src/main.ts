@@ -3,7 +3,9 @@ import { WORKER_EXIT_LEASE_LOST } from "@werft-ai/contracts";
 
 import { createWorkerHost } from "./composition.ts";
 import { type WorkerEnvironment, workerConfigFromEnv } from "./config.ts";
+import { consoleLogger } from "./console-logger.ts";
 import type { WorkerHost, WorkerRunSummary } from "./worker-host.ts";
+import { WorkspaceObserver } from "./workspace-observer.ts";
 
 const DRAIN_SIGNALS = ["SIGTERM", "SIGINT"] as const;
 
@@ -19,10 +21,28 @@ export async function main(
   await verifyWorkspace(config.runtime.cwd);
   const host = createWorkerHost(config);
   const release = drainOnSignals(host);
+  const requestedBytes = Number(environment.WORKER_WORKSPACE_QUOTA_BYTES);
+  const quotaMode = environment.WORKER_WORKSPACE_QUOTA_MODE;
+  const observer = new WorkspaceObserver(
+    {
+      root: environment.WORKER_WORKSPACE_MOUNT_DIR ?? config.runtime.cwd,
+      evidence: {
+        ...(Number.isSafeInteger(requestedBytes) && requestedBytes > 0
+          ? { requestedBytes }
+          : {}),
+        ...(quotaMode === "enforced" || quotaMode === "off"
+          ? { localQuota: quotaMode }
+          : {}),
+      },
+    },
+    consoleLogger,
+  );
+  observer.start();
   try {
     return await host.runLoop();
   } finally {
     release();
+    observer.stop();
   }
 }
 

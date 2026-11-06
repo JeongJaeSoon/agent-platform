@@ -27,12 +27,60 @@ Linux 서버 한 대에 Docker Compose로 Werft를 설치한다. 이미지는 �
 | 운영체제 | Linux. `x86_64`와 `arm64` 모두 된다 |
 | Docker Engine | 28 이상 |
 | Docker Compose | 2.24.6 이상 |
-| 디스크 | Docker 데이터 루트가 XFS이고 `prjquota`로 mount돼 있다. `preflight`는 이것을 보지 않는다. 아니면 `deploy`에서 scheduler의 quota 검사가 실패해 설치가 멈춘다. Docker Desktop에서는 쓸 수 없다. OrbStack의 기본 머신은 btrfs라 이 조건을 맞추지 못한다. 머신 안에서 sparse 이미지 파일(60G)에 `mkfs.xfs`로 XFS를 만들고 `loop,prjquota`로 mount해 Docker의 `data-root`로 지정하면, mount 옵션에 `prjquota`가 보이고 `deploy`의 quota 검사가 통과한다(OrbStack 머신 한 대에서 한 번 확인했다) |
+| 디스크 | Docker 데이터 루트가 XFS이고 `prjquota`로 mount돼 있다. `preflight`는 이것을 보지 않는다. 아니면 `deploy`에서 scheduler의 quota 검사가 실패해 설치가 멈춘다. ext4 서버라면 아래 "디스크 준비"에서 XFS를 만든다. Docker Desktop에서는 쓸 수 없다 |
 | 시간 | NTP 동기화. 재부팅 뒤 Docker가 자동으로 시작한다 |
 | 도구 | `git`, `jq`, `curl`, `openssl`, Bun 1.3.14, Docker Buildx 플러그인. Docker daemon에 접근할 수 있는 계정 |
 | 외부 | `ghcr.io`와 Docker Hub에서 이미지를 받을 수 있다. 패키지는 로그인 없이 받는다. 세션은 `api.anthropic.com`과 `github.com`에 나간다 |
 
 설치에는 저장소 checkout이 필요하다. compose 파일과 `scripts/test-ops.sh`를 checkout에서 읽기 때문이다. 이미지는 checkout에서 빌드하지 않는다.
+
+### 디스크 준비: XFS `prjquota`
+
+**왜 필요한가.** 세션마다 workspace volume이 하나 생기고, 그 volume이 같은 디스크의 PostgreSQL, LocalStack, 다른 세션과 공간을 나눈다. Werft는 volume마다 용량(`EXECUTION_WORKSPACE_QUOTA_MB`, 기본 4096MiB)과 inode(`EXECUTION_WORKSPACE_QUOTA_INODES`, 기본 1,000,000) 상한을 건다. 이 상한은 XFS의 project quota가 강제한다. `prjquota` 없이 쓰는 파일시스템(ext4 포함)에서는 Docker가 `size` 옵션을 받지 않는다. 그래서 scheduler는 기동할 때 probe volume을 만들어 보고, 만들지 못하면 아무 worker도 띄우지 않고 종료한다. 상한 없이 도는 길은 `EXECUTION_WORKSPACE_QUOTA=off` 하나뿐인데, 시험용 설정 검사(`test-ops`)가 이 값을 거부하므로 이 설치 절차에서는 쓸 수 없다.
+
+**지금 서버가 맞는지 확인한다.**
+
+```bash
+findmnt -no FSTYPE,OPTIONS -T "$(docker info -f '{{.DockerRootDir}}')"
+P="quota-probe-$(date +%s)"; docker volume create --driver local --opt size=64m "$P" && docker volume rm "$P"
+```
+
+첫 줄에 `xfs`가 나오고 옵션에 `prjquota`가 있으며, 둘째 줄이 오류 없이 끝나면 된다. ext4이면 둘째 줄이 `quota size requested but no quota support`로 거절된다. 이미 설치했다면 `xfs_quota -x -c 'report -p'`로 volume별 사용량과 상한을 볼 수 있다.
+
+**ext4 서버를 준비한다.** 이미지 파일에 XFS를 만들고 `/var/lib/docker`에 `loop,prjquota`로 mount한다. 이미지 파일은 마운트 지점 밖에 둔다. 아래는 한 줄로 이어져 있어서 어느 단계든 실패하면 그 뒤(특히 Docker 시작)는 실행되지 않는다. 기존 `/var/lib/docker`가 있으면 `/var/lib/docker.old`로 옮겼다가 mount 뒤에 `rsync`로 되돌린다. 처음 쓰는 서버면 두 단계는 건너뛴다.
+
+```bash
+[ ! -e /var/lib/docker.old ] &&
+sudo apt-get install -y xfsprogs rsync &&   # dnf라면 dnf install -y xfsprogs rsync
+sudo systemctl stop docker docker.socket &&
+{ [ ! -e /var/lib/docker ] || sudo mv /var/lib/docker /var/lib/docker.old; } &&
+sudo truncate -s 60G /var/lib/docker.xfs.img &&
+sudo mkfs.xfs -q /var/lib/docker.xfs.img &&
+sudo mkdir -p /var/lib/docker &&
+echo '/var/lib/docker.xfs.img /var/lib/docker xfs loop,prjquota 0 0' | sudo tee -a /etc/fstab &&
+sudo mount /var/lib/docker &&
+mount | grep 'on /var/lib/docker .*prjquota' &&
+{ [ ! -e /var/lib/docker.old ] || sudo rsync -aHAX /var/lib/docker.old/ /var/lib/docker/; } &&
+sudo systemctl start docker
+```
+
+`/var/lib/docker.old`가 이미 있으면 첫 단계에서 멈춘다. 내용을 확인해 다른 곳으로 치운 뒤 다시 한다. 중간에 멈추면 Docker는 멈춘 채로 있다. 원인을 고치기 전에 시작하지 않는다. 이미 옮겼다면 `/var/lib/docker.old`가 원본이다. 위 확인 명령이 통과해야 `deploy`로 간다.
+
+- 60G는 Docker 전체(이미지, 로그, 모든 volume)의 천장이다. 이미지 파일은 sparse라 쓴 만큼만 호스트 디스크를 차지하지만 줄어들지는 않는다. 호스트 파일시스템에 그만큼의 여유가 있어야 한다.
+- 이 단계에서 확인한 것: `truncate`, `mkfs.xfs`, `mount -o loop,prjquota`, `mount | grep prjquota`는 저장소 CI의 `workspace-quota` job이 그대로 돌린다(8G 이미지). OrbStack 머신에서는 이미지 파일을 Docker `data-root`로 지정하는 방식을 한 번 확인했다. `/etc/fstab` 줄과 `rsync` 이전은 이 문서를 쓰면서 실행해 보지 않았다(**미검증**). 먼저 시험 서버에서 한 번 해 본다.
+- 두 배포 경로의 workspace 상한을 같은 항목으로 비교한 표는 [Kubernetes 설치](/run-server/self-hosting/kubernetes)의 "workspace 저장소와 상한"에 있다.
+
+**이 서버의 workspace 저장소와 상한.**
+
+| 항목 | 단일 서버 |
+| --- | --- |
+| 저장 위치 | 세션마다 Docker `local` volume 하나. 이름은 무작위 접미사가 붙고 label로 찾는다. Docker 데이터 루트의 XFS 위에 있다 |
+| 용량 상한 | `EXECUTION_WORKSPACE_QUOTA_MB`, 기본 4096MiB, 최솟값 1024MiB. volume을 만들 때 `size`로 건다 |
+| inode 상한 | `EXECUTION_WORKSPACE_QUOTA_INODES`, 기본 1,000,000. 같은 XFS project에 `ihard`·`isoft`로 건다 |
+| 강제 주체 | XFS `prjquota`(커널). 상한을 걸 수 있는지는 scheduler의 quota preflight가 확인한다 |
+| 넘었을 때 | worker 안의 쓰기가 `ENOSPC`로 실패한다. 상한을 걸 수 없는 서버에서는 scheduler가 기동하지 않는다 |
+| 운영자가 정할 값 | Docker 데이터 루트의 파일시스템(XFS, `prjquota`)과 크기, 위 두 상한 |
+| 확인 명령 | `findmnt -no FSTYPE,OPTIONS -T "$(docker info -f '{{.DockerRootDir}}')"`, `xfs_quota -x -c 'report -p'`, `df -h`, `df -i` |
 
 ## 1. 이미지 digest 읽기
 
@@ -202,7 +250,7 @@ SDK와 HTTP API는 이 서버 주소와 key로 붙는다([SDK 설치](/getting-s
 1. **설정 > 워크스페이스 설정 > 모델 연결**에서 **연결 추가**를 누른다. 종류는 `anthropic`, 주소는 기본값(`https://api.anthropic.com`)을 두고, Anthropic key를 붙여 넣어 저장한다. 키는 DB에 봉인돼 저장되고, 화면에는 끝 네 글자만 보인다.
 2. **프로필 > 설치 프로필 만들기**에서 방금 만든 연결을 고르고 모델과 저장소를 정해 저장한다. 에이전트를 만들 때 이 프로필을 고른다.
 
-키를 넣기 전에 이 프로필로 세션을 시작하면 `모델 연결에 쓸 수 있는 키가 없다`는 취지의 오류가 나고, 오류가 1번 화면 경로를 알려 준다. 키를 바꿀 때도 같은 화면의 **값 바꾸기**를 쓴다. 이 화면으로 키를 넣는 일은 가짜 모델 서버로 확인했고, 실제 Anthropic 호출은 확인하지 못했다.
+키를 넣기 전에 이 프로필로 세션을 시작하면 `모델 연결에 쓸 수 있는 키가 없다`는 취지의 오류가 나고, 오류가 1번 화면 경로를 알려 준다. 키를 바꿀 때도 같은 화면의 **값 바꾸기**를 쓴다. 이 화면으로 키를 넣는 일은 가짜 모델 서버와 실제 Anthropic 호출(세션 한 턴) 모두에서 확인했다.
 
 ### 대안: 모델 키를 환경 변수로 넣기
 
