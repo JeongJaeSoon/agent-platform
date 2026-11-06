@@ -47,7 +47,7 @@ kubectl -n werft exec <worker-pod> -- df -i /workspace
 
 - **PVC は必須です。** worker Pod が使う workspace の volume は PVC だけで(`specs.ts`)、emptyDir や hostPath に切り替える設定はありません。セッションの PVC は Pod とは別に生き続けるので、Pod が入れ替わっても同じ名前の PVC に再び接続します。scheduler がセッションごとに Pod と PVC を作ります。
 - **StorageClass がサイズをハードに強制するかどうかを、Werft は見ません。** コードは `requests.storage` を要求し、その値を `werft.workspace-size` annotation に書いて設定と比べるだけで、`status.capacity` や使用量は読みません。強制の有無は CSI ドライバーとファイルシステムごとに違うので、設置の前にインフラ側へ確認します。
-- **node-local(emptyDir、hostPath)に変えると保証が変わります。** 今は使えない仮定です。その場合の上限は volume のサイズではなく、Pod の `ephemeral-storage` limit と kubelet の退避(evict)になります。退避は `ENOSPC` ではなく Pod の削除で、node-local のデータは Pod と一緒に消えます。ノードのファイルシステムが XFS `prjquota` でなければ、ハードな上限も inode の上限もありません。これは Kubernetes の一般的な動作を書いたもので、このリポジトリでは測っていません(**未検証**)。
+- **node-local(emptyDir、hostPath)に変えると保証が変わります。** 今は使えない仮定です。ディスク上の emptyDir なら、上限は volume のサイズではなく、Pod の `ephemeral-storage` limit と kubelet の退避(evict)になります。退避は `ENOSPC` ではなく Pod の削除で、emptyDir のデータは Pod と一緒に消えます。hostPath は `ephemeral-storage` の集計に入らないので Kubernetes が課す上限はなく、データは Pod が消えてもノードに残ります。どちらでも、ハードな上限や inode の上限がほしければ、ノードのファイルシステムに quota を別に設定する必要があります(Kubernetes の project quota 機能は使用量の測定用です)。これは Kubernetes の一般的な動作を書いたもので、このリポジトリでは測っていません(**未検証**)。
 - `worker.workspace.quotaMb` を変えると、既存セッションの PVC は作成時のサイズと合わなくなり、そのセッションは拒否されます(`werft.workspace-size` annotation と比べる)。新しいセッションから適用するには、進行中のセッションがないときに変えます。
 - kind の既定 StorageClass(local-path 系)は PVC のサイズを強制しないことが知られています。このリポジトリでは測っていません(**未検証**)。kind で PVC が `Bound` になっても、上限が効いているとは限りません。
 - **既知の制限。** inode の上限がなく、容量の上限は StorageClass に任されています。サイズを強制しない StorageClass を選んでも chart は拒否しません。これを塞ぐコード変更はこのページの範囲外です。
