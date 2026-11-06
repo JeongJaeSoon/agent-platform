@@ -38,7 +38,7 @@ Werft 서버를 직접 설치해 팀이 함께 쓰는 방법이다. 혼자 시�
 
 | 방식 | VERIFIED | NOT VERIFIED |
 | --- | --- | --- |
-| 단일 서버 | LocalStack 설치로 1~6단계와 `key create`, `/readyz` 200. `/bootstrap` 화면으로 첫 owner를 만든 뒤 로그인 API 200. `reset --yes` 뒤 다시 `deploy`. 볼륨을 남기고 `stop`·`start`. `backup`, `restore-drill`, `reseed` 각각 exit 0. `orb restart` 뒤 `start`로 같은 데이터 그대로 `/readyz` 200 | `backup --stop` → 재부팅 → `reseed`를 이어서 한 것. 미수거 checkpoint가 있는 재부팅. S3 설치의 `upgrade`와 재부팅. 단일 서버 업그레이드 |
+| 단일 서버 | LocalStack 설치로 1~6단계와 `key create`, `/readyz` 200. `/bootstrap` 화면으로 첫 owner를 만든 뒤 로그인 API 200(화면은 오너가 직접 했고 카드는 보지 못했으며, 브라우저 로그인은 하지 않았다). `reset --yes` 뒤 다시 `deploy`. 볼륨을 남기고 `stop`·`start`. `backup`, `restore-drill`, `reseed` 각각 exit 0. `orb restart` 뒤 `start`로 같은 데이터 그대로 `/readyz` 200 | `backup --stop` → 재부팅 → `reseed`를 이어서 한 것. 미수거 checkpoint가 있는 재부팅. S3 설치의 `upgrade`와 재부팅. 단일 서버 업그레이드 |
 | Kubernetes | kind에서 게시 chart 설치와 `/readyz` 200. Secret의 `BOOTSTRAP_TOKEN`으로 첫 owner 생성(틀린 토큰 401, 같은 토큰 다시 409), `key create`, key 있을 때 `GET /v1/sessions` 200과 없을 때 401(API replica 2개). 업그레이드 1~4단계 `proceed`, 승인할 수 없는 `refused` 두 경우, kind 기본 CNI의 NetworkPolicy 격리 | 세션과 worker Pod 실행. 영향받는 세션이 있는 `refused`. kind 기본 CNI 밖의 CNI. worker pin이 없는 실제 옛 chart에서의 업그레이드(pin 없음·chart 없음 분기는 상태를 합성해 확인) |
 
 LocalStack 설치의 백업 확인은 object 0개, checkpoint 0행인 스택에서 한 것이다. `restore-drill`의 checkpoint 대조는 이 조건에서 비교할 대상이 없었다. Kubernetes의 DB Secret 블록은 `read -rs`가 터미널을 요구해 표준 입력으로 값을 넘겨 실행했다.

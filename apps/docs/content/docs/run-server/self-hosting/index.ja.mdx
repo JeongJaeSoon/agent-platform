@@ -38,7 +38,7 @@ Werft サーバーを自分で設置し、チームで共有する方法です�
 
 | 方法 | VERIFIED | NOT VERIFIED |
 | --- | --- | --- |
-| 単一サーバー | LocalStack の設置で手順1〜6と `key create`、`/readyz` 200。`/bootstrap` 画面で最初の owner を作った後のログイン API 200。`reset --yes` の後に再度 `deploy`。ボリュームを残した `stop` と `start`。`backup`、`restore-drill`、`reseed` がそれぞれ exit 0。`orb restart` の後に `start` で同じデータのまま `/readyz` 200 | `backup --stop`、再起動、`reseed` を続けて実行したこと。未回収の checkpoint がある再起動。S3 設置での `upgrade` と再起動。単一サーバーのアップグレード |
+| 単一サーバー | LocalStack の設置で手順1〜6と `key create`、`/readyz` 200。`/bootstrap` 画面で最初の owner を作った後のログイン API 200(画面はオーナーが自分で行い、カードは見ていません。ブラウザでのログインは行っていません)。`reset --yes` の後に再度 `deploy`。ボリュームを残した `stop` と `start`。`backup`、`restore-drill`、`reseed` がそれぞれ exit 0。`orb restart` の後に `start` で同じデータのまま `/readyz` 200 | `backup --stop`、再起動、`reseed` を続けて実行したこと。未回収の checkpoint がある再起動。S3 設置での `upgrade` と再起動。単一サーバーのアップグレード |
 | Kubernetes | kind で公開 chart の設置と `/readyz` 200。Secret の `BOOTSTRAP_TOKEN` で最初の owner を作成(誤ったトークンは 401、同じトークンの再使用は 409)、`key create`、key ありで `GET /v1/sessions` が 200、なしで 401(API のレプリカ数2)。アップグレード手順1〜4で `proceed`、承認できない `refused` の2つの場合、kind 既定の CNI での NetworkPolicy の隔離 | セッションと worker Pod の実行。影響を受けるセッションがある `refused`。kind 既定以外の CNI。worker の pin がない実際の古い chart からのアップグレード(pin なし・chart なしの分岐は状態を合成して確認) |
 
 バックアップの確認は、オブジェクト0個、checkpoint 0行のスタックで行いました。この状態では `restore-drill` に比較する対象がありませんでした。Kubernetes の DB Secret ブロックは、`read -rs` が端末を要求するため、値を標準入力で渡して実行しました。
