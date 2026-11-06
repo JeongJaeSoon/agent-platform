@@ -616,6 +616,17 @@ export function createAgentService(deps: {
         ? {}
         : { description: fields.description }),
     } as const;
+    const versionOfCard = (
+      record: AgentRecord,
+      sent: AgentCard | undefined,
+    ) => {
+      if (sent === undefined) return null;
+      const sha = cardContentSha256(sent);
+      return (
+        record.versions.find((version) => version.content_sha256 === sha)?.id ??
+        null
+      );
+    };
     const refused = (outcome: "not_found" | "actor_inactive" | "outranked") => {
       if (outcome === "not_found") return NOT_FOUND();
       return outcome === "actor_inactive" ? ACTOR_INACTIVE() : OUTRANKED();
@@ -659,7 +670,11 @@ export function createAgentService(deps: {
           updatedBy: userId,
           managerRoles: AGENT_MANAGERS,
         });
-        if (result.outcome === "updated") return done(result.detail, nothing);
+        if (result.outcome === "updated")
+          return done(result.detail, {
+            ...nothing,
+            version_id: versionOfCard(result.detail, fields.card),
+          });
         if (result.outcome === "stale") continue;
         throw refused(result.outcome);
       }
@@ -908,7 +923,7 @@ export function createAgentService(deps: {
                 status: "unchanged",
                 reason: null,
                 release_id: null,
-                version_id: null,
+                version_id: result.detail.versions.at(-1)?.id ?? null,
               },
             };
           }

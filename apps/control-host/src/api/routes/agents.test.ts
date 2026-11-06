@@ -565,7 +565,7 @@ describe("POST /v1/agents", () => {
         status: "unchanged",
         reason: null,
         release_id: null,
-        version_id: null,
+        version_id: detail.versions.at(-1)?.id as string,
       },
     });
     expect(created).toMatchObject({

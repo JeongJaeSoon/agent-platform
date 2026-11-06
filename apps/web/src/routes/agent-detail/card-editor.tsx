@@ -172,8 +172,9 @@ export function CardEditor({
       const versionOf = (id: string | null | undefined) =>
         updated.versions.find((v) => v.id === id);
       const saved = submitted.sendsCard
-        ? (versionOf(release.version_id) ??
-          savedVersion(detail, updated, submitted))
+        ? release.version_id === null
+          ? savedVersion(detail, updated, submitted)
+          : versionOf(release.version_id)
         : undefined;
       if (saved) onSaved(saved.id);
       const isNew =

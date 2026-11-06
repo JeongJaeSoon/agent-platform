@@ -211,10 +211,20 @@ integration("a card save releases (Z1) on PostgreSQL", () => {
   });
 
   test("a create without a profile stays a draft agent", async () => {
-    const made = await newAgent(await owner());
+    const caller = await owner();
+    const made = await newAgent(caller);
     expect(made.release.status).toBe("unchanged");
     expect(made.agent.active_release_id).toBeNull();
     expect(made.draft).toBeNull();
+    // A card saved with no profile to release on still names its version.
+    expect(made.release.version_id).toBe(made.versions[0]?.id as string);
+    const edited = await service().updateAgent(caller, made.agent.id, {
+      card: card("v2"),
+    });
+    expect(edited.release.status).toBe("unchanged");
+    expect(edited.release.version_id).toBe(
+      edited.versions.at(-1)?.id as string,
+    );
   });
 
   test("the same behavior is unchanged, makes no release, and still takes a revision", async () => {
