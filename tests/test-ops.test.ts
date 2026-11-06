@@ -1274,7 +1274,9 @@ exit 0
         () => "",
         (error: Error) => error.message,
       );
-      expect(found).toContain("api EGRESS_AUTHORIZER_TOKEN must be at least 32");
+      expect(found).toContain(
+        "api EGRESS_AUTHORIZER_TOKEN must be at least 32",
+      );
       expect(found).toContain(
         "egress-proxy EGRESS_AUTHORIZER_TOKEN must be at least 32",
       );
