@@ -2047,8 +2047,28 @@ integration("parked pending requests on PostgreSQL", () => {
       turnId: second?.id,
     });
     const next = await claim(sessionId);
-    await completed(next.worker);
-    expect((await intentOf(sessionId)).status).toBe("pinned");
+    // The first carrying turn never ran, so the pointer still stands at the
+    // park's revision 0 and the turn that carries on saves revision 1.
+    await gateway.finalize(next.worker.principal, {
+      ...next.worker.scope,
+      finalize_key: `${next.worker.scope.attempt_id}:${next.worker.scope.turn_id}`,
+      final_source_sequence: 0,
+      terminal: {
+        status: "completed",
+        reason: null,
+        result: null,
+        usage: null,
+      },
+      checkpoint: {
+        revision: 1,
+        manifest_ref: `manifests/${sessionId}/1`,
+        manifest_sha256: "c".repeat(64),
+      },
+    });
+    expect(await intentOf(sessionId)).toMatchObject({
+      status: "pinned",
+      pinnedRevision: 1,
+    });
   });
 
   test("a carrying turn failed before it started (launch given up) ends the push with a reason, as its group is carried on and cannot reopen", async () => {
