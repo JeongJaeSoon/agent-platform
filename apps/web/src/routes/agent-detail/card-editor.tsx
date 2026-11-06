@@ -113,7 +113,11 @@ export function CardEditor({
 
   // The profile the save releases on: the one picked here, else the one the
   // agent runs. None: the card is kept and nothing is released.
-  const releaseProfile = profileId ?? releasedProfile(detail);
+  // An edit opened on a refused or waiting save starts from that save's
+  // profile too, so fixing its card does not release it elsewhere.
+  const startProfile =
+    detail.draft?.runtime_profile_id ?? releasedProfile(detail);
+  const releaseProfile = profileId ?? startProfile;
   const save = useMutation<SaveAgentResponse, ApiError, Submitted>({
     mutationFn: ({
       baseName,
@@ -231,8 +235,10 @@ export function CardEditor({
 
   // A save with nothing changed still sends the card, which the server
   // answers with the same version, as a request needs some field.
+  const profileChanged = profileId !== undefined && profileId !== startProfile;
   const sendsCard =
     cardChanged(edit) ||
+    profileChanged ||
     (edit.name.trim() === edit.baseName &&
       edit.description.trim() === edit.baseDescription);
   const submit = (event: FormEvent) => {
@@ -301,7 +307,7 @@ export function CardEditor({
                 draft={draft}
                 catalog={catalog}
                 onChange={setDraft}
-                previewId={profileId ?? releasedProfile(detail)}
+                previewId={releaseProfile}
                 onPreviewChange={onProfileChange}
               />
             </FieldSet>

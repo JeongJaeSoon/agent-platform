@@ -721,26 +721,39 @@ export function createAgentService(deps: {
       if (!saved || !version)
         throw new Error("a behavioral save has a version");
       if (saved.status === "unchanged") return done(result.detail, nothing);
-      let outcome = await releaseAgent(caller, userId, {
-        agentId,
-        version,
-        profileId,
-        active,
-        expectedActivationRevision: record.agent.activation_revision,
-        intent: {
-          kind: "save",
-          behaviorRevision: saved.behaviorRevision,
-          draftVersionId: saved.versionId,
-          modelSource,
-        },
-        reason:
-          active && profileId !== active.runtime_profile_id
-            ? "profile_changed"
-            : "card_saved",
-      });
-      if (outcome.status === "retry") {
-        if (attempt < MAX_SAVE_ATTEMPTS) continue;
-        outcome = { status: "failed", reason: "revision_conflict" };
+      // Only the release is asked again when the ground moved under it. The
+      // save keeps the revision it was given, so a later save that landed in
+      // between wins and this one ends superseded instead of being re-issued.
+      let outcome: Awaited<ReturnType<typeof releaseAgent>>;
+      let running = active;
+      let expectedRevision = record.agent.activation_revision;
+      for (let tries = 1; ; tries++) {
+        outcome = await releaseAgent(caller, userId, {
+          agentId,
+          version,
+          profileId,
+          active: running,
+          expectedActivationRevision: expectedRevision,
+          intent: {
+            kind: "save",
+            behaviorRevision: saved.behaviorRevision,
+            draftVersionId: saved.versionId,
+            modelSource,
+          },
+          reason:
+            active && profileId !== active.runtime_profile_id
+              ? "profile_changed"
+              : "card_saved",
+        });
+        if (outcome.status !== "retry") break;
+        if (tries >= MAX_SAVE_ATTEMPTS) {
+          outcome = { status: "failed", reason: "revision_conflict" };
+          break;
+        }
+        const moved = await store.get(caller.ownerId, agentId);
+        if (!moved) throw NOT_FOUND();
+        running = moved.active_release;
+        expectedRevision = moved.agent.activation_revision;
       }
       let release: SaveRelease;
       if (outcome.status === "failed") {

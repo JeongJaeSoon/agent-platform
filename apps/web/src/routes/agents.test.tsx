@@ -2818,6 +2818,93 @@ describe("편집 중 다른 곳의 저장", () => {
     );
   });
 
+  describe("프로필을 고른 저장", () => {
+    const bothProfiles = (server: ReturnType<typeof agentServer>) => {
+      const listed = server.routes["GET /v1/profiles"] as () => Response;
+      return async () => {
+        const body = (await listed().json()) as { items: ProfileSummary[] };
+        const local = body.items.find(
+          (item) => item.id === PROFILE,
+        ) as ProfileSummary;
+        return json(200, {
+          items: [
+            local,
+            {
+              ...local,
+              id: "claude-coding-both",
+              model: "claude-haiku-5",
+              models: ["claude-haiku-5", CARD.model],
+            },
+          ],
+        });
+      };
+    };
+
+    test("이름과 함께 프로필만 바꿔도 프로필이 요청에 실린다", async () => {
+      const server = agentServer();
+      const { api } = renderAt(CARD_TAB, {
+        ...meOk,
+        ...server.routes,
+        "GET /v1/profiles": bothProfiles(server),
+      });
+      const user = await setupUser();
+      await openCardEditor(user);
+      const card = screen.getByRole("tabpanel", { name: "상세 설정" });
+      await user.selectOptions(
+        await within(card).findByLabelText("프로필"),
+        "claude-coding-both",
+      );
+      const name = within(card).getByLabelText("이름");
+      await user.clear(name);
+      await user.type(name, "새 이름");
+      await user.click(screen.getByRole("button", { name: "저장" }));
+      await waitFor(() =>
+        expect(api.calls.some((c) => c.method === "PATCH")).toBe(true),
+      );
+      const body = api.calls.find((c) => c.method === "PATCH")?.body as {
+        name?: string;
+        runtime_profile_id?: string;
+      };
+      expect(body.name).toBe("새 이름");
+      expect(body.runtime_profile_id).toBe("claude-coding-both");
+    });
+
+    test("적용하지 못한 저장을 고치면 그 저장의 프로필로 보낸다", async () => {
+      const server = agentServer();
+      const waiting = () => {
+        const body = server.detail();
+        return {
+          ...body,
+          draft: {
+            version_id: body.versions[0]?.id as string,
+            runtime_profile_id: "claude-coding-both",
+            model_source: "fixed",
+            failure: "release_refused",
+          },
+        };
+      };
+      const { api } = renderAt(CARD_TAB, {
+        ...meOk,
+        ...server.routes,
+        "GET /v1/profiles": bothProfiles(server),
+        [`GET /v1/agents/${AGENT_ID}`]: () => json(200, waiting()),
+      });
+      const user = await setupUser();
+      await openCardEditor(user);
+      const instructions = await screen.findByLabelText("에이전트 지시문");
+      await user.clear(instructions);
+      await user.type(instructions, "다시 고쳤다.");
+      await user.click(screen.getByRole("button", { name: "저장" }));
+      await waitFor(() =>
+        expect(api.calls.some((c) => c.method === "PATCH")).toBe(true),
+      );
+      const body = api.calls.find((c) => c.method === "PATCH")?.body as {
+        runtime_profile_id?: string;
+      };
+      expect(body.runtime_profile_id).toBe("claude-coding-both");
+    });
+  });
+
   test("모델을 바꾼 뒤 재조회로 공유 프로필이 빠지면 카드 편집과 새 release가 같은 대체 프로필로 간다", async () => {
     const server = agentServer();
     const listed = server.routes["GET /v1/profiles"] as () => Response;

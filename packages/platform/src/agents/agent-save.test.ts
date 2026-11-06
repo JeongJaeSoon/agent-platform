@@ -270,20 +270,26 @@ describe("a card save asks releaseAgent for what the request changes", () => {
     expect(insert?.release.repository_id).toBeNull();
   });
 
-  test("a settings row that appears after the read makes the save judge again, not carry stale pins", async () => {
+  test("a settings row that appears after the read makes the release judge again, not carry stale pins", async () => {
     const { calls, result } = save({ insert: ["github_settings_exist"] });
     const saved = await result;
     expect(saved.release.status).toBe("applied");
-    expect(calls.update).toHaveLength(2);
+    // The save is written once; only the release is asked again.
+    expect(calls.update).toHaveLength(1);
     expect(calls.insert).toHaveLength(2);
   });
 
-  test("a lost activation compare-and-swap judges the save again from the top", async () => {
+  test("a lost activation compare-and-swap asks the release again with the revision the save was given", async () => {
     const { calls, result } = save({
       activate: [{ outcome: "conflict", activeReleaseId: null, revision: 4 }],
     });
     expect((await result).release.status).toBe("applied");
-    expect(calls.update).toHaveLength(2);
+    expect(calls.update).toHaveLength(1);
+    const intents = (
+      calls.activate as { intent: { behaviorRevision: number } }[]
+    ).map((call) => call.intent.behaviorRevision);
+    // A second save issuing a new revision here would overwrite a later save.
+    expect(intents).toEqual([6, 6]);
   });
 
   test("conflicts that never end are a failed draft with a reason, not a pending one", async () => {
