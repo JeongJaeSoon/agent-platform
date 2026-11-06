@@ -1761,7 +1761,24 @@ exit "$FAKE_EXIT"
         recursive: true,
       });
       mkdirSync(join(directory, "prior/held-sources-sources-2"));
-      writeFileSync(join(directory, "bin/bun"), fakeBun, { mode: 0o755 });
+      // Copies what it was handed as --prior and writes a held set of its own
+      // before failing, as the real check does.
+      writeFileSync(
+        join(directory, "bin/bun"),
+        `#!/usr/bin/env bash
+echo "$*" >"$FAKE/check"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --prior) cp "$2" "$FAKE/prior-seen"; shift ;;
+    --held-out) echo "acl 2.3.2-2" >"$2"; shift ;;
+  esac
+  shift
+done
+printf '%b' "$FAKE_STDERR" >&2
+exit 3
+`,
+        { mode: 0o755 },
+      );
       writeFileSync(
         join(directory, "prior/held-sources-sources-1/held.txt"),
         "acl 2.3.2-2\n",
@@ -1801,7 +1818,13 @@ exit "$FAKE_EXIT"
       const check = readFileSync(join(directory, "check"), "utf8");
       expect(check).toContain("--snapshot-check 1800 --prior ");
       expect(check).toContain(`--held-out held/held.txt `);
-      expect(existsSync(join(directory, "held"))).toBe(true);
+      expect(
+        readFileSync(join(directory, "prior-seen"), "utf8").split("\n").sort(),
+      ).toEqual(["", "acl 2.3.2-2", "gh 1"]);
+      // The failed check's own set is where the workflow uploads from.
+      expect(readFileSync(join(directory, "held/held.txt"), "utf8")).toBe(
+        "acl 2.3.2-2\n",
+      );
     });
 
     test("with no earlier attempt the check gets no prior file", () => {

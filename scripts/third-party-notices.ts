@@ -996,9 +996,11 @@ async function snapshotHolds(
     tally(String(response.status));
     if (response.status === 404) return "missing";
     if (response.ok) {
-      const { result } = (await response.json()) as { result?: unknown };
-      if (Array.isArray(result)) {
-        return result.length > 0 ? "held" : "missing";
+      const body = (await response.json().catch(() => undefined)) as
+        | { result?: unknown }
+        | undefined;
+      if (Array.isArray(body?.result)) {
+        return body.result.length > 0 ? "held" : "missing";
       }
       tally("not-json");
     }
