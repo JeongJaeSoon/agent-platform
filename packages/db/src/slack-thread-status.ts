@@ -1,4 +1,4 @@
-import type { AdmissionState } from "@werft-ai/contracts";
+import type { AdmissionState, PushRequestOrigin } from "@werft-ai/contracts";
 import type {
   SlackThreadStatusClaim,
   SlackThreadStatusFacts,
@@ -77,13 +77,27 @@ export function createPostgresSlackThreadStatusStore(
         queuedTurn: turnIs(sql`'queued'`),
         answerableRequest: exists(actionableOfSession(db)),
         requestedPushes: sql<
-          { checkpoint_revision: number; git_commit: string }[]
+          { checkpoint_revision: number; git_commit: string; origin: string }[]
         >`coalesce((
           SELECT json_agg(json_build_object(
             'checkpoint_revision', p.checkpoint_revision,
-            'git_commit', p.git_commit) ORDER BY p.created_at)
+            'git_commit', p.git_commit,
+            'origin', p.origin) ORDER BY p.created_at)
           FROM push_requests p
           WHERE p.session_id = ${SESSION_ID} AND p.state = 'requested'
+        ), '[]'::json)`,
+        actionStages: sql<
+          { kind: "push_intent" | "pull_request"; id: string; state: string }[]
+        >`coalesce((
+          SELECT json_agg(stage ORDER BY stage.created_at) FROM (
+            SELECT 'push_intent' AS kind, i.id, i.status AS state, i.created_at
+            FROM push_intents i
+            WHERE i.session_id = ${SESSION_ID} AND i.status IN ('deferred', 'pinned')
+            UNION ALL
+            SELECT 'pull_request', p.id, p.pr_state, p.created_at
+            FROM push_requests p
+            WHERE p.session_id = ${SESSION_ID} AND p.pr_state IN ('due', 'opening')
+          ) stage
         ), '[]'::json)`,
       })
       .from(sessions)
@@ -104,9 +118,15 @@ export function createPostgresSlackThreadStatusStore(
           answerableRequest: Boolean(row.answerableRequest),
           runningTurn: Boolean(row.runningTurn),
           queuedTurn: Boolean(row.queuedTurn),
+          actionStages: row.actionStages.map(({ kind, id, state }) => ({
+            kind,
+            id,
+            state,
+          })),
           requestedPushes: row.requestedPushes.map((push) => ({
             checkpointRevision: push.checkpoint_revision,
             gitCommit: push.git_commit,
+            origin: push.origin as PushRequestOrigin,
           })),
         } satisfies SlackThreadStatusFacts,
       ]),

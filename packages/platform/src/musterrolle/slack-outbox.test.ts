@@ -78,6 +78,7 @@ describe("settleSlackCards", () => {
         sessionCheckpointRevision: 2,
         checkpointRevision: 1,
         gitCommit: "a".repeat(40),
+        origin: "direct",
       }) satisfies SlackOpenPushCard;
     const open = [
       push(1, "reject_only"),

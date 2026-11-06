@@ -455,6 +455,12 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
       );
       return "failed";
     }
+    // An actions-flow push has no continuation turn: the turn that asked for
+    // it already ended, and the platform carries the push on from here.
+    if (request.flow === "actions") {
+      await card();
+      return decision === "approve" ? "approved" : "rejected";
+    }
     // The decision stands; the session only learns of it from this turn.
     // The key makes a retry a no-op once one attempt has landed.
     const followUp = {

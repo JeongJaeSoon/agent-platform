@@ -109,6 +109,8 @@ type PromptCopy = {
   typedAnswer: string;
   /** A push card left with Reject only. */
   pushStale: string;
+  /** An intent push whose pinned revision no longer verifies. */
+  pushPinnedSourceInvalid: string;
   /** A turn's notice from before the cards, once its turn waits no more. */
   done: string;
   answerOnWeb: string;
@@ -173,6 +175,8 @@ export const SLACK_PROMPT_MESSAGES: Readonly<Record<UserLocale, PromptCopy>> = {
     chosen: { slack: "{answer} 선택됨", web: "웹에서 {answer} 선택됨" },
     typedAnswer: "직접 입력",
     pushStale: "새 커밋이 생겨 이 push는 승인할 수 없어요",
+    pushPinnedSourceInvalid:
+      "이 push가 가리키는 체크포인트를 더는 확인할 수 없어 승인할 수 없어요",
     done: "처리됐어요",
     answerOnWeb: "이 요청은 웹에서 답해 주세요",
     openConsole: "웹 콘솔에서 확인해 주세요",
@@ -241,6 +245,8 @@ export const SLACK_PROMPT_MESSAGES: Readonly<Record<UserLocale, PromptCopy>> = {
     chosen: { slack: "{answer}を選択", web: "Webで{answer}を選択" },
     typedAnswer: "直接入力",
     pushStale: "新しいコミットがあるため、このpushは承認できません",
+    pushPinnedSourceInvalid:
+      "このpushが指すチェックポイントを確認できないため、承認できません",
     done: "対応済みです",
     answerOnWeb: "このリクエストはWebで回答してください",
     openConsole: "Webコンソールで確認してください",
@@ -309,6 +315,8 @@ export const SLACK_PROMPT_MESSAGES: Readonly<Record<UserLocale, PromptCopy>> = {
     chosen: { slack: "Chose {answer}", web: "Chose {answer} on the web" },
     typedAnswer: "a typed answer",
     pushStale: "A newer commit means this push can no longer be approved",
+    pushPinnedSourceInvalid:
+      "The checkpoint this push points at can no longer be verified, so it cannot be approved",
     done: "Handled",
     answerOnWeb: "Please answer this request on the web",
     openConsole: "Check it in the web console",
@@ -1022,11 +1030,17 @@ export function slackRejectOnlyCard(
   ids: { sessionId: string; requestId: string },
 ): SlackCard {
   const copy = SLACK_PROMPT_MESSAGES[card.locale];
+  // An intent push never goes stale by a newer commit; it is here because its
+  // pinned revision stopped verifying.
+  const reason =
+    card.pushRevisions?.origin === "intent"
+      ? copy.pushPinnedSourceInvalid
+      : copy.pushStale;
   const summary = `${card.display.repositoryName ?? card.display.repositoryId} ← ${shortCommit(card.display.gitCommit)}`;
   return {
     text: slackCardText({
       locale: card.locale,
-      title: copy.pushStale,
+      title: reason,
       lines: [summary],
       linkUrl: linkOf(card.linkUrl),
     }),
@@ -1036,7 +1050,7 @@ export function slackRejectOnlyCard(
         elements: [
           {
             type: "mrkdwn",
-            text: `:warning: *${escapeMrkdwn(copy.pushStale)}*`,
+            text: `:warning: *${escapeMrkdwn(reason)}*`,
           },
           plain(summary, CONTEXT_TEXT_MAX),
         ],

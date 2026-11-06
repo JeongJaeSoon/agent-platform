@@ -136,6 +136,7 @@ import {
 } from "./pending-requests.ts";
 import { queuePushContinuation } from "./push-continuations.ts";
 import { queuePushFollowUps } from "./push-follow-ups.ts";
+import { settleTurnPushIntents } from "./push-intents.ts";
 import type { Database } from "./queries.ts";
 import {
   boundedReason,
@@ -2930,6 +2931,17 @@ export function createPostgresWorkerUnitOfWork(
             .returning({ id: sessions.id }),
           "session",
         );
+        // Intents the turn left deferred are pinned to the checkpoint this
+        // finalize just advanced to, or cancelled when the turn left none.
+        // They are made only while AGENT_ACTION_FLOWS is on, but settled
+        // whatever it is now.
+        if (terminal !== undefined) {
+          await settleTurnPushIntents(tx, {
+            turnRowId: terminal.id,
+            completedRevision:
+              input.terminal.status === "completed" ? checkpointRevision : null,
+          });
+        }
         if (
           terminal !== undefined &&
           input.terminal.status === "completed" &&

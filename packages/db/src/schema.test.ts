@@ -121,6 +121,7 @@ describe("database schema", () => {
       "pull_requests",
       "push_continuations",
       "push_follow_ups",
+      "push_intents",
       "push_requests",
       "queue_messages",
       "receipts",

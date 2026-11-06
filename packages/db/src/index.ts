@@ -51,6 +51,7 @@ export * from "./postgres-unit-of-work.ts";
 export * from "./pull-request-settings.ts";
 export * from "./pull-requests.ts";
 export * from "./push-follow-ups.ts";
+export * from "./push-intents.ts";
 export * from "./push-requests.ts";
 export * from "./queries.ts";
 export * from "./repository-attachments.ts";

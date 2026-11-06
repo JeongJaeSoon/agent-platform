@@ -76,7 +76,11 @@ export const LIST_REPOSITORIES_LIMIT_MAX = 500;
  * from the path. Never a session id: the attempt token names the session.
  */
 export const GITHUB_MCP_TOOL_ARGUMENTS = {
-  request_push: createPushRequestRequestSchema,
+  // The REST body plus `source_ref`, which only the tool takes. Until the
+  // multi-branch stage it is answered `source_ref_unsupported`.
+  request_push: createPushRequestRequestSchema
+    .safeExtend({ source_ref: z.string().min(1).max(255).optional() })
+    .strict(),
   open_pull_request: openPullRequestRequestSchema.safeExtend({
     push_request_id: pushRequestIdSchema,
   }),
@@ -382,7 +386,7 @@ export const GITHUB_MCP_FIXED_TOOLS = listedGitHubMcpTools(
  */
 export const GITHUB_MCP_TOOL_DESCRIPTIONS: Record<GitHubMcpTool, string> = {
   request_push:
-    "Request a push of the session's last checkpoint (the state at the end of the previous turn) to branch agent/<session-id>, or agent/<session-id>-<branch> when `branch` is given. `repository_id` names an attached repository; omitted, the session's own. Returns the push request, which waits for a person when the release requires approval, or `deferred` when no checkpoint exists yet.",
+    "Request a push to branch agent/<session-id>, or agent/<session-id>-<branch> when `branch` is given. `repository_id` names an attached repository; omitted, the session's own. With the installation's agent action flows on, a call inside a running turn pushes the state this turn ends with, and the answer is `deferred` with `push_intent_id` and `waits_for: turn_end`; the platform makes the push request when the turn ends. Otherwise (the flows off, or no running turn) the last checkpoint is pushed and the push request is returned, which waits for a person when the release requires approval, or `deferred` when no checkpoint exists yet. `source_ref` is not supported yet.",
   open_pull_request:
     "Open, or return the already open, pull request from the branch and commit of a pushed push request (`push_request_id`). Content fields: `title`; `summary` (what changed and why, a few sentences); `changes` (one change per item); `rationale` (the reason for the change); `testing` (how it was checked); `notes` (what a reviewer needs to know); `related` (issues: `number`, optional `repository_id`, `closes` to close it on merge). `body` is the legacy single text and cannot be combined with the fields above.",
   update_pull_request:
@@ -412,6 +416,18 @@ const requestPushResultSchema = z.union([
     .object({
       status: z.literal("deferred"),
       continuation: z.literal("after_turn"),
+    })
+    .strict(),
+  // Inside a running turn with AGENT_ACTION_FLOWS on: "push what this turn
+  // ends with". The platform makes the push request after the turn ends.
+  z
+    .object({
+      status: z.literal("deferred"),
+      push_intent_id: z.uuid(),
+      waits_for: z.literal("turn_end"),
+      repository_id: z.string(),
+      target_branch: z.string(),
+      pull_request: z.enum(["scheduled", "none"]),
     })
     .strict(),
 ]);
@@ -491,6 +507,8 @@ export const GITHUB_MCP_TOOL_REFUSALS: Record<
     "github_settings_unsupported",
     "github_refused",
     "backend_unavailable",
+    "source_ref_unsupported",
+    "no_running_turn",
   ],
   open_pull_request: PULL_REQUEST_REFUSALS,
   update_pull_request: [...PULL_REQUEST_REFUSALS, "no_pull_request"],

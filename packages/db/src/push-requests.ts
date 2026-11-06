@@ -6,10 +6,14 @@ import {
   type GitHubPolicySource,
   githubPolicyReceiptFields,
   githubPolicySourceOf,
+  OPEN_PULL_REQUEST_STAGES,
   OPEN_PUSH_REQUEST_STATES,
+  type PullRequestStage,
   type PushDecider,
   type PushReceiptResult,
   type PushRequest,
+  type PushRequestFlow,
+  type PushRequestOrigin,
   type PushRequestState,
   pushBranchFor,
   pushClassOf,
@@ -157,6 +161,9 @@ function publicPushRequest(row: Row): PushRequest {
     resolution_receipt_id: row.decisionReceiptId,
     finished_at: row.finishedAt?.toISOString() ?? null,
     push_receipt_id: row.pushReceiptId,
+    origin: row.origin as PushRequestOrigin,
+    flow: row.flow as PushRequestFlow,
+    pr_state: (row.prState as PullRequestStage | null) ?? null,
   };
 }
 
@@ -451,7 +458,36 @@ export function createPostgresPushRequests(
           )
           .limit(1);
         if (open) return refuse(tx, "request_open", open);
-        if (session.checkpointRevision !== input.checkpointRevision) {
+        // The same target also waits while an earlier request's pull
+        // request is still due or opening: two pushes must not become the
+        // heads of each other's pull requests. Every creator passes here
+        // (REST, the legacy MCP path, the intent runner), all under the
+        // session row lock taken above.
+        const [pending] = await tx
+          .select()
+          .from(pushRequests)
+          .where(
+            and(
+              eq(pushRequests.sessionId, sessionId),
+              eq(pushRequests.repositoryId, input.repositoryId),
+              eq(pushRequests.targetBranch, targetBranch),
+              inArray(pushRequests.prState, [...OPEN_PULL_REQUEST_STAGES]),
+            ),
+          )
+          .limit(1);
+        if (pending) {
+          return {
+            ...(await refuse(tx, "request_open", pending)),
+            reason: "pull_request_pending",
+          };
+        }
+        // An intent request pins the revision its turn ended on, which a
+        // later turn's checkpoint may have passed; its source is verified
+        // by the caller against that revision instead.
+        if (
+          input.origin !== "intent" &&
+          session.checkpointRevision !== input.checkpointRevision
+        ) {
           return refuse(tx, "checkpoint_moved", null);
         }
         const id = randomUUID();
@@ -533,6 +569,12 @@ export function createPostgresPushRequests(
             targetBranch,
             requestedBy: input.actor,
             requestReceiptId: receiptId,
+            // An intent request is always `actions`, whatever the setting
+            // is when the runner makes it.
+            origin: input.origin ?? "direct",
+            flow:
+              input.origin === "intent" ? "actions" : (input.flow ?? "legacy"),
+            pullRequestIntent: input.pullRequestIntent ?? null,
             ...(policy === null
               ? {}
               : {
@@ -712,7 +754,11 @@ export function createPostgresPushRequests(
           const sameCommit =
             input.latest?.revision === session.checkpointRevision &&
             input.latest.gitCommit === row.gitCommit;
+          // An intent request is pinned to a past revision on purpose; the
+          // service checks that revision (`pinnedSourceValid`) before this
+          // runs, and the pointer moving is not a reason to refuse.
           if (
+            row.origin !== "intent" &&
             session.checkpointRevision !== row.checkpointRevision &&
             !sameCommit
           ) {

@@ -119,6 +119,9 @@ const PINNED: PushRequest = {
   resolution_receipt_id: null,
   finished_at: null,
   push_receipt_id: null,
+  origin: "direct",
+  flow: "legacy",
+  pr_state: null,
 };
 
 const CATALOG = {
@@ -196,8 +199,11 @@ function app(
     }),
     store,
     catalog: CATALOG,
+    intents: { list: async () => [] } as never,
     source: {
       readPushSource: async () =>
+        options.source ?? { status: "ready", revision: 2, gitCommit: COMMIT },
+      readPushSourceAt: async () =>
         options.source ?? { status: "ready", revision: 2, gitCommit: COMMIT },
     },
   });

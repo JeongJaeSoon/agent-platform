@@ -53,6 +53,7 @@ let answerError: Error | null;
 let outcome: Awaited<ReturnType<SlackInteractionDeps["pending"]["outcome"]>>;
 let listed: unknown[];
 let pushState: "requested" | "approved" | "rejected" | null;
+let pushFlow: "legacy" | "actions";
 let decideError: SessionServiceError | null;
 let getError: Error | null;
 let deferred: Promise<void>[];
@@ -71,6 +72,7 @@ beforeEach(() => {
   outcome = { state: "open", kind: "permission" };
   listed = [];
   pushState = "requested";
+  pushFlow = "legacy";
   decideError = null;
   getError = null;
   deferred = [];
@@ -275,6 +277,7 @@ function deps(): SlackInteractionDeps {
           git_commit: "a".repeat(40),
           repository_id: "repo-1",
           target_branch: "agent/x",
+          flow: pushFlow,
         } as never;
       },
       async decide(...args) {
@@ -995,6 +998,23 @@ describe("Slack interactions", () => {
       body: { mode: "enqueue" },
     });
     expect(settledText()).toContain(`<@${LINKED}>`);
+  });
+
+  test("a push of the actions flow is decided and its card settled, with no follow-up turn", async () => {
+    pushFlow = "actions";
+    for (const [action, result] of [
+      [SLACK_INTERACTION_ACTIONS.pushApprove, "approved"],
+      [SLACK_INTERACTION_ACTIONS.pushReject, "rejected"],
+    ] as const) {
+      calls = [];
+      expect(
+        await send(press(action, { s: SESSION, r: "push-1" })),
+      ).toMatchObject({ result });
+      expect(called("decide")).toHaveLength(1);
+      expect(called("append")).toEqual([]);
+      expect(called("hold")).toEqual([]);
+      expect(called("update")).toHaveLength(1);
+    }
   });
 
   test("an approval while a turn runs, or with the branch's pull request recorded, queues no turn now", async () => {

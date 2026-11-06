@@ -34,6 +34,95 @@ export const OPEN_PUSH_REQUEST_STATES = [
   "pushing",
 ] as const satisfies readonly PushRequestState[];
 
+/**
+ * Where a push request came from: `direct` is a REST call or the legacy MCP
+ * path (it pins the session's latest checkpoint); `intent` is made by the
+ * intent runner from a revision a finished turn pinned.
+ */
+export const PUSH_REQUEST_ORIGIN_VALUES = ["direct", "intent"] as const;
+export const pushRequestOriginSchema = z.enum(PUSH_REQUEST_ORIGIN_VALUES);
+export type PushRequestOrigin = z.infer<typeof pushRequestOriginSchema>;
+
+/**
+ * The flow a request was made under, fixed at creation. Only `legacy` rows
+ * get the Slack follow-up turn; the install setting never decides it later.
+ */
+export const PUSH_REQUEST_FLOW_VALUES = ["legacy", "actions"] as const;
+export const pushRequestFlowSchema = z.enum(PUSH_REQUEST_FLOW_VALUES);
+export type PushRequestFlow = z.infer<typeof pushRequestFlowSchema>;
+
+/**
+ * The pull-request stage of a push request that carries a pull request
+ * intent. Null while there is none. The values are written by the PR drain;
+ * this layer only reads `due` and `opening` to keep a later push for the
+ * same target waiting.
+ */
+export const PULL_REQUEST_STAGE_VALUES = [
+  "due",
+  "opening",
+  "opened",
+  "closed_unrecorded",
+  "uncertain",
+  "failed",
+  "cancelled",
+] as const;
+export const pullRequestStageSchema = z.enum(PULL_REQUEST_STAGE_VALUES);
+export type PullRequestStage = z.infer<typeof pullRequestStageSchema>;
+
+/** Stages that keep another push to the same target from being made. */
+export const OPEN_PULL_REQUEST_STAGES = [
+  "due",
+  "opening",
+] as const satisfies readonly PullRequestStage[];
+
+/**
+ * deferred: asked for inside a running turn, waiting for the turn to end.
+ * pinned: the turn ended with a checkpoint; the revision is kept for it.
+ * requested: the push request exists (its own state says what happens next).
+ * failed / cancelled: ended without a push request, `refusal_code` says why.
+ */
+export const PUSH_INTENT_STATUS_VALUES = [
+  "deferred",
+  "pinned",
+  "requested",
+  "failed",
+  "cancelled",
+] as const;
+export const pushIntentStatusSchema = z.enum(PUSH_INTENT_STATUS_VALUES);
+export type PushIntentStatus = z.infer<typeof pushIntentStatusSchema>;
+
+/** Codes an intent ends with; the runner and finalize are the only writers. */
+export const PUSH_INTENT_REFUSAL_VALUES = [
+  "turn_ended_without_checkpoint",
+  "turn_finalized_without_pin",
+  "session_closed",
+  "rejected_before",
+  "request_open",
+  "github_disabled",
+  "over_workspace_ceiling",
+  "repository_not_allowed",
+  "checkpoint_unavailable",
+  "source_missing",
+  "attribution_mismatch",
+  "uncommitted_changes",
+  "pinned_source_invalid",
+] as const;
+export const pushIntentRefusalSchema = z.enum(PUSH_INTENT_REFUSAL_VALUES);
+export type PushIntentRefusal = z.infer<typeof pushIntentRefusalSchema>;
+
+/** What the web and `listPushRequests` show of an intent. */
+export const pushIntentSchema = z.object({
+  id: z.uuid(),
+  session_id: sessionIdSchema,
+  repository_id: z.string().min(1),
+  target_branch: z.string().min(1),
+  status: pushIntentStatusSchema,
+  refusal_code: pushIntentRefusalSchema.nullable(),
+  push_request_id: z.uuid().nullable(),
+  created_at: timestampSchema,
+});
+export type PushIntent = z.infer<typeof pushIntentSchema>;
+
 export const PUSH_BRANCH_PREFIX = "agent/";
 
 /** What a push request may add to its session's branch name. */
@@ -126,6 +215,11 @@ export const pushRequestSchema = z.object({
   // where the commit went or why it did not.
   finished_at: timestampSchema.nullable(),
   push_receipt_id: receiptIdSchema.nullable(),
+  // A server from before intents sends none: that is a direct request.
+  origin: pushRequestOriginSchema.default("direct"),
+  flow: pushRequestFlowSchema.default("legacy"),
+  // Where the pull request step stands; null when none was asked for.
+  pr_state: pullRequestStageSchema.nullable().default(null),
 });
 
 export const createPushRequestRequestSchema = z
@@ -150,6 +244,8 @@ export const resolvePushRequestRequestSchema = z
 
 export const listPushRequestsResponseSchema = z.object({
   items: z.array(pushRequestSchema),
+  // Pushes a turn asked for that have no request yet, or ended without one.
+  intents: z.array(pushIntentSchema).default([]),
 });
 
 // Why a push operation was refused, as its receipt and error details say.
@@ -192,6 +288,9 @@ export const PUSH_REFUSAL_VALUES = [
   // A policy's approval the agent's settings no longer give: it went back to
   // a person before anything was pushed.
   "approval_required",
+  // A request made from a pinned revision whose checkpoint no longer verifies
+  // for this session, or whose commit is not the request's.
+  "pinned_source_invalid",
 ] as const;
 export const pushRefusalSchema = z.enum(PUSH_REFUSAL_VALUES);
 

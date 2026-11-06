@@ -284,6 +284,25 @@ github.com의 비공개 저장소로 확인하는 절차다. `scripts/local.sh u
 - **보존:** checkpoint GC는 열린 요청이 고정한 revision과 그 아래 fallback window를 지우지 않는다. 세션이 계속 checkpoint를 남겨 그 revision이 pointer의 window를 벗어나도, push할 manifest와 workspace bundle은 남는다.
 - **감사:** 요청·결정·거절된 시도마다 receipt가 남는다. operation은 `request_push`·`resolve_push`이고 push 결과는 `push`다. `actor`는 누가 했는지, `result`는 `{push_request_id, action, verdict, refusal, repository_id, checkpoint_revision, git_commit, target_branch}`다. 이름을 바꾸기 전에 남은 receipt는 operation `decide_push`, 값 `result.decision`, refusal `already_decided`, 오류 `PUSH_REQUEST_DECIDED`이고 그대로 읽힌다. 거절이면 status가 `failed`이고 `error`에 코드가 있다. 비밀 값은 담지 않는다. 인증되지 않은 시도(401)와 `AUTH_MODE=none`의 시도는 receipt 없이 요청 로그에만 남는다.
 
+### 턴이 끝날 때 push하기 (`AGENT_ACTION_FLOWS`)
+
+기본은 꺼져 있다. 꺼져 있으면 `request_push`는 예전처럼 동작한다(요청을 만들고, 승인되면 이어 가는 턴이 따로 돈다). 켜면 실행 중인 턴 안의 `request_push`는 요청을 만들지 않고 "이 턴이 끝날 때의 결과를 push한다"는 의도(`push_intents`)만 남긴다. 이어 가는 턴은 없다.
+
+- **흐름:** 의도는 `deferred`로 시작한다. 턴이 끝나면 finalize가 그 턴의 마지막 checkpoint revision을 의도에 고정한다(`pinned`). API 안의 실행기가 3초마다 고정된 의도를 하나씩 잡아, 고정된 revision에서 `origin=intent`, `flow=actions`인 push 요청을 만든다(`requested`). 이후 승인과 push는 위 절들과 같다. 턴이 checkpoint 없이 끝나면 의도는 `cancelled`(`turn_ended_without_checkpoint`)다.
+- **고정한 revision:** 이 요청은 pointer가 그 revision을 지나가도 승인할 수 있다. 대신 승인 때 그 revision이 아직 검증되고 요청의 commit을 담고 있는지 다시 본다. 아니면 `pinned_source_invalid`로 거절하고, Slack 카드는 Reject만 남긴다. 고정한 revision은 요청이 열려 있는 동안, 그리고 의도가 `deferred`·`pinned`인 동안 checkpoint GC와 세션 이벤트 보관이 지우지 않는다.
+- **같은 대상은 순서대로:** 같은 세션·저장소·브랜치에 앞선 요청이 열려 있거나(`requested`·`approved`·`pushing`) 그 요청의 PR 단계가 `due`·`opening`이면 뒤의 의도는 `pinned`로 기다린다. 사람이 이미 거절한 commit이면 의도는 `failed`(`rejected_before`)다.
+- **켜기 전에 (barrier):** 새 빌드보다 오래된 checkpoint GC와 세션 이벤트 보관은 `push_intents`를 모르므로 고정한 revision을 지울 수 있다. 켜기 전에 api, `maintenance`(compose), `checkpointGc`·`sessionArchive` CronJob(Kubernetes)이 모두 이 빌드의 이미지로 돌고 있는지 확인하고, 옛 이미지로 시작한 Job이 끝났는지 본다. 그 뒤에 `AGENT_ACTION_FLOWS=true`로 api를 다시 띄운다. 값이 `true`·`false`가 아니면 api가 시작하지 않는다.
+- **플랫폼 프롬프트 문구:** 켠 뒤에 만든 세션(`SESSION_PROMPT_REVISION=1`일 때)은 프롬프트 리비전 2를 받아, 모델에게 "`request_push`는 이 턴이 끝난 commit을 push하고 이어 가는 턴은 없다"고 안내한다. 켠 설치의 모든 worker 이미지가 리비전 2를 알아야 하므로 worker 이미지도 이 빌드로 올린 뒤에 켠다(옛 worker는 리비전 2의 claim을 읽지 못한다). 이미 있던 세션은 리비전 1 그대로라 옛 문구를 쓴다. 그 세션의 `request_push`도 새 흐름으로 돌므로 옛 문구를 따르는 모델이 다음 턴에 다시 부르면 의도가 하나 더 생긴다. 반대로 리비전 2 세션을 끈 뒤 이어 가면 `request_push`가 옛 방식(직전 checkpoint의 요청)으로 답한다. 프롬프트가 그 경우(의도 대신 push 요청이 돌아오면 다음 턴에 다시 부른다)를 안내한다. 끄기 전에 리비전 2 세션을 끝내 두는 편이 깔끔하다.
+- **끄기 (rollback):** `AGENT_ACTION_FLOWS=false`로 api를 다시 띄운다. 새 의도는 더 만들지 않는다. 이미 남은 의도와 요청은 실행기가 계속 처리한다(실행기는 이 설정과 무관하게 돈다). 모두 처리됐는지는 아래로 본다. 0행이면 끝이다.
+
+```sql
+SELECT status, count(*) FROM push_intents
+WHERE status IN ('deferred', 'pinned') GROUP BY status;
+```
+
+- **보는 곳:** 세션의 결과물 탭 "GitHub 작업"과 `GET /v1/sessions/{id}/push-requests`(`items`의 `origin`·`flow`·`pr_state`, `intents`)에서 의도의 상태와 끝난 이유를 읽는다. 열려 있는 동안 웹은 10초마다, 아니면 1분마다 다시 읽는다.
+- **아직 없는 것:** 실행기는 의도를 만든 사람의 세션 공유 권한을 다시 확인하지 않고, 릴리스 정책과 게이트만 다시 판정한다. `ceiling` 판정은 기존 push 실행기의 게이트가 맡는다. PR을 여는 단계는 다음 변경에서 붙는다.
+
 ### 승인된 요청의 push
 
 API 프로세스가 3초마다 `approved` 요청을 하나씩 잡아 push한다. replica가 여럿이면 같은 행을 둘이 잡지 않는다(`FOR UPDATE SKIP LOCKED`). 승인 뒤 보통 몇 초 안에 요청이 `pushing`을 거쳐 `pushed`나 `failed`가 된다. `requested`·`rejected`·이미 끝난 요청은 잡지 않으므로 push되지 않는다.

@@ -9076,6 +9076,42 @@
                 "type": "null"
               }
             ]
+          },
+          "origin": {
+            "default": "direct",
+            "type": "string",
+            "enum": [
+              "direct",
+              "intent"
+            ]
+          },
+          "flow": {
+            "default": "legacy",
+            "type": "string",
+            "enum": [
+              "legacy",
+              "actions"
+            ]
+          },
+          "pr_state": {
+            "default": null,
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "due",
+                  "opening",
+                  "opened",
+                  "closed_unrecorded",
+                  "uncertain",
+                  "failed",
+                  "cancelled"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -9094,7 +9130,10 @@
           "request_receipt_id",
           "resolution_receipt_id",
           "finished_at",
-          "push_receipt_id"
+          "push_receipt_id",
+          "origin",
+          "flow",
+          "pr_state"
         ],
         "additionalProperties": false
       },
@@ -9106,10 +9145,101 @@
             "items": {
               "$ref": "#/components/schemas/PushRequest"
             }
+          },
+          "intents": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "session_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "repository_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "target_branch": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "deferred",
+                    "pinned",
+                    "requested",
+                    "failed",
+                    "cancelled"
+                  ]
+                },
+                "refusal_code": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "turn_ended_without_checkpoint",
+                        "turn_finalized_without_pin",
+                        "session_closed",
+                        "rejected_before",
+                        "request_open",
+                        "github_disabled",
+                        "over_workspace_ceiling",
+                        "repository_not_allowed",
+                        "checkpoint_unavailable",
+                        "source_missing",
+                        "attribution_mismatch",
+                        "uncommitted_changes",
+                        "pinned_source_invalid"
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "push_request_id": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                }
+              },
+              "required": [
+                "id",
+                "session_id",
+                "repository_id",
+                "target_branch",
+                "status",
+                "refusal_code",
+                "push_request_id",
+                "created_at"
+              ],
+              "additionalProperties": false
+            }
           }
         },
         "required": [
-          "items"
+          "items",
+          "intents"
         ],
         "additionalProperties": false
       },
