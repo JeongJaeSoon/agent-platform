@@ -105,7 +105,11 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
     actionFlows: boolean;
     /** What a `request_push` made as an intent asked the service for. */
     intents: Array<{ sessionId: string; turnId: number; branch?: string }>;
-    intentStatus: "deferred" | "github_disabled" | "turn_not_running";
+    intentStatus:
+      | "deferred"
+      | "github_disabled"
+      | "turn_not_running"
+      | "turn_target_taken";
     /** The status each read of a workflow run answers. */
     runStatus: string;
     /** How long reading the session's state takes. */
@@ -261,6 +265,12 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
               ? {}
               : { branch: input.body.branch }),
           });
+          if (control.intentStatus === "turn_target_taken") {
+            return {
+              status: control.intentStatus,
+              target_branch: `agent/${sessionId}`,
+            };
+          }
           if (control.intentStatus !== "deferred") {
             return { status: control.intentStatus };
           }
@@ -957,6 +967,28 @@ describe("tools/call", () => {
         expect(h.control.intents).toEqual([]);
         expect(h.pushes).toEqual([]);
       }
+    });
+
+    test("a second target in the turn is refused with the first target named, so the model can wait for the next input", async () => {
+      const h = harness();
+      h.control.actionFlows = true;
+      h.control.intentStatus = "turn_target_taken";
+      expect(
+        payload(await h.call("request_push", { branch: "docs-overview" })),
+      ).toEqual({
+        body: {
+          ok: false,
+          refusal: {
+            code: "source_ref_unsupported",
+            by: "platform",
+            retryable: false,
+            details: {
+              reason: "one_target_per_turn",
+              target_branch: `agent/${SESSION}`,
+            },
+          },
+        },
+      });
     });
 
     test("a release with GitHub switched off is github_disabled by policy", async () => {

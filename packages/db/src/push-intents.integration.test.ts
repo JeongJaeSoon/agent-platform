@@ -135,10 +135,32 @@ integration("push intents and the same-target rules on PostgreSQL", () => {
     expect(await intents.list(OWNER, s.sessionId)).toHaveLength(0);
   });
 
-  test("another target of the same turn is its own intent", async () => {
+  test("another target of the same turn and repository is refused: both would push the turn's one checkpoint", async () => {
     const s = await runningTurn();
     await ask(s);
-    const other = await ask(s, `agent/${s.sessionId}-docs`);
+    expect(await ask(s, `agent/${s.sessionId}-docs`)).toEqual({
+      outcome: "turn_target_taken",
+      targetBranch: `agent/${s.sessionId}`,
+    });
+    expect(await intents.list(OWNER, s.sessionId)).toHaveLength(1);
+    // The first target is still the same row when asked again.
+    expect(await ask(s)).toMatchObject({ outcome: "existing" });
+  });
+
+  test("another repository of the same turn is its own intent", async () => {
+    const s = await runningTurn();
+    await ask(s);
+    const other = await intents.createDeferred({
+      ownerId: OWNER,
+      sessionId: s.sessionId,
+      turnId: s.turnId,
+      attemptId: "attempt-1",
+      repositoryId: "docs",
+      targetBranch: `agent/${s.sessionId}`,
+      actor: ACTOR,
+      pushClass: "push.attached",
+      policySource: "agent",
+    });
     expect(other.outcome).toBe("created");
     expect(await intents.list(OWNER, s.sessionId)).toHaveLength(2);
   });

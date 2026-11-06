@@ -102,19 +102,25 @@ export function createPostgresPushIntents(db: Database): PushIntentStore {
           )
           .limit(1);
         if (turn === undefined) return { outcome: "turn_not_running" };
-        const [existing] = await tx
+        const [first] = await tx
           .select()
           .from(pushIntents)
           .where(
             and(
               eq(pushIntents.turnId, input.turnId),
               eq(pushIntents.repositoryId, input.repositoryId),
-              eq(pushIntents.targetBranch, input.targetBranch),
             ),
           )
+          .orderBy(asc(pushIntents.createdAt), asc(pushIntents.id))
           .limit(1);
-        if (existing) {
-          return { outcome: "existing", intent: publicPushIntent(existing) };
+        if (first?.targetBranch === input.targetBranch) {
+          return { outcome: "existing", intent: publicPushIntent(first) };
+        }
+        if (first) {
+          return {
+            outcome: "turn_target_taken",
+            targetBranch: first.targetBranch,
+          };
         }
         const [row] = await tx
           .insert(pushIntents)
