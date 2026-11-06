@@ -618,6 +618,34 @@ jobs:
           .github/scripts/chart-push.sh chart-out/werft-*.tgz \
             "${REGISTRY}/$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')"
 
+  # The single-server bundle (scripts/test-ops.sh, its compose files and the
+  # manifest, no image) is built and checked on every run; only a tag's
+  # `release` job uploads it. Here it is built twice from a fixed manifest, and
+  # the two archives must be the same bytes, which a rerun of a release relies on.
+  test-ops-bundle:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build the bundle twice
+        run: |
+          fixture=tests/fixtures/test-ops-release-manifest.json
+          tag="$(jq -r .tag "$fixture")"
+          .github/scripts/test-ops-bundle.sh "$tag" "$fixture" bundle-a
+          .github/scripts/test-ops-bundle.sh "$tag" "$fixture" bundle-b
+          cmp "bundle-a/werft-test-ops-${tag}.tar.gz" "bundle-b/werft-test-ops-${tag}.tar.gz"
+          tar -tzf "bundle-a/werft-test-ops-${tag}.tar.gz"
+      - name: Run the bundle's scripts without a checkout
+        run: |
+          tag="$(jq -r .tag tests/fixtures/test-ops-release-manifest.json)"
+          tar -xzf "bundle-a/werft-test-ops-${tag}.tar.gz" -C "$RUNNER_TEMP"
+          cd "$RUNNER_TEMP/werft-test-ops-${tag}"
+          sha256sum -c --quiet SHA256SUMS
+          bash scripts/test-ops.sh manifest release-manifest.json infra/test-ops.env.example | jq -e '.images.control_host'
+          if bash scripts/test-ops.sh upgrade release-manifest.json; then echo "upgrade must be refused in a bundle" >&2; exit 1; fi
+
   # The GitHub Release of a tag, with one manifest file: the three image
   # digests, the worker runtime and the chart version. It comes last because
   # the chart is final only once chart-publish has read it back, and it alone
@@ -649,11 +677,16 @@ jobs:
           path: chart-out
       - name: Write the manifest
         run: bun .github/scripts/release-manifest.ts published chart-out release-manifest.json
+      - name: Build the single-server bundle
+        run: .github/scripts/test-ops-bundle.sh "$GITHUB_REF_NAME" release-manifest.json bundle-out
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: .github/scripts/release-publish.sh "$GITHUB_REF_NAME" release-manifest.json
+        run: |
+          .github/scripts/release-publish.sh "$GITHUB_REF_NAME" release-manifest.json \
+            "bundle-out/werft-test-ops-${GITHUB_REF_NAME}.tar.gz" \
+            "bundle-out/werft-test-ops-${GITHUB_REF_NAME}.tar.gz.sha256"
       - name: Show the manifest
         run: |
           {
