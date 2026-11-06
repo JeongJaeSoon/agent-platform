@@ -348,7 +348,7 @@ export function createPostgresProfileRolloutStore(
         const behindSorted = [...behind].sort((a, b) =>
           a.agent_id < b.agent_id ? -1 : a.agent_id > b.agent_id ? 1 : 0,
         );
-        const pinned = behindSorted.map((agent) => agent.agent_id);
+        let pinned = behindSorted.map((agent) => agent.agent_id);
         const same = await rows<{ id: string; revision: number }>(
           tx,
           sql`SELECT a.id, a.activation_revision AS revision FROM agents a
@@ -358,24 +358,36 @@ export function createPostgresProfileRolloutStore(
               AND r.runtime_config_snapshot ->> 'model' = p.definition ->> 'model'
             ORDER BY a.id`,
         );
-        const modelFollowsProfile = same.map((row) => row.id);
+        let modelFollowsProfile = same.map((row) => row.id);
         // Agent changes do not take the profile lock, so each update holds
-        // only if the agent's release has not moved since it was read.
+        // only if the agent's release has not moved since it was read. The
+        // report lists the rows written; a skipped agent shows up again in
+        // the next dry run.
         if (!dryRun) {
+          const pinnedNow: string[] = [];
           for (const agent of behindSorted) {
-            await tx.execute(
+            const done = await rows(
+              tx,
               sql`UPDATE agents SET profile_tracking = 'pinned'
                 WHERE id = ${agent.agent_id}
-                  AND activation_revision = ${agent.revision}`,
+                  AND activation_revision = ${agent.revision}
+                RETURNING 1 AS ok`,
             );
+            if (done.length > 0) pinnedNow.push(agent.agent_id);
           }
+          const followedNow: string[] = [];
           for (const agent of same) {
-            await tx.execute(
+            const done = await rows(
+              tx,
               sql`UPDATE agents SET model_source = 'profile'
                 WHERE id = ${agent.id} AND model_source = 'fixed'
-                  AND activation_revision = ${agent.revision}`,
+                  AND activation_revision = ${agent.revision}
+                RETURNING 1 AS ok`,
             );
+            if (done.length > 0) followedNow.push(agent.id);
           }
+          pinned = pinnedNow;
+          modelFollowsProfile = followedNow;
         }
         return { dryRun, pinned, modelFollowsProfile };
       });
