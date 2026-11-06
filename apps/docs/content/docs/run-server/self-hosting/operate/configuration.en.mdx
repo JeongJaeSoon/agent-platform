@@ -3,7 +3,7 @@ title: "Configuration reference"
 description: Installation limits, API settings, and the scheduler, worker container and egress settings
 ---
 
-This page lists the installation limits, the API settings, and the scheduler, worker container and egress settings. The settings of the reconciler and scheduler supervision loops are in [Execution base and worker isolation](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/execution.md). Connections, storage, limits (console and settings document) and authentication settings are in [API server](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md). The Kubernetes backend settings are in [Kubernetes execution backend](/run-server/self-hosting/operate/kubernetes-backend).
+This page lists the installation limits, the API settings, and the scheduler, worker container and egress settings. The settings of the reconciler and scheduler supervision loops are in [Execution base and worker isolation](/run-server/self-hosting/operate/execution). Connections, storage, limits (console and settings document) and authentication settings are in [API server](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md). The Kubernetes backend settings are in [Kubernetes execution backend](/run-server/self-hosting/operate/kubernetes-backend).
 
 ## Installation limits
 
@@ -108,7 +108,7 @@ Set the values below only when the GitHub Packages bot token ([decision](https:/
 
 ## Scheduler, worker container and egress settings
 
-These are the values the scheduler reads when it creates a worker container. A missing value uses its default, and a wrongly formatted one stops startup. The user, the HOME and workspace paths, the tmpfs size, the credential port and the stop timeout go into the `agent-platform.isolation` fingerprint ([Execution base and worker isolation](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/execution.md#reconcilerscheduler와-worker-격리)). So changing them replaces the running workers. The CPU, memory and PID limits apply from the next launch.
+These are the values the scheduler reads when it creates a worker container. A missing value uses its default, and a wrongly formatted one stops startup. The user, the HOME and workspace paths, the tmpfs size, the credential port and the stop timeout go into the `werft.isolation` fingerprint ([Execution base and worker isolation](/run-server/self-hosting/operate/execution#reconciler-scheduler-and-worker-isolation)). So changing them replaces the running workers. The CPU, memory and PID limits apply from the next launch.
 
 `WORKER_MEMORY_MB` is set together with the transcript limit (`MAX_TRANSCRIPT_BYTES`). Their relation, the measurements, sessions per node and how to change them are in [Capacity](/run-server/self-hosting/operate/capacity).
 

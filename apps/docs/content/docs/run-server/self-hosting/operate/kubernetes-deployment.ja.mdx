@@ -60,14 +60,14 @@ chartはGitサーバーも作りません。設定ドキュメントのリポジ
 
 ### kind(ローカル)
 
-`deploy/kind/up.sh`が上の順序を一度に行います。クラスターとregistryの作成、イメージのビルドとpush(digestの確保)、namespace・PostgreSQL・LocalStack・Secretの作成、`helm upgrade --install`、rolloutと`/readyz`・`/docs`の確認までです。kubeconfigは`~/.kube/config`ではなく`~/.cache/agent-platform/kind/<cluster>/kubeconfig`に書きます。**kind**
+`deploy/kind/up.sh`が上の順序を一度に行います。クラスターとregistryの作成、イメージのビルドとpush(digestの確保)、namespace・PostgreSQL・LocalStack・Secretの作成、`helm upgrade --install`、rolloutと`/readyz`・`/docs`の確認までです。kubeconfigは`~/.kube/config`ではなく`~/.cache/werft/kind/<cluster>/kubeconfig`に書きます。**kind**
 
 ```bash
 CLUSTER_NAME=<cluster> REGISTRY_PORT=<port> deploy/kind/up.sh
-export KUBECONFIG=~/.cache/agent-platform/kind/<cluster>/kubeconfig
+export KUBECONFIG=~/.cache/werft/kind/<cluster>/kubeconfig
 ```
 
-`CLUSTER_NAME`(既定`agent-platform-dev`)と`REGISTRY_PORT`(既定5001)は省略できます。ほかのクラスターやregistryと衝突するときに変えます。削除するコマンドは`CLUSTER_NAME=… deploy/kind/up.sh down`です(クラスターとregistryコンテナだけを消します)。
+`CLUSTER_NAME`(既定`werft-dev`)と`REGISTRY_PORT`(既定5001)は省略できます。ほかのクラスターやregistryと衝突するときに変えます。削除するコマンドは`CLUSTER_NAME=… deploy/kind/up.sh down`です(クラスターとregistryコンテナだけを消します)。
 
 `EXTRA_VALUES=<ファイル>`を渡すと、valuesファイル1つをほかのvaluesファイル(モデル用を含む)の上に最後に重ねます。ノートPCでapiとegress-proxyを1つずつだけ立てるときに使います(`api.replicas: 1`、`egressProxy.replicas: 1`)。
 
@@ -284,8 +284,8 @@ fi
 | 変わるもの | 動いているworker Pod | セッションが続く方法 |
 |---|---|---|
 | workerイメージ(`images.worker`) | 終わるまで古いイメージで動きます | 次のlaunchが、checkpointポインターのengine・SDK・CLI・profile digestの方式と同じイメージを、新しいイメージ(`images.worker`)、直前イメージ(`images.workerPrevious`)の順に選んで復元します。どちらも合わなければlaunchの前に`recovery_required`で止まります。そうしたセッションは下の事前検査がupgradeの前に示します |
-| 隔離設定(stampに入る値: egress proxyのアドレス、保存容量、worker ServiceAccount、上限など) | staleになります。claimされたPodはturn境界までdrainしてから落ちます | 最後に終わったturnまでcheckpointが覆っていれば、新しいPodがPostgreSQLのポインターとS3のcheckpointから続けます。checkpointなしで終わったturnがあれば、セッションは`recovery_required`で止まります(`CONTEXT_GAP`)。drainの期限(`MAX_TURN_SECONDS` + 5分)を過ぎたturnは`outcome_unknown`になり、そのセッションは`recovery_required`で止まって運用者の判断を待ちます([execution.md § 契約が上がるときのclaim済みworkerのdrain](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/execution.md#계약이-오를-때-claim된-worker의-drain)) |
-| ノードの入れ替え、Kubernetesのアップグレード | Podが消えます。SIGTERMを受ければdrainでreleaseし、受けられなければheartbeatが途切れます | releaseされていればすぐに、そうでなければschedulerがPodの消失を確認するかleaseが切れた後に回収されます。動いていたturnがなく、最後に終わったturnまでcheckpointが覆っていれば、次のlaunchがそのcheckpointから続けます。checkpointが遅れていればセッションは`recovery_required`で止まります(セッション詳細のattention `CONTEXT_GAP`)。確定していないturnがあれば、そのturnは`outcome_unknown`になり、セッションは`recovery_required`で止まります([execution.md](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/execution.md)) |
+| 隔離設定(stampに入る値: egress proxyのアドレス、保存容量、worker ServiceAccount、上限など) | staleになります。claimされたPodはturn境界までdrainしてから落ちます | 最後に終わったturnまでcheckpointが覆っていれば、新しいPodがPostgreSQLのポインターとS3のcheckpointから続けます。checkpointなしで終わったturnがあれば、セッションは`recovery_required`で止まります(`CONTEXT_GAP`)。drainの期限(`MAX_TURN_SECONDS` + 5分)を過ぎたturnは`outcome_unknown`になり、そのセッションは`recovery_required`で止まって運用者の判断を待ちます([/run-server/self-hosting/operate/execution § 契約が上がるときのclaim済みworkerのdrain](/run-server/self-hosting/operate/execution#契約が上がるときのclaimされたworkerのdrain)) |
+| ノードの入れ替え、Kubernetesのアップグレード | Podが消えます。SIGTERMを受ければdrainでreleaseし、受けられなければheartbeatが途切れます | releaseされていればすぐに、そうでなければschedulerがPodの消失を確認するかleaseが切れた後に回収されます。動いていたturnがなく、最後に終わったturnまでcheckpointが覆っていれば、次のlaunchがそのcheckpointから続けます。checkpointが遅れていればセッションは`recovery_required`で止まります(セッション詳細のattention `CONTEXT_GAP`)。確定していないturnがあれば、そのturnは`outcome_unknown`になり、セッションは`recovery_required`で止まります([実行基盤とworkerの隔離](/run-server/self-hosting/operate/execution)) |
 | checkpoint bucket(`config.checkpoints.bucket`) | bucketがstampにあるので、staleとして入れ替わります | 自動では続きません。古いbucketのオブジェクトは新しいbucketにありません。未回収のcheckpoint行があるのに、新しいbucketにobject versionが1つもなければ、apiは起動しません([api-server.md](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md))。Kubernetesインストールには、checkpointを別のbucketへ移す手順がありません。復元も同じbucketのversionを指します([backup-restore.md § Kubernetesインストール](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/backup-restore.md#kubernetes-설치))。未回収のcheckpointがある間は、bucketを変えません |
 
 ### アップグレード前の検査
@@ -365,5 +365,5 @@ helm -n werft uninstall werft
 
 **kind**。`helm uninstall`が残すものは次のとおりです。
 
-- schedulerが作ったworker Pod、nonce Secret、workspace PVC。消す前に、セッションが終わったか(またはcheckpointされたか)を見ます。PVCを消すと、checkpointされていない作業が消えます。一覧: `kubectl -n werft get pods,secrets,pvc -l app.kubernetes.io/part-of=agent-platform,agent-platform.installation=<installationId>`
+- schedulerが作ったworker Pod、nonce Secret、workspace PVC。消す前に、セッションが終わったか(またはcheckpointされたか)を見ます。PVCを消すと、checkpointされていない作業が消えます。一覧: `kubectl -n werft get pods,secrets,pvc -l app.kubernetes.io/part-of=werft,werft.installation=<installationId>`
 - hookで作ったmigrate Jobとupgrade-check Job、ExternalSecretとそれが書いたSecret(`creationPolicy: Orphan`)。手で作ったSecretも残ります。残ったJobは次のインストールを妨げません。同じ名前のhookが走るときにHelmが先に消します。いま消すなら`kubectl -n werft delete job werft-migrate werft-upgrade-check --ignore-not-found`を実行します。

@@ -1,6 +1,6 @@
 # API 서버 — 카탈로그, 자격 증명, checkpoint 저장소, 인증과 권한
 
-API 서버가 운영자 카탈로그(Agent Profile·repository)와 자격 증명을 다루는 방식, checkpoint object store, API 인증과 세션 실행 권한을 적는다. 설정값은 [설정 레퍼런스](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/configuration/)에, worker 실행과 격리는 [실행 기반과 worker 격리](execution.md)에 있다.
+API 서버가 운영자 카탈로그(Agent Profile·repository)와 자격 증명을 다루는 방식, checkpoint object store, API 인증과 세션 실행 권한을 적는다. 설정값은 [설정 레퍼런스](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/configuration/)에, worker 실행과 격리는 [실행 기반과 worker 격리](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/execution/)에 있다.
 
 ## provider 키와 저장소 자격 증명은 worker에 가지 않는다
 
@@ -246,7 +246,7 @@ API가 App의 private key로 JWT를 서명해 설치 토큰을 받고, 그 토�
         kind: github_app
         app_id: 123456
         installation_id: 7890123
-        secret_id: agent-platform/github-app-key     # 또는 value_env: GITHUB_APP_KEY
+        secret_id: werft/github-app-key     # 또는 value_env: GITHUB_APP_KEY
         api_base: https://api.github.com             # 생략하면 이 값. GHES: https://<ghes-host>/api/v3
   ```
 
@@ -398,7 +398,7 @@ MAX_TURN_SECONDS=3600 SESSION_COST_LIMIT_USD=25 PROVIDER_MAX_RETRIES=2 \
 curl -H 'Authorization: Bearer <issued-key>' http://127.0.0.1:3000/v1
 ```
 
-웹 콘솔은 같은 `/v1`을 cookie 세션으로 호출한다. 처음 한 번 `POST /v1/auth/bootstrap`이 첫 owner와 기본 workspace를 만드는데, `BOOTSTRAP_TOKEN`이 일치하고 live owner가 없을 때만 통과한다. 토큰을 먼저 보므로 틀린 토큰은 owner 유무와 관계없이 `401`이고, 맞는 토큰인데 live owner가 있으면 `409 BOOTSTRAP_DONE`이다. `BOOTSTRAP_TOKEN`을 주지 않으면 API가 기동 시 하나를 생성해 stderr에 `BOOTSTRAP_TOKEN=…` 한 줄로 출력한다(live owner가 없을 때만, 구조화 로그는 토큰 필드를 가리므로 거기엔 없다). 로그인은 `POST /v1/auth/login`(email·password, argon2id)이며 `__Host-ap_session` cookie(`HttpOnly; Secure; SameSite=Lax; Path=/`, Domain 없음, 14일 sliding)를 세운다. `__Host-` 접두사라 형제 서브도메인이 같은 이름의 cookie를 심어 가리지 못한다. 미들웨어는 `Authorization` 헤더가 있으면 그것만 평가하고(잘못되거나 비었거나 Bearer가 아닌 헤더를 cookie로 대체하지 않음) 헤더가 없을 때만 cookie를 본다. cookie principal의 상태 변경 요청은 `X-Requested-With: werft-web` 헤더가 없으면 `403`이다(bearer 경로에는 적용되지 않음). login은 cookie를 세우므로 호출자와 무관하게 같은 헤더가 필요하다(없거나 cross-site면 `403`, login CSRF로 피해자를 공격자 계정에 로그인시키는 것을 막는다). 사용자당 live 세션은 10개까지이고, login이 그 사용자의 만료·폐기된 row를 지우고 가장 오래된 세션부터 밀어낸다. 로그인 실패는 email당 5회/15분 뒤 `429`. 주소를 바꿔 가며 시도해도 비밀번호 검증(argon2id)은 프로세스당 동시 4개·대기 64개까지만 받고 넘치면 조회 전에 `429`(`Retry-After: 1`)로 끊는다. IP 단위·replica 공통 제한은 ingress가 맡는다. `GET /v1/auth/me`가 선택된 principal·user·workspace와, 그 역할이 지금 워크스페이스에서 가진 관리 action 목록(`permissions`, 역할 표 그대로. 웹은 이것으로 화면 전체를 못 쓰는 메뉴를 숨긴다. API key는 빈 목록)을 돌려준다. `AUTH_MODE=none`에서는 cookie 경로가 꺼지고 `X-Owner-Id`만 본다. 기동 로그(stderr)를 설치자가 아닌 사람도 읽는 배포에서는 `BOOTSTRAP_TOKEN`을 직접 넣어 자동 생성 경로를 쓰지 않는다 — 자동 생성 토큰은 첫 owner가 생길 때까지 그 로그를 읽는 누구에게나 bootstrap 권한을 준다. 설정한 값은 32~256자여야 하며 벗어나면 API가 기동하지 않는다. 빈 값(`BOOTSTRAP_TOKEN=`)도 설정 실패로 보고 기동하지 않는다.
+웹 콘솔은 같은 `/v1`을 cookie 세션으로 호출한다. 처음 한 번 `POST /v1/auth/bootstrap`이 첫 owner와 기본 workspace를 만드는데, `BOOTSTRAP_TOKEN`이 일치하고 live owner가 없을 때만 통과한다. 토큰을 먼저 보므로 틀린 토큰은 owner 유무와 관계없이 `401`이고, 맞는 토큰인데 live owner가 있으면 `409 BOOTSTRAP_DONE`이다. `BOOTSTRAP_TOKEN`을 주지 않으면 API가 기동 시 하나를 생성해 stderr에 `BOOTSTRAP_TOKEN=…` 한 줄로 출력한다(live owner가 없을 때만, 구조화 로그는 토큰 필드를 가리므로 거기엔 없다). 로그인은 `POST /v1/auth/login`(email·password, argon2id)이며 `__Host-werft_session` cookie(`HttpOnly; Secure; SameSite=Lax; Path=/`, Domain 없음, 14일 sliding)를 세운다. `__Host-` 접두사라 형제 서브도메인이 같은 이름의 cookie를 심어 가리지 못한다. 미들웨어는 `Authorization` 헤더가 있으면 그것만 평가하고(잘못되거나 비었거나 Bearer가 아닌 헤더를 cookie로 대체하지 않음) 헤더가 없을 때만 cookie를 본다. cookie principal의 상태 변경 요청은 `X-Requested-With: werft-web` 헤더가 없으면 `403`이다(bearer 경로에는 적용되지 않음). login은 cookie를 세우므로 호출자와 무관하게 같은 헤더가 필요하다(없거나 cross-site면 `403`, login CSRF로 피해자를 공격자 계정에 로그인시키는 것을 막는다). 사용자당 live 세션은 10개까지이고, login이 그 사용자의 만료·폐기된 row를 지우고 가장 오래된 세션부터 밀어낸다. 로그인 실패는 email당 5회/15분 뒤 `429`. 주소를 바꿔 가며 시도해도 비밀번호 검증(argon2id)은 프로세스당 동시 4개·대기 64개까지만 받고 넘치면 조회 전에 `429`(`Retry-After: 1`)로 끊는다. IP 단위·replica 공통 제한은 ingress가 맡는다. `GET /v1/auth/me`가 선택된 principal·user·workspace와, 그 역할이 지금 워크스페이스에서 가진 관리 action 목록(`permissions`, 역할 표 그대로. 웹은 이것으로 화면 전체를 못 쓰는 메뉴를 숨긴다. API key는 빈 목록)을 돌려준다. `AUTH_MODE=none`에서는 cookie 경로가 꺼지고 `X-Owner-Id`만 본다. 기동 로그(stderr)를 설치자가 아닌 사람도 읽는 배포에서는 `BOOTSTRAP_TOKEN`을 직접 넣어 자동 생성 경로를 쓰지 않는다 — 자동 생성 토큰은 첫 owner가 생길 때까지 그 로그를 읽는 누구에게나 bootstrap 권한을 준다. 설정한 값은 32~256자여야 하며 벗어나면 API가 기동하지 않는다. 빈 값(`BOOTSTRAP_TOKEN=`)도 설정 실패로 보고 기동하지 않는다.
 
 로컬 개발 스택의 데모 계정 CLI(`apps/control-host/src/api/demo-accounts.ts`)는 운영 설치에 쓰지 않는다. 게시 이미지(`ghcr.io/jeongjaesoon/werft-control-host`)에는 이 CLI와 `demo-data.ts`가 없다. 거기서 `DEMO_ACCOUNTS=local`로 부르면 `Module not found`로 실패한다. 두 CLI는 Dockerfile의 `local` target(`docker build --target local`)으로 빌드한 이미지에만 있고, `scripts/local.sh`와 `deploy/kind/up.sh`가 그 이미지를 쓴다. `scripts/local.sh up`이 자기 compose 스택의 api 컨테이너에서 `DEMO_ACCOUNTS=local`을 주고 부를 때만 공개된 비밀번호의 owner·member를 만들고, 그 값이 없거나 Kubernetes 안이거나 `DATABASE_URL`이 로컬 postgres가 아니면 아무것도 쓰지 않고 거부한다. Kubernetes에서는 chart `preview.enabled: true`로 설치한 미리보기 namespace(api 컨테이너가 자기 namespace를 `PREVIEW_NAMESPACE`로 받는다. values로 직접 넣으면 렌더가 실패한다)에서 `DATABASE_URL`이 그 namespace의 `postgres` Service일 때만 예외다. 운영 설치에서는 이 플래그를 켜지 않는다([quickstart § 웹 콘솔 데모 계정](../quickstart.md#웹-콘솔-데모-계정)). 데모 에이전트·세션 CLI(`apps/control-host/src/api/demo-data.ts`)도 같은 조건으로 거부하고, 쓰는 프로필이 fake Messages API를 부르지 않아도 거부한다.
 
@@ -442,7 +442,7 @@ curl -s -X POST http://127.0.0.1:3000/v1/auth/password-reset -H 'Content-Type: a
 | `GOOGLE_OIDC_ALLOWED_DOMAINS` | 쉼표 목록. 있으면 id_token의 `hd`와 이메일 도메인이 목록에 있는 Google Workspace 계정만 받는다(`403`). 개인 Gmail은 `hd`가 없어 막힌다 |
 | `GOOGLE_OIDC_JIT` | `off`(기본) 또는 `member`. `member`는 허용 도메인 계정을 초대 없이 member로 만든다. 허용 도메인 없이 켜면 기동하지 않는다 |
 
-로그인 화면은 공개 `GET /v1/auth/login-methods`(`{"methods":["password","google"]}`, Google을 설정하지 않으면 `password`만)로 고를 수 있는 수단을 받는다. 흐름: 웹이 `POST /v1/auth/google/start`(`X-Requested-With` 필요)로 `authorization_url`을 받아 연다. 응답은 state·nonce·PKCE verifier를 담은 `__Host-ap_google_login` cookie(10분)를 세운다. Google이 리디렉션 URI로 `code`·`state`를 돌려주면 웹이 그대로 `POST /v1/auth/google/callback`에 보낸다. API가 code를 교환하고 id_token의 서명(JWKS)·iss·aud·exp·nonce·`email_verified`를 확인한 뒤 첫 진입 규칙을 위에서부터 적용한다.
+로그인 화면은 공개 `GET /v1/auth/login-methods`(`{"methods":["password","google"]}`, Google을 설정하지 않으면 `password`만)로 고를 수 있는 수단을 받는다. 흐름: 웹이 `POST /v1/auth/google/start`(`X-Requested-With` 필요)로 `authorization_url`을 받아 연다. 응답은 state·nonce·PKCE verifier를 담은 `__Host-werft_google_login` cookie(10분)를 세운다. Google이 리디렉션 URI로 `code`·`state`를 돌려주면 웹이 그대로 `POST /v1/auth/google/callback`에 보낸다. API가 code를 교환하고 id_token의 서명(JWKS)·iss·aud·exp·nonce·`email_verified`를 확인한 뒤 첫 진입 규칙을 위에서부터 적용한다.
 
 1. 이미 연결된 (issuer, subject) → 그 사용자로 로그인. 계정이나 멤버십이 비활성이면 거절.
 2. 그 이메일의 계정이 이미 있으면 → `409 LOGIN_LINK_REQUIRED`("기존 계정으로 로그인한 뒤 설정에서 Google을 연결"). 초대나 JIT가 있어도 이메일로 합치지 않는다. 이 응답은 Google이 지금 그 이메일의 주인임을 보증하는 계정(이메일 도메인이 `hd`와 같거나 `gmail.com`)만 받고, 그 밖의 계정과 비활성 계정은 5번과 같은 `401`을 받아 계정이 있는지 알 수 없다.
@@ -450,7 +450,7 @@ curl -s -X POST http://127.0.0.1:3000/v1/auth/password-reset -H 'Content-Type: a
 4. JIT가 켜져 있으면 → 설치의 workspace에 member로 만든다.
 5. 그 밖에는 `401 UNAUTHORIZED` "Google sign-in was not accepted". 토큰 검증 실패와 같은 응답이라 계정이 있는지 드러나지 않는다.
 
-성공하면 비밀번호 login과 같은 `__Host-ap_session` cookie와 login 응답을 준다. 설계의 규칙 순서(초대·JIT가 같은 이메일 안내보다 앞)와 달리 2번을 먼저 보는 것은, 같은 이메일의 계정이 있으면 새 계정을 만들 수 없어 초대·JIT가 결국 이메일로 합치는 것이 되기 때문이다. 로그인한 사용자가 설정에서 Google을 연결하는 API와 콜백 화면은 아직 없다(웹 로그인 화면 작업에서 만든다).
+성공하면 비밀번호 login과 같은 `__Host-werft_session` cookie와 login 응답을 준다. 설계의 규칙 순서(초대·JIT가 같은 이메일 안내보다 앞)와 달리 2번을 먼저 보는 것은, 같은 이메일의 계정이 있으면 새 계정을 만들 수 없어 초대·JIT가 결국 이메일로 합치는 것이 되기 때문이다. 로그인한 사용자가 설정에서 Google을 연결하는 API와 콜백 화면은 아직 없다(웹 로그인 화면 작업에서 만든다).
 
 실제 Google 연결 확인 절차(사람이 한다):
 
@@ -526,7 +526,7 @@ bun run apps/control-host/src/api/slack-app.ts create --kind link --workspace "$
 
 흐름은 다음과 같다.
 
-1. `POST /v1/linked-accounts/slack/start`가 `authorize_url`을 돌려주고, state·nonce를 HttpOnly cookie `ap_slack_link`(path `/v1/linked-accounts/slack`, 10분)에 둔다. 워크스페이스에 확인된 Slack 설치(`slack_installations`)가 없으면 `409 SLACK_NOT_INSTALLED`다. 설치가 하나면 그 team을 `team` 파라미터로 고정한다. 위 순서로 OIDC 앱을 정하고, 필요하면 이때 link 앱을 만든다.
+1. `POST /v1/linked-accounts/slack/start`가 `authorize_url`을 돌려주고, state·nonce를 HttpOnly cookie `werft_slack_link`(path `/v1/linked-accounts/slack`, 10분)에 둔다. 워크스페이스에 확인된 Slack 설치(`slack_installations`)가 없으면 `409 SLACK_NOT_INSTALLED`다. 설치가 하나면 그 team을 `team` 파라미터로 고정한다. 위 순서로 OIDC 앱을 정하고, 필요하면 이때 link 앱을 만든다.
 2. Slack이 그 앱의 redirect(link 앱은 `<콘솔 origin>/settings/linked-accounts/slack`, fallback 앱은 `SLACK_OIDC_REDIRECT_URI`)로 `code`·`state`를 붙여 돌려보낸다. 이 주소는 웹 화면이며, 화면이 둘을 `POST /v1/linked-accounts/slack/callback`에 `{code, state}`로 넘긴다. cookie는 이때 한 번 쓰고 지운다. 만료·불일치·IdP 거절은 모두 `400`(다시 시작 안내)이다.
 3. API가 `code`를 id_token으로 바꾸고 서명(JWKS, RS256)·`iss`·`aud`·`nonce`를 검증한 뒤 `https://slack.com/team_id`·`https://slack.com/user_id`로 연결한다. 설치된 team이 아니면 `409 LINK_TEAM_MISMATCH`, 그 Slack 계정이 다른 사람에게 연결돼 있으면 `409 LINK_TAKEN`, 같은 team에 이미 내 연결이 있으면 `409 LINK_EXISTS`다. 성공하면 `201`과 `link_account` receipt가 남는다.
 4. `GET /v1/linked-accounts`로 내 연결을 보고, `DELETE /v1/linked-accounts/{id}`로 해제한다(`unlink_account` receipt). 해제한 뒤에는 이미 대기 중인 입력도 처리 시점 재판정에서 거절된다. 목록 항목과 callback의 `linked_account`에 있는 `expires_at`은 provider 토큰의 만료 시각이다. 토큰을 보관하지 않거나 만료가 없으면 `null`이고, Slack 연결은 토큰을 보관하지 않으므로 늘 `null`이다. 1의 시작 응답에 있는 `expires_at`(연결 요청이 유효한 시각)과는 다른 값이다.
@@ -537,10 +537,10 @@ Enterprise Grid: id_token의 `https://slack.com/team_id`가 workspace id인지 o
 
 **실제 Slack으로 확인하는 절차** (사람이 한다. 자동 테스트와 로컬 확인은 mock IdP를 쓴다)
 
-0. 콘솔을 https origin 하나로 연다. Slack은 https redirect URI만 받고, `ap_slack_link` cookie는 `Secure`라 시작(`/v1/linked-accounts/slack/start`)과 callback이 같은 https origin에서 불려야 cookie가 따라간다. 로컬 스택이면 API 포트를 tailnet 안에만 https로 내보낸다: `tailscale serve --bg --https=<port> http://127.0.0.1:<API_PORT>` → `<CONSOLE_URL>` = `https://<host>.ts.net:<port>`. 웹 콘솔은 API와 같은 origin에서 나오므로 이 주소 하나로 로그인·연결·callback이 모두 된다. funnel(인터넷 공개)은 쓰지 않는다. 끝나면 `tailscale serve --https=<port> off`. 콘솔의 POST는 `Origin`과 `Host`가 같아야 통과하므로(`auth.ts` `browserRequestViolation`), 앞단 프록시는 원래 `Host`를 그대로 넘겨야 한다.
+0. 콘솔을 https origin 하나로 연다. Slack은 https redirect URI만 받고, `werft_slack_link` cookie는 `Secure`라 시작(`/v1/linked-accounts/slack/start`)과 callback이 같은 https origin에서 불려야 cookie가 따라간다. 로컬 스택이면 API 포트를 tailnet 안에만 https로 내보낸다: `tailscale serve --bg --https=<port> http://127.0.0.1:<API_PORT>` → `<CONSOLE_URL>` = `https://<host>.ts.net:<port>`. 웹 콘솔은 API와 같은 origin에서 나오므로 이 주소 하나로 로그인·연결·callback이 모두 된다. funnel(인터넷 공개)은 쓰지 않는다. 끝나면 `tailscale serve --https=<port> off`. 콘솔의 POST는 `Origin`과 `Host`가 같아야 통과하므로(`auth.ts` `browserRequestViolation`), 앞단 프록시는 원래 `Host`를 그대로 넘겨야 한다.
 1. 그 Slack 워크스페이스에 설치된 Slack 앱이 있어야 한다(설치 등록은 4). 설치 등록이 bot을 확인하므로 bot scope `users:read`가 있어야 한다. 계정 연결용 앱은 손으로 만들지 않는다. owner·admin이 설정 › Slack에 App Configuration Token을 넣어 두면 5의 첫 "Slack 연결"이 link 앱을 만든다. 미리 만들려면 위 CLI `--kind link`를 쓴다.
 2. (fallback, link 앱 대신 손으로 만든 OIDC 앱을 쓸 때만) 그 앱의 **OAuth & Permissions → Redirect URLs**에 `<CONSOLE_URL>/settings/linked-accounts/slack`을 넣고(`SLACK_OIDC_REDIRECT_URI`와 글자까지 같아야 한다) user scope `openid`·`profile`을 둔다(email은 쓰지 않는다). 그 워크스페이스에 link 앱이 생기면 link 앱이 이긴다.
-3. `SLACK_OIDC_REDIRECT_URI=<CONSOLE_URL>/settings/linked-accounts/slack` 한 줄을(2의 fallback이면 **Basic Information**의 `SLACK_OIDC_CLIENT_ID=…`·`SLACK_OIDC_CLIENT_SECRET=…`도) repo 밖 파일 `~/.config/agent-platform/slack-dev.env`(권한 `0600`)에 둔다. 띄우는 셸에서 `set -a; . ~/.config/agent-platform/slack-dev.env; set +a`로 읽은 뒤 `scripts/local.sh up`(이미 떠 있으면 `docker compose --profile apps up -d --no-deps --force-recreate api`)을 실행한다. compose는 셸 env로 `SLACK_OIDC_*`를 채운다. `SLACK_OIDC_ISSUER`는 비워 둔다. mock overlay는 겹치지 않는다.
+3. `SLACK_OIDC_REDIRECT_URI=<CONSOLE_URL>/settings/linked-accounts/slack` 한 줄을(2의 fallback이면 **Basic Information**의 `SLACK_OIDC_CLIENT_ID=…`·`SLACK_OIDC_CLIENT_SECRET=…`도) repo 밖 파일 `~/.config/werft/slack-dev.env`(권한 `0600`)에 둔다. 띄우는 셸에서 `set -a; . ~/.config/werft/slack-dev.env; set +a`로 읽은 뒤 `scripts/local.sh up`(이미 떠 있으면 `docker compose --profile apps up -d --no-deps --force-recreate api`)을 실행한다. compose는 셸 env로 `SLACK_OIDC_*`를 채운다. `SLACK_OIDC_ISSUER`는 비워 둔다. mock overlay는 겹치지 않는다.
 4. 설치를 등록한다. **OAuth & Permissions**의 Bot User OAuth Token을 셸 env `SLACK_BOT_TOKEN`에만 넣고(인자로 넘기지 않는다), **Basic Information**의 App ID로 CLI를 실행한다. CLI가 `auth.test`·`bots.info`로 team·bot 사용자·앱을 확인하고 `slack_installations`에 `verified` 행을 남긴다. 출력은 JSON 한 줄이고 token은 어디에도 쓰지 않는다.
 
    ```bash
@@ -739,7 +739,7 @@ Slack DM이 만든 세션은 `private`로 시작한다(아래 "Slack 스레드�
 
 흐름은 다음과 같다.
 
-1. `POST /v1/linked-accounts/github/start`가 `authorize_url`을 돌려주고, state를 HttpOnly cookie `ap_github_link`(path `/v1/linked-accounts/github`, 10분, 시작한 사람에 묶임)에 둔다. App·client secret·콜백 URL 가운데 하나라도 없으면 `409 GITHUB_LINK_NOT_CONFIGURED`다.
+1. `POST /v1/linked-accounts/github/start`가 `authorize_url`을 돌려주고, state를 HttpOnly cookie `werft_github_link`(path `/v1/linked-accounts/github`, 10분, 시작한 사람에 묶임)에 둔다. App·client secret·콜백 URL 가운데 하나라도 없으면 `409 GITHUB_LINK_NOT_CONFIGURED`다.
 2. GitHub가 콜백 URL로 `code`·`state`를 붙여 돌려보낸다. 웹 화면이 둘을 `POST /v1/linked-accounts/github/callback`에 넘긴다. cookie는 이때 한 번 쓰고 지운다. 만료·재사용·다른 사람의 state·GitHub가 거절한 code는 모두 `400`이다.
 3. API가 `code`를 user access token으로 바꿔 `GET /user`로 id·login만 읽고, token은 그 자리에서 버린다(저장하지 않는다). 그 GitHub 계정이 다른 사람에게 연결돼 있으면 `409 LINK_TAKEN`, 내게 이미 GitHub 연결이 있으면 `409 LINK_EXISTS`, GitHub가 답하지 않으면 `503`이다. 성공하면 `201`과 `link_account` receipt가 남는다. 해제는 Slack과 같은 `DELETE /v1/linked-accounts/{id}`다.
 
@@ -811,19 +811,19 @@ curl -s -b jar -X POST "http://127.0.0.1:3000/v1/agents/$AGENT_ID/identities" \
 - 32바이트를 16진수 64자로 쓴다. `openssl rand -hex 32`로 만든다.
 - `PLATFORM_SECRET_KEY` 환경 변수만 읽는다. 없으면 API와 slack 역할이 뜨지 않는다. 설정 문서에도 넣지 않는다.
 - 64 hex가 아니어도 뜨지 않는다. 오류에는 변수 이름만 나오고 값은 나오지 않는다.
-- `scripts/local.sh up`은 셸이나 `.env`에 값이 없으면 키를 만들어 `AGENT_PLATFORM_STATE_DIR`(기본 `~/.local/state/agent-platform`)의 `<프로젝트>.secret-key`(권한 600)에 두고 다시 쓴다. 이 파일을 잃으면 저장한 자격 증명을 읽지 못한다.
+- `scripts/local.sh up`은 셸이나 `.env`에 값이 없으면 키를 만들어 `AGENT_PLATFORM_STATE_DIR`(기본 `~/.local/state/werft`)의 `<프로젝트>.secret-key`(권한 600)에 두고 다시 쓴다. 이 파일을 잃으면 저장한 자격 증명을 읽지 못한다.
 - compose는 이 키를 `api`와 `slack` 서비스에만 넘긴다(`tests/images.test.ts`가 검사한다). Helm은 api Deployment와 slack Deployment(`slack.enabled`일 때)에 Secret의 `PLATFORM_SECRET_KEY`를 넘긴다. Secret에 이 키가 없으면 Pod가 뜨지 않는다. slack role도 기동할 때 같은 키를 검증하기 때문이다. scheduler와 worker는 받지 않는다(`deploy/helm/render-check.ts`가 검사한다).
 - 키를 잃으면 저장된 값을 읽을 수 없다. 새 키로 띄운 뒤 config token을 다시 넣고, 자동 생성한 앱은 다시 만들고, GitHub App은 새 private key로 다시 등록한다. 키 회전 도구는 아직 없고 `key_version`은 1이다.
 
 로컬 스택에서는 키를 macOS Keychain에 두고 기동할 때마다 꺼낸다. 처음 한 번만 1–3을 한다.
 
 1. `openssl rand -hex 32 | pbcopy`
-2. `security add-generic-password -a "$USER" -s agent-platform-secret-key -w`를 실행하고 프롬프트에 붙여 넣는다.
+2. `security add-generic-password -a "$USER" -s werft-secret-key -w`를 실행하고 프롬프트에 붙여 넣는다.
 3. `pbcopy </dev/null`로 클립보드를 비운다.
-4. 기동할 때마다 `PLATFORM_SECRET_KEY`를 Keychain 항목 `agent-platform-secret-key`에서 export한 뒤 `scripts/local.sh up`을 실행한다.
+4. 기동할 때마다 `PLATFORM_SECRET_KEY`를 Keychain 항목 `werft-secret-key`에서 export한 뒤 `scripts/local.sh up`을 실행한다.
 
    ```bash
-   export PLATFORM_SECRET_KEY="$(security find-generic-password -a "$USER" -s agent-platform-secret-key -w)"
+   export PLATFORM_SECRET_KEY="$(security find-generic-password -a "$USER" -s werft-secret-key -w)"
    scripts/local.sh up
    ```
 
@@ -891,7 +891,7 @@ docker compose --profile apps exec -T api \
 값은 repo 밖 파일에 두고 셸에서 읽어 보낸다. 값이 명령 인자나 셸 기록에 남지 않게 한다.
 
 ```bash
-printf '{"value":"%s"}' "$(cat ~/.config/agent-platform/slack-config-token)" |
+printf '{"value":"%s"}' "$(cat ~/.config/werft/slack-config-token)" |
   curl -s -b jar -X PUT "http://127.0.0.1:3000/v1/workspaces/$WORKSPACE_ID/slack/config-token" \
     -H 'X-Requested-With: werft-web' -H 'Content-Type: application/json' --data-binary @-
 ```

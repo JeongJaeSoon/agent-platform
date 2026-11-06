@@ -58,7 +58,7 @@ npm 11은 `replace-registry-host=always`일 때 GitHub tarball 위치(`https://n
 
 ## 운영자가 할 일
 
-[실행 기반 § 공개 패키지 레지스트리](../../operator/execution.md)의 GitHub Packages 단락에 있다. 요약하면 `EGRESS_CREDENTIAL_ALLOWLIST`에 `npm.pkg.github.com:443,rubygems.pkg.github.com:443`을, `EGRESS_PACKAGES_REDIRECT_ALLOWLIST`에 tarball·gem 본체가 redirect되는 `pkg-npm.githubusercontent.com:443,rubygemsregistryv2prod.blob.core.windows.net:443`을 더한다.
+[실행 기반 § 공개 패키지 레지스트리](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/execution/)의 GitHub Packages 단락에 있다. 요약하면 `EGRESS_CREDENTIAL_ALLOWLIST`에 `npm.pkg.github.com:443,rubygems.pkg.github.com:443`을, `EGRESS_PACKAGES_REDIRECT_ALLOWLIST`에 tarball·gem 본체가 redirect되는 `pkg-npm.githubusercontent.com:443,rubygemsregistryv2prod.blob.core.windows.net:443`을 더한다.
 
 ## 다시 열 조건
 

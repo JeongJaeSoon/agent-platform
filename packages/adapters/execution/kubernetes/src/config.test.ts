@@ -29,12 +29,33 @@ describe("kubernetesConfigFromEnv", () => {
       tmpfsSizeBytes: 256 * 1024 * 1024,
       tolerations: [],
       user: "1000:1000",
+      volumeNamePrefix: "werft-ws-",
       workerServiceAccount: null,
       workspaceDir: "/workspace",
       workspaceGcMinAgeMs: 3_600_000,
       workspaceSizeBytes: 4096 * 1024 * 1024,
     });
   });
+
+  test("an install whose claims were named under another prefix points the setting at it", () => {
+    const config = kubernetesConfigFromEnv(
+      { ...BASE, EXECUTION_VOLUME_NAME_PREFIX: "legacy-ws-" },
+      () => "agents",
+    );
+    expect(config.volumeNamePrefix).toBe("legacy-ws-");
+  });
+
+  test.each(["no-trailing-dash", "Upper-", "has_underscore-"])(
+    "rejects the claim name prefix %s",
+    (prefix) => {
+      expect(() =>
+        kubernetesConfigFromEnv(
+          { ...BASE, EXECUTION_VOLUME_NAME_PREFIX: prefix },
+          () => "agents",
+        ),
+      ).toThrow("EXECUTION_VOLUME_NAME_PREFIX");
+    },
+  );
 
   test("reads every kubernetes-only setting", () => {
     const config = kubernetesConfigFromEnv(

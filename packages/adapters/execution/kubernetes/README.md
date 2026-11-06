@@ -4,7 +4,7 @@
 
 - worker Pod 하나. 이름은 `ap-worker-<installation>-<execution>-g<generation>`이다.
 - 그 Pod가 소유하는 nonce Secret.
-- 세션의 workspace PVC(`ap-ws-<installation>-<session>`)를 Pod에 마운트한다.
+- 세션의 workspace PVC(`<접두>-<installation>-<session>`, 접두 기본값 `werft-ws-`)를 Pod에 마운트한다. PVC는 이 유도된 이름으로 찾으므로 접두가 곧 조회 키다.
   마운트 지점은 `workspaceDir`(`/workspace`)이고, worker는 그 아래 `repo/`에 checkout한다(`WORKER_WORKSPACE_DIR`). 새 볼륨의 루트는 root 소유라(fsGroup은 그룹만 바꾼다) git이 그 자리의 저장소를 "dubious ownership"으로 거부하기 때문이다. `repo/`는 worker가 자기 uid로 만든다.
 
 `providerRef`는 Pod UID다. Pod와 PVC를 지울 때는 `DeleteOptions.preconditions.uid`를 붙여서, 같은 이름에 새로 생긴 다른 Pod·PVC를 건드리지 않는다.
@@ -26,7 +26,7 @@ worker namespace 하나에만 거는 `Role`이다. 어댑터가 실제로 부르
 - `patch`·`update`: Secret을 Pod보다 나중에 만들면서 처음부터 ownerReferences를 달아 두므로 고칠 일이 없다.
 - `events`: 쓰지 않는다.
 
-`pods/log` get은 같은 namespace의 모든 Pod 로그를 읽을 수 있는 권한이다. 그래서 어댑터가 로그를 읽기 전에 Pod 라벨을 직접 확인한다. `app.kubernetes.io/part-of=agent-platform`, `app.kubernetes.io/component=worker`, 그리고 자기 installation 라벨이 모두 맞는 Pod만 읽고, api·egress-proxy Pod 로그는 읽지 않는다. `deploy/helm/render-check.ts`는 Role이 이 표와 똑같은지 검사한다.
+`pods/log` get은 같은 namespace의 모든 Pod 로그를 읽을 수 있는 권한이다. 그래서 어댑터가 로그를 읽기 전에 Pod 라벨을 직접 확인한다. `app.kubernetes.io/part-of=werft`, `app.kubernetes.io/component=worker`, 그리고 자기 installation 라벨이 모두 맞는 Pod만 읽고, api·egress-proxy Pod 로그는 읽지 않는다. `deploy/helm/render-check.ts`는 Role이 이 표와 똑같은지 검사한다.
 
 ## 종료 사유와 로그 tail
 
@@ -46,7 +46,7 @@ Secret의 ownerReference에는 `blockOwnerDeletion`을 넣지 않는다. 넣으�
 
 nonce가 저장되는 곳은 Pod별 Secret(`stringData.nonce`, immutable) 하나뿐이다. worker는 `env.valueFrom.secretKeyRef`로 이 값을 받는다.
 
-- Pod spec과 annotation에는 nonce의 지문(`agent-platform.bootstrap-fingerprint`)만 들어간다.
+- Pod spec과 annotation에는 nonce의 지문(`werft.bootstrap-fingerprint`)만 들어간다.
 - 오류 메시지에서는 nonce를 가린다.
 
 생성 순서는 Pod가 먼저, Secret이 나중이다. Secret을 Pod에 소유시키려면 Pod의 UID가 필요하기 때문이다.

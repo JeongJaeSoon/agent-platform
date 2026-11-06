@@ -20,7 +20,11 @@ import { join } from "node:path";
 
 const script = join(import.meta.dir, "..", "scripts/local.sh");
 
-const rendered = (id: string | undefined, ports: string[] = []) =>
+const rendered = (
+  id: string | undefined,
+  ports: string[] = [],
+  volumeNamespace?: string,
+) =>
   JSON.stringify({
     services: {
       api: {
@@ -31,7 +35,12 @@ const rendered = (id: string | undefined, ports: string[] = []) =>
         })),
       },
       scheduler: {
-        environment: id === undefined ? {} : { EXECUTION_INSTALLATION_ID: id },
+        environment: {
+          ...(id === undefined ? {} : { EXECUTION_INSTALLATION_ID: id }),
+          ...(volumeNamespace === undefined
+            ? {}
+            : { EXECUTION_VOLUME_LABEL_NAMESPACE: volumeNamespace }),
+        },
       },
     },
   });
@@ -61,7 +70,7 @@ echo "$*" >> "${dir}/docker-calls"
 case "$*" in
   "version --format"*) echo 28.1.0 ;;
   "compose version --short") echo 2.39.1 ;;
-  *" config --format json") cat "${config}" ;;
+  *" config --format json") jq --arg n "\${COMPOSE_PROJECT_NAME:-\${STUB_PROJECT:-werft}}" '. + {name: $n}' "${config}" ;;
   *" port api 3000") [ -z "$STUB_API" ] || echo "$STUB_API" ;;
   *" ps --format "*) echo "$STUB_OURS" ;;
   *" ps -aq egress-proxy")
@@ -74,6 +83,7 @@ case "$*" in
   "ps -aq --filter label="*) echo "$STUB_WORKERS" ;;
   "network ls -q --filter label="*) echo "$STUB_NETWORKS" ;;
   "volume ls -q --filter label="*) echo "$STUB_VOLUMES" ;;
+  "volume ls -q --filter name="*) echo "$STUB_PG_VOLUME"; exit "\${STUB_VOLUME_LS_EXIT:-0}" ;;
   "context inspect --format "*) echo "$STUB_CONTEXT" ;;
   *" exec -T -e DEMO_ACCOUNTS=local api bun run apps/control-host/src/api/demo-data.ts") exit "\${STUB_DATA_EXIT:-0}" ;;
   *" exec -T -e DEMO_ACCOUNTS=local api "*) exit "\${STUB_SEED_EXIT:-0}" ;;
@@ -104,6 +114,7 @@ echo '{"status":"ready"}'
         COMPOSE_FILE: "",
         ANTHROPIC_API_KEY: "",
         AGENT_PLATFORM_DOTENV: join(dir, "no.env"),
+        AGENT_PLATFORM_STATE_DIR: join(dir, "state"),
         STUB_API: "",
         STUB_OURS: "",
         STUB_PROXY: "",
@@ -114,6 +125,7 @@ echo '{"status":"ready"}'
         STUB_WORKERS: "",
         STUB_NETWORKS: "",
         STUB_VOLUMES: "",
+        STUB_PG_VOLUME: "",
         LOCAL_DEMO_ACCOUNTS: "",
         ...env,
       },
@@ -141,9 +153,9 @@ echo '{"status":"ready"}'
 
   const deletions = (id: string) => [
     `${noMode} down -v --remove-orphans`,
-    `ps -aq --filter label=agent-platform.installation=${id}`,
-    `network ls -q --filter label=agent-platform.installation=${id}`,
-    `volume ls -q --filter label=agent-platform.installation=${id}`,
+    `ps -aq --filter label=werft.installation=${id}`,
+    `network ls -q --filter label=werft.installation=${id}`,
+    `volume ls -q --filter label=werft.installation=${id}`,
   ];
 
   test("parses as bash", () => {
@@ -159,7 +171,8 @@ echo '{"status":"ready"}'
     expect(result.exitCode).toBe(0);
     expect(await calls("docker-calls")).toEqual([
       `${noMode} ps -aq egress-proxy`,
-      'inspect --format {{index .Config.Labels "agent-platform.egress-proxy"}} proxy-id',
+      'inspect --format {{index .Config.Labels "werft.egress-proxy"}} proxy-id',
+      `${noMode} config --format json`,
       ...deletions("ap434local"),
     ]);
   });
@@ -173,10 +186,24 @@ echo '{"status":"ready"}'
       expect(await calls("docker-calls")).toEqual([
         `${noMode} ps -aq egress-proxy`,
         `${noMode} config --format json`,
+        `${noMode} config --format json`,
         ...deletions(id),
       ]);
     },
   );
+
+  test("down finds the workspace volumes by the scheduler's rendered volume label prefix, not the shell's, and the workers by the fixed one", async () => {
+    await writeFile(config, rendered("local", [], "other-ns"));
+    const result = await run(["down"]);
+    expect(result.exitCode).toBe(0);
+    expect(await calls("docker-calls")).toEqual([
+      `${noMode} ps -aq egress-proxy`,
+      `${noMode} config --format json`,
+      `${noMode} config --format json`,
+      ...deletions("local").slice(0, 3),
+      "volume ls -q --filter label=other-ns.installation=local",
+    ]);
+  });
 
   test("down --keep-volumes deletes the workers and their networks, and no volume", async () => {
     await writeFile(config, rendered("local"));
@@ -194,11 +221,11 @@ echo '{"status":"ready"}'
     expect(kept.stderr).not.toContain("checkpoint objects lost");
     expect(await calls("docker-calls")).toEqual([
       `${noMode} ps -aq egress-proxy`,
-      'inspect --format {{index .Config.Labels "agent-platform.egress-proxy"}} proxy-id',
+      'inspect --format {{index .Config.Labels "werft.egress-proxy"}} proxy-id',
       `${noMode} down --remove-orphans`,
-      "ps -aq --filter label=agent-platform.installation=ap434local",
+      "ps -aq --filter label=werft.installation=ap434local",
       "rm -f worker-1 worker-2",
-      "network ls -q --filter label=agent-platform.installation=ap434local",
+      "network ls -q --filter label=werft.installation=ap434local",
       "network rm net-1 net-2",
     ]);
 
@@ -523,6 +550,103 @@ echo "$VITE_API_TARGET $*" >> "${dir}/bun-calls"
     expect(await stat(given).catch(() => null)).toBeNull();
   });
 
+  describe("a project whose database volume exists but whose key file does not", () => {
+    const keyEnv = () => {
+      const state = join(dir, "lost-key-state");
+      return {
+        state,
+        env: {
+          AGENT_PLATFORM_STATE_DIR: state,
+          COMPOSE_PROJECT_NAME: "ap-lost",
+          PLATFORM_SECRET_KEY: "",
+          STUB_API: "127.0.0.1:43123",
+        },
+      };
+    };
+
+    test.each(["up", "dev", "reset"])(
+      "%s makes no key and starts nothing",
+      async (command) => {
+        await writeFile(config, rendered("local"));
+        const { state, env } = keyEnv();
+        const result = await run([command, "--fake-model"], {
+          ...env,
+          STUB_PG_VOLUME: "ap-lost_postgres-data",
+        });
+        expect(result.exitCode).toBe(1);
+        expect(result.stderr).toContain(
+          "the volume ap-lost_postgres-data exists",
+        );
+        expect(result.stderr).toContain("nothing was started");
+        expect(await stat(state).catch(() => null)).toBeNull();
+        // reset must stop before its down deletes the volume.
+        const docker = await calls("docker-calls");
+        expect(docker.at(-1)).toBe(
+          "volume ls -q --filter name=^ap-lost_postgres-data$",
+        );
+        expect(docker.filter((call) => / (up|down)\b/.test(call))).toEqual([]);
+      },
+    );
+
+    test("an existing key file or a given key goes on, and the default project is werft", async () => {
+      await writeFile(config, rendered("local"));
+      const { state, env } = keyEnv();
+      await mkdir(state, { recursive: true });
+      await writeFile(join(state, "ap-lost.secret-key"), `${"3".repeat(64)}\n`);
+      const withFile = await run(["up", "--fake-model"], {
+        ...env,
+        STUB_PG_VOLUME: "ap-lost_postgres-data",
+      });
+      expect(withFile.exitCode).toBe(0);
+
+      const given = await run(["up", "--fake-model"], {
+        ...env,
+        COMPOSE_PROJECT_NAME: "ap-other",
+        PLATFORM_SECRET_KEY: "4".repeat(64),
+        STUB_PG_VOLUME: "ap-other_postgres-data",
+      });
+      expect(given.exitCode).toBe(0);
+
+      const fresh = await run(["up", "--fake-model"], {
+        ...env,
+        COMPOSE_PROJECT_NAME: "",
+      });
+      expect(fresh.exitCode).toBe(0);
+      expect(await readFile(join(state, "werft.secret-key"), "utf8")).toMatch(
+        /^[0-9a-f]{64}\n$/,
+      );
+      expect(await calls("docker-calls")).toContain(
+        "volume ls -q --filter name=^werft_postgres-data$",
+      );
+    });
+
+    test("the project is the one compose renders, not the shell's variable", async () => {
+      await writeFile(config, rendered("local"));
+      const { state, env } = keyEnv();
+      const result = await run(["up", "--fake-model"], {
+        ...env,
+        COMPOSE_PROJECT_NAME: "",
+        STUB_PROJECT: "from-dotenv",
+        STUB_PG_VOLUME: "from-dotenv_postgres-data",
+      });
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain(join(state, "from-dotenv.secret-key"));
+      expect(await stat(state).catch(() => null)).toBeNull();
+    });
+
+    test("a volume listing that fails makes no key", async () => {
+      await writeFile(config, rendered("local"));
+      const { state, env } = keyEnv();
+      const result = await run(["up", "--fake-model"], {
+        ...env,
+        STUB_VOLUME_LS_EXIT: "1",
+      });
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("cannot check for the volume");
+      expect(await stat(state).catch(() => null)).toBeNull();
+    });
+  });
+
   test("up refuses a rendered port another listener holds, not one its stack does", async () => {
     const listener = Bun.listen({
       hostname: "127.0.0.1",
@@ -700,7 +824,7 @@ case "$*" in
   "ps -aq --filter label="*) echo "worker-1" ;;
   "network ls -q --filter label="*) echo "net-1" ;;
   "volume ls -q --filter label="*) echo "ws-1" ;;
-  "network ls --filter label=agent-platform.installation="*)
+  "network ls --filter label=werft.installation="*)
     echo "$STUB_LEFT_NETWORK"
     exit "\${STUB_LEFT_EXIT:-0}" ;;
 esac

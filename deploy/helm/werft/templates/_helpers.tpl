@@ -9,7 +9,7 @@
 {{/* Labels every resource carries; `component` names the workload. */}}
 {{- define "ap.labels" -}}
 {{ include "ap.selectorLabels" . }}
-app.kubernetes.io/part-of: agent-platform
+app.kubernetes.io/part-of: werft
 app.kubernetes.io/managed-by: {{ .root.Release.Service }}
 helm.sh/chart: {{ printf "%s-%s" .root.Chart.Name .root.Chart.Version }}
 {{- end -}}

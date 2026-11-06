@@ -33,7 +33,13 @@ QUEUE_DATABASE_URL=postgres://postgres:dev@127.0.0.1:5432/sessions \
   bun run --cwd packages/db bench:terminate
 ```
 
-실제 Docker daemon 대상 테스트(`DOCKER_BACKEND_TEST=1`)는 [execution.md § worker 네트워크](../operator/execution.md#worker-네트워크-주소-풀-slot-limit-회수)에 있다.
+실제 Docker daemon 대상 테스트는 `DOCKER_BACKEND_TEST=1`로 opt-in한다(`busybox:1.36`을 sleep으로 띄움). local-docker의 `test:docker`는 패키지의 `*.integration.test.ts` 전부를 돌리므로 파일을 더해도 스크립트를 고치지 않는다. egress suite는 backend가 띄운 worker 셋(설치 둘)으로 worker 사이 차단과 proxy 재부착·orphan 네트워크 회수를 보고, internal 네트워크·바깥 네트워크·upstream 두 개·host `openssl`로 만든 인증서를 쓰는 TLS upstream·그 인증서로 LocalStack 앞에 세운 TLS front(https S3 endpoint)·`oven/bun:1.3.14`로 띄운 proxy를 직접 만들어 컨테이너 안에서 `wget`·`nc`·`curlimages/curl`로 확인하며 인터넷을 쓰지 않는다(이미지 pull 제외). scheduler의 15 세션 → 컨테이너 ≤ 10 검증은 `QUEUE_DATABASE_URL`까지 있어야 실행된다.
+
+```bash
+DOCKER_BACKEND_TEST=1 bun run --cwd packages/adapters/execution/local-docker test:docker
+DOCKER_BACKEND_TEST=1 QUEUE_DATABASE_URL=postgres://postgres:dev@127.0.0.1:5432/sessions \
+  bun test apps/control-host/src/scheduler/main.integration.test.ts
+```
 
 ## 의존 서비스만 띄우기와 host에서 도는 API
 
@@ -75,12 +81,12 @@ verify 스택은 `up.sh infra/compose.dev.yml`로 띄운다. 이 스택에서 �
 
 ## e2e·gate·soak 도구 진입점
 
-`quickstart.sh`를 빼면 자기 compose project로 떠서 기본 스택(`agent-platform`)과 겹치지 않는다. `quickstart.sh`는 문서 그대로 기본 project와 기본 포트를 쓴다. 무거우므로 하나씩 돌린다. 각 스크립트의 머리 주석에 knob과 기록 위치가 있다.
+`quickstart.sh`를 빼면 자기 compose project로 떠서 기본 스택(`werft`)과 겹치지 않는다. `quickstart.sh`는 문서 그대로 기본 project와 기본 포트를 쓴다. 무거우므로 하나씩 돌린다. 각 스크립트의 머리 주석에 knob과 기록 위치가 있다.
 
 | 명령 | 확인하는 것 | CI | 더 읽을 곳 |
 |---|---|---|---|
 | `tests/e2e/run.sh` | fake 모델(`infra/compose.fake-model.yml`)로 세션 경로 전체(생성 → 이벤트 → 권한 응답 → 후속 메시지 → interrupt → pause → resume(복원) → terminate → 복구 결정 → resume)와 pause 경계 케이스 | `e2e` job | [quickstart.md § 4](../quickstart.md#4-명령-하나로-자동-검증) |
-| `tests/e2e/quickstart.sh` | `docs/quickstart.md`의 `bash` 블록을 그대로 실행하고 `jq -e` 줄을 단언한다. **기본 project(`agent-platform`)와 그 데이터를 지운다** | `quickstart` job | [quickstart.md § 4](../quickstart.md#4-명령-하나로-자동-검증) |
+| `tests/e2e/quickstart.sh` | `docs/quickstart.md`의 `bash` 블록을 그대로 실행하고 `jq -e` 줄을 단언한다. **기본 project(`werft`)와 그 데이터를 지운다** | `quickstart` job | [quickstart.md § 4](../quickstart.md#4-명령-하나로-자동-검증) |
 | `tests/e2e/run.sh --real-model` | 실제 Claude로 세션 경로 한 번. 실행자의 `ANTHROPIC_API_KEY`가 필요하고 유료다 | 없음 | [real-claude.md](../real-claude.md) |
 | `tests/e2e/run.sh --local-model` | 같은 경로를 이 컴퓨터의 Ollama 모델로, 직접과 LiteLLM 경유 두 번. Ollama가 필요하고 무료다 | 없음 | [local-model.md](local-model.md) |
 | `tests/e2e/restore-resume.sh` | 세션 두 turn → pause → 백업 → 원본 삭제 → 새 project에 복원·검증 → resume해서 같은 Claude 세션으로 이어지는지 | 없음 | [backup-restore.md § 실스택에서 복원 뒤 재개 확인](../operator/backup-restore.md#실스택에서-복원-뒤-재개-확인) |
@@ -101,16 +107,16 @@ deploy/preview/preview.sh down 123   # namespace, 이미지 태그, checkout을 
 deploy/preview/preview.sh reap       # PR이 닫혔거나 머지됐거나 TTL이 지난 미리보기를 down한다
 ```
 
-- 설치는 PR head의 트리(Dockerfile·chart·대역 서비스)를 이 checkout의 `deploy/kind/up.sh`(orbstack 모드)로 한다. up.sh를 PR checkout에 복사해 돌리므로 orbstack 모드가 없는 오래된 head도 뜬다. chart 이름이 `agent-platform`인 head도 뜬다. 그때 release는 `werft`, 리소스 이름은 `werft-agent-platform-…`이다. chart 이름을 바꾸기 전에 띄운 미리보기는 `up`이 거부하므로 `down`한 뒤 다시 `up`한다. 값은 `deploy/preview/values.yaml`을 얹는다(api·egress proxy를 1개로, worker 메모리를 fake 모델에 맞게 낮춘다).
+- 설치는 PR head의 트리(Dockerfile·chart·대역 서비스)를 이 checkout의 `deploy/kind/up.sh`(orbstack 모드)로 한다. up.sh를 PR checkout에 복사해 돌리므로 orbstack 모드가 없는 오래된 head도 뜬다. 값은 `deploy/preview/values.yaml`을 얹는다(api·egress proxy를 1개로, worker 메모리를 fake 모델에 맞게 낮춘다).
 - 진입점은 미리보기 전체가 같이 쓰는 Traefik 하나다. 없으면 `up`이 namespace `preview-ingress`에 chart 42.1.3으로 한 번 설치한다(IngressClass `preview`, LoadBalancer 18180 http·18543 https). Traefik CRD는 설치하지 않는다. OrbStack은 LoadBalancer 포트를 Mac의 `127.0.0.1`에만 연다. `k8s.expose_services`가 켜져 있으면 `up`이 멈춘다.
 - 각 namespace에 Ingress `preview-pr-<번호>`가 Host `pr-<번호>.preview.94soon.dev`를 api로 보낸다. Ingress 이름이 namespace마다 같으면 Traefik router가 충돌해 두 번째 host가 404가 된다. 바깥 DNS·인증서가 없을 때는 `curl --resolve pr-123.preview.94soon.dev:18543:127.0.0.1 -k https://pr-123.preview.94soon.dev:18543/readyz`로 확인한다.
 - 새 미리보기를 띄우기 전에 노드 allocatable 메모리에서 Pod requests 합을 뺀 값이 `PREVIEW_MEMORY_MI`(기본 2560: 미리보기 Deployment requests 1792Mi와 worker 하나 768Mi)보다 작으면 이유를 적고 멈춘다. `MAX_MEMORY_MI`는 allocatable 대신 셀 값이다. 이미 있는 미리보기를 다시 `up`할 때는 세지 않는다.
-- namespace에는 label `agent-platform.dev/preview=true`, annotation `agent-platform.dev/preview-head`(설치한 head)·`agent-platform.dev/preview-up-at`(마지막 `up` 시작 시각, UTC)이 붙는다. `down`은 이 label이 없는 namespace를 지우지 않는다.
-- checkout과 up.sh 상태는 `PREVIEW_HOME`(기본 `~/.cache/agent-platform/preview`) 아래 `pr-<번호>`에, PR head는 ref `refs/preview/pr-<번호>`에 둔다. 둘 다 `down`이 지운다.
+- namespace에는 label `werft.dev/preview=true`, annotation `werft.dev/preview-head`(설치한 head)·`werft.dev/preview-up-at`(마지막 `up` 시작 시각, UTC)이 붙는다. `down`은 이 label이 없는 namespace를 지우지 않는다.
+- checkout과 up.sh 상태는 `PREVIEW_HOME`(기본 `~/.cache/werft/preview`) 아래 `pr-<번호>`에, PR head는 ref `refs/preview/pr-<번호>`에 둔다. 둘 다 `down`이 지운다.
 
 ### 미리보기 자동 정리
 
-`reap`은 label `agent-platform.dev/preview=true`가 붙고 이름이 `pr-<번호>`인 namespace만 본다. 하나씩 다음 순서로 판단하고, 지울 때는 `down <번호>`를 부른다.
+`reap`은 label `werft.dev/preview=true`가 붙고 이름이 `pr-<번호>`인 namespace만 본다. 하나씩 다음 순서로 판단하고, 지울 때는 `down <번호>`를 부른다.
 
 1. `preview-up-at`이 `PREVIEW_TTL_HOURS`(기본 24)시간보다 오래됐으면 PR 상태와 상관없이 지운다. annotation이 없거나 읽을 수 없으면 TTL은 건너뛴다.
 2. 이 checkout에서 `gh pr view <번호> --json state`로 PR 상태를 읽어 `CLOSED`·`MERGED`면 지운다. `OPEN`이면 남긴다.
