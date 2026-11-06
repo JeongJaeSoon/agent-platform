@@ -31,10 +31,12 @@ import {
   revokeExecutionAtomic,
 } from "./execution-revocation.ts";
 import { createPostgresTurnInterrupts } from "./interrupt-control.ts";
+import { createPostgresGitHubMcpStore } from "./mcp-egress.ts";
 import { expireParkedGroups } from "./parked-group.ts";
 import { pauseBlocker } from "./pause-control.ts";
 import { createPostgresWorkerPendingStore } from "./pending-control.ts";
 import {
+  cancelParkedRequests,
   createPostgresPendingRequests,
   readInputWaits,
 } from "./pending-requests.ts";
@@ -42,6 +44,7 @@ import {
   createPostgresSessionReader,
   createPostgresSessionUnitOfWork,
 } from "./postgres-unit-of-work.ts";
+import { createPostgresPushIntents } from "./push-intents.ts";
 import * as schema from "./schema.ts";
 import {
   attempts,
@@ -49,6 +52,7 @@ import {
   events,
   pendingRequests,
   permissionGrants,
+  pushIntents,
   queueMessages,
   receipts,
   sessions,
@@ -1847,6 +1851,245 @@ integration("parked pending requests on PostgreSQL", () => {
     });
     await executionGone(next.worker);
     expect((await sessionRow(sessionId)).admissionState).toBe("active");
+  });
+
+  // A push the turn asked for with waits_for turn_end, still deferred.
+  async function deferPush(
+    owner: ReturnType<typeof testCaller>,
+    sessionId: string,
+    worker: Worker,
+  ) {
+    const rowId = await createPostgresGitHubMcpStore(db).runningTurn({
+      sessionId,
+      attemptId: worker.scope.attempt_id,
+    });
+    if (rowId === null) throw new Error("no running turn");
+    const created = await createPostgresPushIntents(db).createDeferred({
+      ownerId: owner.ownerId,
+      sessionId,
+      turnId: rowId,
+      attemptId: worker.scope.attempt_id,
+      repositoryId: "sample-app",
+      targetBranch: `agent/${sessionId}`,
+      actor: {
+        principal: { kind: "api_key", id: "key-writer" },
+        actor_user_id: null,
+        agent_id: null,
+      },
+      pushClass: "push.primary",
+      policySource: "agent",
+    });
+    expect(created.outcome).toBe("created");
+    return rowId;
+  }
+
+  async function intentOf(sessionId: string) {
+    const [row] = await db
+      .select()
+      .from(pushIntents)
+      .where(eq(pushIntents.sessionId, sessionId));
+    if (!row) throw new Error("no intent");
+    return row;
+  }
+
+  test("a push the parked turn deferred is carried to the turn that resumes it and pinned at its end", async () => {
+    const { owner, sessionId, worker } = await runningSession();
+    const requestId = await register(worker);
+    const parkedRowId = await deferPush(owner, sessionId, worker);
+    await finalizeParked(worker, "input_wait_parked");
+    expect(await intentOf(sessionId)).toMatchObject({
+      status: "deferred",
+      turnId: parkedRowId,
+      refusalCode: null,
+    });
+    await executionGone(worker);
+    expect(await createPostgresPushIntents(db).settleStale()).toBe(0);
+
+    await answer(owner, sessionId, requestId);
+    const [carried] = await continuations(parkedRowId);
+    expect(await intentOf(sessionId)).toMatchObject({
+      status: "deferred",
+      turnId: carried?.id,
+    });
+
+    const next = await claim(sessionId);
+    await completed(next.worker);
+    expect(await intentOf(sessionId)).toMatchObject({
+      status: "pinned",
+      pinnedRevision: Number(next.worker.scope.turn_id) - 1,
+      turnId: carried?.id,
+    });
+  });
+
+  test("a push survives a park that did not go through finalize, and a cancelled group still ends it", async () => {
+    const { owner, sessionId, worker } = await runningSession();
+    const requestId = await register(worker);
+    await deferPush(owner, sessionId, worker);
+    await parkRows(worker, [requestId]);
+    await executionGone(worker);
+    const intents = createPostgresPushIntents(db);
+    expect(await intents.settleStale()).toBe(0);
+    expect((await intentOf(sessionId)).status).toBe("deferred");
+
+    await cancelParkedRequests(db, { sessionId }, new Date());
+    expect(await intents.settleStale()).toBe(1);
+    expect(await intentOf(sessionId)).toMatchObject({
+      status: "cancelled",
+      refusalCode: "turn_finalized_without_pin",
+    });
+  });
+
+  test("a push is cancelled as superseded when another turn ran between the park and its resume", async () => {
+    const { owner, sessionId, worker } = await runningSession();
+    const requestId = await register(worker);
+    await deferPush(owner, sessionId, worker);
+    await parkRows(worker, [requestId]);
+    await executionGone(worker);
+    expect((await followUp(owner, sessionId)).outcome).toBe("accepted");
+
+    await answer(owner, sessionId, requestId);
+    expect(await intentOf(sessionId)).toMatchObject({
+      status: "cancelled",
+      refusalCode: "superseded_by_turn",
+    });
+  });
+
+  test("a settleStale running alongside the resume never cancels a carried push", async () => {
+    // Both start at once on separate connections; which statement wins the
+    // session lock first is up to Postgres, and both outcomes must hold.
+    for (let round = 0; round < 3; round += 1) {
+      const { owner, sessionId, worker } = await runningSession();
+      const requestId = await register(worker);
+      const parkedRowId = await deferPush(owner, sessionId, worker);
+      await parkRows(worker, [requestId]);
+      await executionGone(worker);
+      await Promise.all([
+        createPostgresPushIntents(db).settleStale(),
+        answer(owner, sessionId, requestId),
+      ]);
+      const [carried] = await continuations(parkedRowId);
+      expect(await intentOf(sessionId)).toMatchObject({
+        status: "deferred",
+        turnId: carried?.id,
+      });
+    }
+  });
+
+  test("a group whose requests all expired keeps its push until a person resumes it, then pins it", async () => {
+    const { owner, sessionId, worker } = await runningSession();
+    const requestId = await register(worker);
+    const parkedRowId = await deferPush(owner, sessionId, worker);
+    await parkRows(worker, [requestId]);
+    await executionGone(worker);
+    await db
+      .update(sessions)
+      .set({
+        admissionState: "paused",
+        status: "idle",
+        pauseReason: "awaiting_input",
+      })
+      .where(eq(sessions.id, sessionId));
+    await db
+      .update(pendingRequests)
+      .set({ expiresAt: sql`now() - interval '1 second'` })
+      .where(eq(pendingRequests.requestId, requestId));
+    await expireParkedGroups(db, { limit: 1_000, dryRun: false });
+    expect((await request(requestId)).settledOutcome).toBe("expired");
+
+    // The group is still there for a person to resume.
+    expect(await createPostgresPushIntents(db).settleStale()).toBe(0);
+    expect((await intentOf(sessionId)).status).toBe("deferred");
+
+    expect((await resumeBy(owner, sessionId)).outcome).toBe("accepted");
+    const [carried] = await continuations(parkedRowId);
+    expect(await intentOf(sessionId)).toMatchObject({
+      status: "deferred",
+      turnId: carried?.id,
+    });
+    const next = await claim(sessionId);
+    await completed(next.worker);
+    expect((await intentOf(sessionId)).status).toBe("pinned");
+  });
+
+  test("a revocation that cancels the carrying turn gives the push back to the parked turn, and a resume carries it again", async () => {
+    const { owner, sessionId, worker } = await runningSession();
+    const requestId = await register(worker);
+    const parkedRowId = await deferPush(owner, sessionId, worker);
+    await parkRows(worker, [requestId]);
+    await executionGone(worker);
+    await answer(owner, sessionId, requestId);
+    const [first] = await continuations(parkedRowId);
+    expect((await intentOf(sessionId)).turnId === first?.id).toBe(true);
+
+    const now = new Date();
+    await revokeExecutionAtomic(db, {
+      sessionId,
+      reason: "grant revoked",
+      now,
+    });
+    await restoreExecutionAtomic(db, {
+      sessionId,
+      reason: "grant reissued",
+      now,
+    });
+    expect(await continuations(parkedRowId)).toEqual([]);
+    expect(await intentOf(sessionId)).toMatchObject({
+      status: "deferred",
+      turnId: parkedRowId,
+    });
+    expect(await createPostgresPushIntents(db).settleStale()).toBe(0);
+
+    expect((await resumeBy(owner, sessionId)).outcome).toBe("accepted");
+    const [second] = await continuations(parkedRowId);
+    expect(second?.id).not.toBe(first?.id);
+    expect(await intentOf(sessionId)).toMatchObject({
+      status: "deferred",
+      turnId: second?.id,
+    });
+    const next = await claim(sessionId);
+    // The first carrying turn never ran, so the pointer still stands at the
+    // park's revision 0 and the turn that carries on saves revision 1.
+    await gateway.finalize(next.worker.principal, {
+      ...next.worker.scope,
+      finalize_key: `${next.worker.scope.attempt_id}:${next.worker.scope.turn_id}`,
+      final_source_sequence: 0,
+      terminal: {
+        status: "completed",
+        reason: null,
+        result: null,
+        usage: null,
+      },
+      checkpoint: {
+        revision: 1,
+        manifest_ref: `manifests/${sessionId}/1`,
+        manifest_sha256: "c".repeat(64),
+      },
+    });
+    expect(await intentOf(sessionId)).toMatchObject({
+      status: "pinned",
+      pinnedRevision: 1,
+    });
+  });
+
+  test("a carrying turn failed before it started (launch given up) ends the push with a reason, as its group is carried on and cannot reopen", async () => {
+    const { owner, sessionId, worker } = await runningSession();
+    const requestId = await register(worker);
+    const parkedRowId = await deferPush(owner, sessionId, worker);
+    await parkRows(worker, [requestId]);
+    await executionGone(worker);
+    await answer(owner, sessionId, requestId);
+    const [carried] = await continuations(parkedRowId);
+    // What quarantineLaunch does to the queued turns of a session.
+    await db
+      .update(turns)
+      .set({ status: "failed", endedAt: sql`now()`, terminalReason: "launch" })
+      .where(eq(turns.id, carried?.id ?? -1));
+
+    expect(await createPostgresPushIntents(db).settleStale()).toBe(1);
+    expect(await intentOf(sessionId)).toMatchObject({
+      status: "cancelled",
+      refusalCode: "turn_finalized_without_pin",
+    });
   });
 
   // Turn 1 drain-parked and left open, then turn 2 parked behind it by the

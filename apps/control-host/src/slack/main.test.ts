@@ -7,6 +7,7 @@ import {
   installationProfileSnapshot,
   parseSeedDocument,
   SecretKey,
+  usesConsoleApp,
 } from "@werft-ai/platform";
 import {
   ALLOW_UNATTENDED_SETTING,
@@ -15,6 +16,7 @@ import {
 } from "../api/catalog-config.ts";
 import { settingsDocument } from "../test-support/settings.ts";
 import {
+  slackRepositoryViews,
   slackRoleSettings,
   slackRoleStartup,
   slackSessionHandler,
@@ -186,5 +188,32 @@ describe("slack role startup", () => {
       leaseMs: 60_000,
       passBudgetMs: 30_000,
     });
+  });
+});
+
+describe("slackRepositoryViews", () => {
+  test("a console App repository keeps its github_app mark without credentials", () => {
+    const views = slackRepositoryViews(
+      [
+        {
+          id: "web",
+          github_repository_id: null,
+          owner: "acme",
+          name: "web",
+          url: "https://github.com/acme/web.git",
+          branch: "main",
+          profiles: null,
+          source: "console",
+          version: 1,
+          created_at: "2026-11-01T00:00:00.000Z",
+          updated_at: "2026-11-01T00:00:00.000Z",
+        },
+      ],
+      {},
+    );
+    const web = views.web;
+    if (web === undefined) throw new Error("web missing");
+    expect("auth" in web).toBe(false);
+    expect(usesConsoleApp(web)).toBe(true);
   });
 });
