@@ -16,6 +16,7 @@ import {
   isNull,
   lt,
   lte,
+  ne,
   notInArray,
   or,
   sql,
@@ -408,6 +409,26 @@ export function createPostgresCheckpointStore(
         versionsHeld: row.versionsHeld,
         turnId: row.turnSequence === null ? null : String(row.turnSequence),
       }));
+    },
+
+    async listPinnedCommits(sessionId: string, limit: number) {
+      if (limit <= 0) return [];
+      const rows = await db
+        .select({
+          gitCommit: pushRequests.gitCommit,
+          newest: sql<Date>`max(${pushRequests.createdAt})`,
+        })
+        .from(pushRequests)
+        .where(
+          and(
+            eq(pushRequests.sessionId, sessionId),
+            ne(pushRequests.state, "rejected"),
+          ),
+        )
+        .groupBy(pushRequests.gitCommit)
+        .orderBy(desc(sql`max(${pushRequests.createdAt})`))
+        .limit(limit);
+      return rows.map((row) => row.gitCommit);
     },
   };
 }

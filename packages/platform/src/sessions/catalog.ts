@@ -1,14 +1,17 @@
 import { createHash, createPrivateKey } from "node:crypto";
 import { isIP } from "node:net";
 import {
+  type ActionClass,
   type AgentGitHubSettingsRow,
   type AgentRelease,
   type InstallationProfileState as ContractInstallationProfileState,
   canonicalJson,
   credentialRefSchema,
   GITHUB_MCP_SERVER,
+  GITHUB_MCP_TOOL_CLASSES,
   type GitHubAppRepositories,
   type GitHubPolicySource,
+  listedGitHubMcpTools,
   MCP_TOOL_PREFIX,
   mcpServerIdSchema,
   narrowOnlyPolicy,
@@ -745,7 +748,34 @@ export type ClaimedMcpServer = {
   endpoint: string;
   binding: string;
   tools: string[];
+  /** Set on the built-in server of a claim whose worker announced `platform_tool_trust`. */
+  trusted?: string[];
 };
+
+/**
+ * The tools of the built-in server the server judges itself, which a worker
+ * lets past the engine's permission stage: the classes whose every write the
+ * server decides again (push approval, the release's exposure, the grant).
+ * Reviews and workflows stay with the engine.
+ */
+export function trustedGitHubTools(tools: readonly string[]): string[] {
+  const prefix = `${MCP_TOOL_PREFIX}${GITHUB_MCP_SERVER}__`;
+  return listedGitHubMcpTools(
+    tools
+      .filter((tool) => tool.startsWith(prefix))
+      .map((tool) => tool.slice(prefix.length)),
+  )
+    .filter((name) =>
+      TRUSTED_ACTION_CLASSES.includes(GITHUB_MCP_TOOL_CLASSES[name]),
+    )
+    .map((name) => `${prefix}${name}`);
+}
+
+const TRUSTED_ACTION_CLASSES: readonly ActionClass[] = [
+  "push",
+  "pull_request.write",
+  "repository.read",
+];
 
 /**
  * The runtime config a claim hands over, with the session's MCP servers:
@@ -766,6 +796,9 @@ export function runtimeConfigWithMcp(
       endpoint: server.endpoint,
       binding: server.binding,
       access: { kind: "egress_token", token },
+      ...(server.trusted === undefined || server.trusted.length === 0
+        ? {}
+        : { platform: true as const, trusted: server.trusted }),
     })),
   };
 }
@@ -990,7 +1023,7 @@ export function workspaceProfileRefusal(
   profileId: string,
   options: { retiredAllowed?: boolean } = {},
 ): {
-  state: WorkspaceProfileState | "blocked" | "unknown";
+  state: WorkspaceProfileState | "blocked" | "unknown" | "connection_missing";
   message: string;
 } | null {
   if (!profileId.startsWith(WORKSPACE_PROFILE_PREFIX)) {
@@ -1003,6 +1036,14 @@ export function workspaceProfileRefusal(
       return {
         state,
         message: `Profile ${profileId} is blocked by the operator`,
+      };
+    }
+    // Without a usable key the connection is left out of the catalog; say so
+    // instead of letting the start read as an unknown profile.
+    if (state === "connection_missing") {
+      return {
+        state,
+        message: `Profile ${profileId} cannot run: its model connection has no usable key. Add the key under Settings > Workspace settings > Model connections.`,
       };
     }
     return !options.retiredAllowed && state === "retired"

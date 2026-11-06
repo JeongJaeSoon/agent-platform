@@ -84,6 +84,13 @@ export type ClaudeRuntimeConfig = DriverConfig & {
   identities?: ComponentIdentities;
   mcpServers?: Record<string, unknown>;
   permissionMode?: PermissionMode;
+  /**
+   * `mcp__<server>__<tool>` names of a platform server's tools the server
+   * judges itself. The run lets them past the engine's permission stage, after
+   * its allowlist check and the checkpoint admission. Not part of the
+   * checkpoint fingerprint: whether the engine asks changes no tool surface.
+   */
+  trustedTools?: readonly string[];
   plugins?: RuntimePlugin[];
   profile: RuntimeProfile;
   /**

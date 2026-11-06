@@ -156,6 +156,36 @@ export const PULL_REQUEST_BODY_SOURCE_KINDS = [
   "agent",
   "platform",
 ] as const;
+/**
+ * Why a repository's template was passed over for the platform's default.
+ * `unbalanced_comment` also covers markup the platform cannot put text around
+ * safely, such as an HTML tag split over lines.
+ */
+export const PULL_REQUEST_TEMPLATE_SKIP_VALUES = [
+  "too_large",
+  "not_file",
+  "not_utf8",
+  "unbalanced_comment",
+  "multiple",
+  "read_failed",
+] as const;
+
+/**
+ * Which template a rendering used, for the receipt: the default branch's
+ * commit the repository was read at (null when that read failed), and the
+ * path and blob when one was used or the reason it was skipped. Never the
+ * template's text.
+ */
+export const pullRequestTemplateRecordSchema = z.object({
+  commit: z.string().nullable(),
+  path: z.string().optional(),
+  blob_sha: z.string().optional(),
+  skipped: z.enum(PULL_REQUEST_TEMPLATE_SKIP_VALUES).optional(),
+});
+export type PullRequestTemplateRecord = z.infer<
+  typeof pullRequestTemplateRecordSchema
+>;
+
 export const pullRequestBodySourceSchema = z.object({
   kind: z.enum(PULL_REQUEST_BODY_SOURCE_KINDS),
   path: z.string().optional(),
@@ -294,6 +324,8 @@ export const pullRequestReceiptResultSchema = z.object({
   // this call changed it.
   state: pullRequestStateSchema.nullable().optional(),
   changed: z.boolean().nullable().optional(),
+  // An open or update receipt whose body came from structured fields.
+  template: pullRequestTemplateRecordSchema.optional(),
 });
 
 export type ScheduledPullRequestResponse = z.infer<

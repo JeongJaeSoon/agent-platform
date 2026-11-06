@@ -6,7 +6,7 @@ exports[`tools/list every tool has a description of its fields and an outputSche
     "_meta": {
       "class": "push",
     },
-    "description": "Request a push to branch agent/<session-id>, or agent/<session-id>-<branch> when \`branch\` is given. \`repository_id\` names an attached repository; omitted, the session's own. Inside a running turn the push is of the state this turn ends with, and the answer is \`deferred\` with \`push_intent_id\`; the platform makes the push request when the turn ends. Otherwise the last checkpoint is pushed and the push request is returned, which waits for a person when the release requires approval, or \`deferred\` when no checkpoint exists yet. \`source_ref\` is not supported yet.",
+    "description": "Request a push to branch agent/<session-id>, or agent/<session-id>-<branch> when \`branch\` is given. \`repository_id\` names an attached repository; omitted, the session's own. With the installation's agent action flows on, a call inside a running turn pushes the state this turn ends with, and the answer is \`deferred\` with \`push_intent_id\` and \`waits_for: turn_end\`; the platform makes the push request when the turn ends. Otherwise (the flows off, or no running turn) the last checkpoint is pushed and the push request is returned, which waits for a person when the release requires approval, or \`deferred\` when no checkpoint exists yet. \`source_ref\` is not supported yet. \`pull_request\` is not accepted yet: a call that carries it is refused with \`pull_request_needs_tool_call\` and nothing is created; open the pull request with \`open_pull_request\` instead.",
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,

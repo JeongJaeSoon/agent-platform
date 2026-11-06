@@ -46,11 +46,13 @@ import type {
   CheckpointCodec,
   CheckpointManifest,
   CheckpointObjectStore,
+  CheckpointOutput,
   CompatibilityMismatch,
   ObjectRef,
   RuntimeFingerprint,
   TranscriptRevision,
 } from "@werft-ai/runtime-core";
+import { storedOutputs } from "@werft-ai/runtime-core";
 
 /** One `checkpoints` row, as far as its objects are concerned. */
 export type CheckpointRow = {
@@ -512,7 +514,71 @@ export function refsOf(manifest: CheckpointManifest): ObjectRef[] {
     ...(manifest.workspace.baseBundles ?? []),
     manifest.workspace.bundle,
     ...manifest.workspace.untracked,
+    ...storedOutputs(manifest.outputs),
   ];
+}
+
+type PlannedObjects = {
+  readonly artifacts: readonly { readonly objects: readonly ObjectRef[] }[];
+  readonly manifestRef: string;
+  readonly manifestVersion?: string | undefined;
+};
+
+type PinnedObject = Omit<ObjectRef, "version"> & {
+  readonly version?: string | undefined;
+};
+
+/**
+ * What verify-restore reads back for one ready restore plan: the manifest, the
+ * plan's artifacts, and the stored outputs. A restore plan carries no outputs
+ * (they are not restored into the workspace), but the manifest pins them and
+ * the sessions API serves them by that version.
+ */
+export function pinnedObjectsOf(
+  plan: PlannedObjects,
+  manifest: CheckpointManifest,
+  manifestBytes: Uint8Array,
+): PinnedObject[] {
+  return [
+    {
+      bytes: manifestBytes.byteLength,
+      key: plan.manifestRef,
+      sha256: sha256Hex(manifestBytes),
+      version: plan.manifestVersion,
+    },
+    ...plan.artifacts.flatMap((artifact) => artifact.objects),
+    ...storedOutputs(manifest.outputs),
+  ];
+}
+
+/** One line per object that is unversioned, unreadable, altered or not held. */
+export async function planProblems(
+  objects: CheckpointObjectStore,
+  pinned: readonly PinnedObject[],
+): Promise<string[]> {
+  const problems: string[] = [];
+  for (const object of pinned) {
+    if (object.version === undefined) {
+      problems.push(`${object.key} has no version in the plan`);
+      continue;
+    }
+    const bytes = await objects.get(object.key, object.version);
+    if (
+      bytes === undefined ||
+      bytes.byteLength !== object.bytes ||
+      sha256Hex(bytes) !== object.sha256
+    ) {
+      problems.push(
+        `${object.key} version ${object.version} does not read back`,
+      );
+      continue;
+    }
+    const head = await objects.head(object.key, object.version);
+    if (head?.held !== true) {
+      problems.push(`${object.key} version ${object.version} is not held`);
+    }
+  }
+  return problems;
 }
 
 /**
@@ -849,6 +915,15 @@ export async function planRepin(input: {
       }
       const repinned: CheckpointManifest = {
         ...manifest,
+        ...(manifest.outputs === undefined
+          ? {}
+          : {
+              outputs: await sequential(
+                manifest.outputs,
+                async (output): Promise<CheckpointOutput> =>
+                  "omitted" in output ? output : pin(output),
+              ),
+            }),
         transcripts: {
           root: await pinRevision(manifest.transcripts.root),
           subagents,

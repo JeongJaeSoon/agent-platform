@@ -54,4 +54,20 @@ ALTER TABLE "push_requests" ADD CONSTRAINT "push_requests_flow_check" CHECK ("pu
 ALTER TABLE "push_requests" VALIDATE CONSTRAINT "push_requests_flow_check";--> statement-breakpoint
 ALTER TABLE "push_requests" DROP CONSTRAINT IF EXISTS "push_requests_pr_state_check";--> statement-breakpoint
 ALTER TABLE "push_requests" ADD CONSTRAINT "push_requests_pr_state_check" CHECK ("push_requests"."pr_state" IS NULL OR "push_requests"."pr_state" IN ('due','opening','opened','closed_unrecorded','uncertain','failed','cancelled')) NOT VALID;--> statement-breakpoint
-ALTER TABLE "push_requests" VALIDATE CONSTRAINT "push_requests_pr_state_check";
+ALTER TABLE "push_requests" VALIDATE CONSTRAINT "push_requests_pr_state_check";--> statement-breakpoint
+-- A push intent or pull request stage change marks the session's Slack thread
+-- status due at commit, like a push request's state does (0226).
+DROP TRIGGER IF EXISTS "push_intents_slack_thread_status_insert" ON "push_intents";--> statement-breakpoint
+CREATE CONSTRAINT TRIGGER "push_intents_slack_thread_status_insert" AFTER INSERT ON "push_intents"
+  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW
+  EXECUTE FUNCTION "slack_thread_status_of_row"();--> statement-breakpoint
+DROP TRIGGER IF EXISTS "push_intents_slack_thread_status_update" ON "push_intents";--> statement-breakpoint
+CREATE CONSTRAINT TRIGGER "push_intents_slack_thread_status_update" AFTER UPDATE ON "push_intents"
+  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW
+  WHEN (OLD."status" IS DISTINCT FROM NEW."status")
+  EXECUTE FUNCTION "slack_thread_status_of_row"();--> statement-breakpoint
+DROP TRIGGER IF EXISTS "push_requests_slack_thread_status_pr_state" ON "push_requests";--> statement-breakpoint
+CREATE CONSTRAINT TRIGGER "push_requests_slack_thread_status_pr_state" AFTER UPDATE ON "push_requests"
+  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW
+  WHEN (OLD."pr_state" IS DISTINCT FROM NEW."pr_state")
+  EXECUTE FUNCTION "slack_thread_status_of_row"();

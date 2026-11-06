@@ -22,7 +22,7 @@ API로 세션을 만들고 쓰는 사람.
 | --- | --- |
 | [단일 서버 배포](operator/server-deployment.md) | compose로 서버 한 대에 배포 |
 | [Kubernetes 설치](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/kubernetes-deployment/) | Helm chart로 설치 |
-| [실행 기반과 worker 격리](operator/execution.md) | reconciler·scheduler, 세션 실패 처리, workspace 상한과 회수, worker 네트워크 |
+| [실행 기반과 worker 격리](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/execution/) | reconciler·scheduler, 세션 실패 처리, workspace 상한과 회수, worker 네트워크 |
 | [Kubernetes 실행 backend](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/kubernetes-backend/) | worker를 Pod로 띄울 때의 동작, chart가 넣는 env, probe |
 | [API 서버](operator/api-server.md) | 운영자 카탈로그, 자격 증명, checkpoint 저장소, 인증과 권한 |
 | [이미지와 공급망](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/images-and-supply-chain/) | 이미지와 Compose `apps` profile, 업그레이드·롤백, 취약점 정책 |
@@ -45,6 +45,7 @@ API로 세션을 만들고 쓰는 사람.
 | [개발 환경과 검증](contributing/development.md) | 로컬 개발 환경, 테스트·스크립트 배치 |
 | [구성요소와 경계](contributing/architecture.md) | 저장소 구성, 앱과 패키지의 경계 |
 | [CI에서 실행되는 것](contributing/ci.md) | CI job과 그 조건 |
+| [콘솔 데모](contributing/console-demo.md) | 서버 없는 읽기 전용 데모의 구성, 다시 녹화하고 공개 전 검사하는 절차 |
 | [로컬 모델로 확인하기](contributing/local-model.md) | Ollama·LiteLLM으로 확인 |
 | [결정: transcript 저장](contributing/decisions/session-store.md) | SessionStore를 고른 이유, 실패 계약, 그 계약을 지키는 테스트 |
 | [결정: Agent SDK 버전](contributing/decisions/agent-sdk.md) | SDK·LiteLLM 버전 고정 방식, 운영 제약, 호환 harness가 지키는 계약과 실행 방법 |

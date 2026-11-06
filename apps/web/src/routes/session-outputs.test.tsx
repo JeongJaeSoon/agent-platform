@@ -738,6 +738,24 @@ describe("the session's GitHub work", () => {
     expect(within(area).getByText("PR 취소됨")).toBeDefined();
   });
 
+  test("an older server's answer, with no intents and no pr_state, still lists the request without a stage", async () => {
+    const {
+      flow: _flow,
+      origin: _origin,
+      pr_state: _stage,
+      ...older
+    } = request;
+    renderAt(
+      `/sessions/${SESSION_ID}`,
+      working({ items: [older] } as unknown as ListPushRequestsResponse),
+    );
+    await openOutputs();
+    const area = await screen.findByRole("region", { name: "GitHub 작업" });
+    expect(within(area).getAllByRole("listitem")).toHaveLength(1);
+    expect(within(area).getByText("push됨")).toBeDefined();
+    expect(within(area).queryByText("PR 여는 중")).toBeNull();
+  });
+
   test("nothing is shown for a session with no push work, and a session without a repository is not asked", async () => {
     const { api } = renderAt(`/sessions/${SESSION_ID}`, {
       ...working({ items: [], intents: [] }),

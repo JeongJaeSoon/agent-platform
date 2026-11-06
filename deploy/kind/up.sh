@@ -28,7 +28,7 @@
 # instead of kind: it shares the Docker engine, so the images are built
 # locally and referenced by their local digest, with no registry container.
 # `down` then deletes only NAMESPACE; the cluster stays as OrbStack keeps it.
-# STATE_DIR defaults to ~/.cache/agent-platform/orbstack/<namespace>.
+# STATE_DIR defaults to ~/.cache/werft/orbstack/<namespace>.
 # The images are tagged IMAGE_TAG (default kind-dev), apart from the tags
 # the compose stacks give the same repositories.
 #
@@ -46,7 +46,7 @@
 #   BUN_IMAGE, BUILDKIT_SYNTAX       build args of the app images
 set -euo pipefail
 
-CLUSTER_NAME="${CLUSTER_NAME:-agent-platform-dev}"
+CLUSTER_NAME="${CLUSTER_NAME:-werft-dev}"
 REGISTRY_NAME="${REGISTRY_NAME:-${CLUSTER_NAME}-registry}"
 REGISTRY_PORT="${REGISTRY_PORT:-5001}"
 # Local end of the api port-forward the check below reads through.
@@ -70,9 +70,9 @@ fi
 # OrbStack cluster is shared, so there it is per namespace, and never the
 # kind cluster's: its kubeconfig would point a later kind run at OrbStack.
 if [ "$CLUSTER_PROVIDER" = orbstack ]; then
-  STATE_DIR="${STATE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/agent-platform/orbstack/${NAMESPACE}}"
+  STATE_DIR="${STATE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/werft/orbstack/${NAMESPACE}}"
 else
-  STATE_DIR="${STATE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/agent-platform/kind/${CLUSTER_NAME}}"
+  STATE_DIR="${STATE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/werft/kind/${CLUSTER_NAME}}"
 fi
 
 root="$(cd "$(dirname "$0")/../.." && pwd)"

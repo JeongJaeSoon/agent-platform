@@ -16,7 +16,7 @@ import type {
   PushRefusalRecord,
   PushRequestStore,
 } from "../ports/push-requests.ts";
-import type { SessionCatalog } from "./catalog.ts";
+import type { InstallationProfileEntry, SessionCatalog } from "./catalog.ts";
 import { createPushRequestService } from "./push-request-service.ts";
 import { SessionServiceError } from "./session-service.ts";
 
@@ -24,7 +24,7 @@ const SESSION = "11111111-1111-4111-8111-111111111111";
 const PUSH = "22222222-2222-4222-8222-222222222222";
 const COMMIT = "a".repeat(40);
 const CATALOG = {
-  profiles: {},
+  profiles: { default: {} as SessionCatalog["profiles"][string] },
   repositories: {
     "sample-app": {
       url: "https://git.example/acme/sample-app.git",
@@ -32,7 +32,24 @@ const CATALOG = {
       profiles: ["default"],
       auth: { kind: "github_app", registered: true },
     },
+    docs: {
+      url: "https://git.example/acme/docs.git",
+      branch: "main",
+      profiles: ["default"],
+      auth: { kind: "github_app", registered: true },
+    },
   },
+  installation: new Map<string, InstallationProfileEntry>([
+    [
+      "default",
+      {
+        id: "default",
+        origin: "catalog",
+        state: "usable",
+        repository_ids: ["sample-app", "docs"],
+      },
+    ],
+  ]),
 } satisfies SessionCatalog;
 
 const actor = {
@@ -53,6 +70,7 @@ function harness(
     githubEnabled?: boolean;
     pinned?: PushSourceResult;
     turnRunning?: boolean;
+    pushAttached?: "allow" | "ask" | "deny";
     request?: Partial<PushRequest> | null;
   } = {},
 ) {
@@ -72,19 +90,19 @@ function harness(
       profileId: "default",
       attached: null,
       github: {
-        repositories: ["sample-app"],
+        repositories: ["sample-app", "docs"],
         features: GITHUB_CEILING_NONE,
         actions_allow: [],
         push_approval: true,
       },
       policySource: "release",
       repositoryCeiling: {
-        repository_ids: ["sample-app"],
+        repository_ids: ["sample-app", "docs"],
         github_app_repositories: "listed",
       },
       githubEnabled: options.githubEnabled ?? true,
       policyApproval: null,
-      pushAttached: "ask",
+      pushAttached: options.pushAttached ?? "ask",
       attachedApproval: null,
       policyFields: { policy_source: "release" },
     }),
@@ -97,6 +115,7 @@ function harness(
         ? null
         : {
             origin: "intent",
+            state: "requested",
             checkpoint_revision: 3,
             git_commit: COMMIT,
             ...options.request,
@@ -214,6 +233,47 @@ describe("requestIntent", () => {
   });
 });
 
+describe("push.attached = deny on the intent path", () => {
+  test("requestIntent refuses an allowed attached repository with a receipt and records no intent", async () => {
+    const { push, deferred, refusals } = harness({ pushAttached: "deny" });
+    const error = await push
+      .requestIntent(actor, SESSION, {
+        attemptId: "attempt-1",
+        turnId: 7,
+        body: { repository_id: "docs" },
+      })
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(SessionServiceError);
+    expect((error as SessionServiceError).details).toMatchObject({
+      refusal: "repository_not_allowed",
+    });
+    expect(refusals).toHaveLength(1);
+    expect(deferred).toEqual([]);
+  });
+
+  test("the same attached repository is accepted when the policy is ask", async () => {
+    const { push, deferred } = harness();
+    const result = await push.requestIntent(actor, SESSION, {
+      attemptId: "attempt-1",
+      turnId: 7,
+      body: { repository_id: "docs" },
+    });
+    expect(result).toMatchObject({ status: "deferred" });
+    expect(deferred).toMatchObject([
+      { repositoryId: "docs", pushClass: "push.attached" },
+    ]);
+  });
+
+  test("createFromIntent fails an intent whose attached repository became deny, with no transition", async () => {
+    const { push, ended, transitions } = harness({ pushAttached: "deny" });
+    await push.createFromIntent(
+      job({ repositoryId: "docs", pushClass: "push.attached" }),
+    );
+    expect(ended).toEqual([["failed", "repository_not_allowed"]]);
+    expect(transitions).toEqual([]);
+  });
+});
+
 describe("createFromIntent", () => {
   test("a closed session cancels the intent before anything is read", async () => {
     const { push, ended, transitions } = harness();
@@ -302,6 +362,15 @@ describe("approving an intent request", () => {
     const { push, decided } = harness();
     await approve(push);
     expect(decided).toMatchObject([{ decision: "approve" }]);
+  });
+
+  test("a decided request, replayed after its revision was collected, skips the pinned check", async () => {
+    const { push, decided } = harness({
+      request: { state: "approved" },
+      pinned: { status: "none" },
+    });
+    await approve(push);
+    expect(decided).toHaveLength(1);
   });
 
   test("a direct request keeps the pointer rule and skips the pinned check", async () => {

@@ -681,6 +681,10 @@ export const githubWorkspaceSettings = pgTable("github_workspace_settings", {
   // The repositories agent sessions and `repository_scope = workspace`
   // profiles may reach. Null allows none. `revision` covers it.
   repositoryCeiling: jsonb("repository_ceiling").$type<unknown>(),
+  // How pull request bodies are laid out. Null reads as the defaults. Its
+  // own revision keeps a save here from conflicting with one of the ceiling.
+  pullRequest: jsonb("pull_request").$type<unknown>(),
+  pullRequestRevision: integer("pull_request_revision").notNull().default(0),
   oauthClientSecretSet: boolean("oauth_client_secret_set")
     .notNull()
     .default(false),
@@ -3355,6 +3359,38 @@ export const agentGitHubSettings = pgTable(
   ],
 );
 
+// How an agent's pull request bodies differ from the workspace's. Apart from
+// `agent_github_settings`: a row there makes the agent's sessions follow it
+// instead of their release, and saving a template must not do that. No row:
+// the workspace's values apply. `template` is never read back into a receipt.
+export const agentPullRequestSettings = pgTable(
+  "agent_pull_request_settings",
+  {
+    agentId: uuid("agent_id").primaryKey(),
+    workspaceId: uuid("workspace_id").notNull(),
+    formatting: text().notNull(),
+    template: text(),
+    templateName: text("template_name"),
+    revision: integer().notNull().default(1),
+    /** No foreign key: the row outlives the account. */
+    updatedBy: uuid("updated_by"),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: "agent_pull_request_settings_agent_fk",
+      columns: [table.workspaceId, table.agentId],
+      foreignColumns: [agents.workspaceId, agents.id],
+    }),
+    check(
+      "agent_pull_request_settings_formatting_check",
+      sql`${table.formatting} IN ('inherit', 'on', 'off')`,
+    ),
+  ],
+);
+
 // A group of people in a workspace (design 4.7). Named apart from the
 // session teams Lotse will add.
 export const memberTeams = pgTable(
@@ -4810,6 +4846,13 @@ export const providerConnections = pgTable(
       .$type<SettingsCredentialSource>()
       .notNull(),
     origin: text().$type<SettingsOrigin>().notNull(),
+    /**
+     * The `auth` this row had while its credential came from the
+     * deployment (an env or Secrets Manager reference, never a value),
+     * set once when the console moves it to a stored value. Ceilings made
+     * over the old definition keep matching this row.
+     */
+    replacesAuth: jsonb("replaces_auth").$type<Record<string, unknown>>(),
     disabledAt: timestamp("disabled_at", { withTimezone: true }),
     disabledBy: uuid("disabled_by").references(() => users.id),
     createdBy: uuid("created_by").references(() => users.id),

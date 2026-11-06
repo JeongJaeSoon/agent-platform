@@ -320,6 +320,7 @@ async function write(
     head: opened.head,
     base: opened.base,
     created: opened.created,
+    template: opened.template ?? null,
   });
   await tx
     .update(pushRequests)

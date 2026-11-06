@@ -130,6 +130,15 @@ const WRITES: ReadonlyArray<{
     },
   ]),
   {
+    method: "POST",
+    path: `${BASE}/connections/console/convert`,
+    service: "convertConnection",
+    body: { value: "example-key" },
+    invalid: { value: "" },
+    status: 200,
+    args: ["console", "example-key"],
+  },
+  {
     method: "PATCH",
     path: `${BASE}/mcp-servers/console`,
     service: "setMcpWorkspaces",

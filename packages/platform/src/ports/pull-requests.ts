@@ -3,6 +3,7 @@ import type {
   PullRequest,
   PullRequestReceiptResult,
   PullRequestRefusal,
+  PullRequestTemplateRecord,
   PushRequestState,
   ReceiptActor,
 } from "@werft-ai/contracts";
@@ -201,6 +202,8 @@ export interface PullRequestStore {
       head: string;
       base: string;
       created: boolean;
+      // Which template the body was laid out on; absent: none was read.
+      template?: PullRequestTemplateRecord | null | undefined;
     },
   ): Promise<{ pullRequest: PullRequest; created: boolean; receiptId: string }>;
 }

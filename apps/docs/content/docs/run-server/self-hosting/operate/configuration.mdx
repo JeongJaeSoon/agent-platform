@@ -3,7 +3,7 @@ title: "설정 레퍼런스"
 description: 설치 상한, API 설정, scheduler·worker 컨테이너·egress 설정
 ---
 
-설치 상한, API 설정, scheduler·worker 컨테이너·egress 설정을 적는다. reconciler·scheduler 감독 루프의 설정은 [실행 기반과 worker 격리](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/execution.md)에, 연결·저장소·상한(콘솔과 설정 문서)과 인증 설정은 [API 서버](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)에, Kubernetes backend의 설정은 [Kubernetes 실행 backend](/run-server/self-hosting/operate/kubernetes-backend)에 있다.
+설치 상한, API 설정, scheduler·worker 컨테이너·egress 설정을 적는다. reconciler·scheduler 감독 루프의 설정은 [실행 기반과 worker 격리](/run-server/self-hosting/operate/execution)에, 연결·저장소·상한(콘솔과 설정 문서)과 인증 설정은 [API 서버](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)에, Kubernetes backend의 설정은 [Kubernetes 실행 backend](/run-server/self-hosting/operate/kubernetes-backend)에 있다.
 
 ## 설치 상한
 
@@ -109,7 +109,7 @@ GitHub Packages bot token([결정](https://github.com/JeongJaeSoon/werft/blob/ma
 
 ## scheduler·worker 컨테이너·egress 설정
 
-scheduler가 worker 컨테이너를 만들 때 읽는 값이다. 없으면 기본값을 쓰고, 형식이 틀리면 기동하지 않는다. user, HOME·workspace 경로, tmpfs 크기, credential 포트, stop timeout은 `agent-platform.isolation` 지문에 들어간다([실행 기반과 worker 격리](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/execution.md#reconcilerscheduler와-worker-격리)). 그래서 바꾸면 실행 중인 worker가 교체된다. CPU·메모리·PID 한도는 다음 launch부터 적용된다.
+scheduler가 worker 컨테이너를 만들 때 읽는 값이다. 없으면 기본값을 쓰고, 형식이 틀리면 기동하지 않는다. user, HOME·workspace 경로, tmpfs 크기, credential 포트, stop timeout은 `werft.isolation` 지문에 들어간다([실행 기반과 worker 격리](/run-server/self-hosting/operate/execution#reconcilerscheduler와-worker-격리)). 그래서 바꾸면 실행 중인 worker가 교체된다. CPU·메모리·PID 한도는 다음 launch부터 적용된다.
 
 `WORKER_MEMORY_MB`는 transcript 상한(`MAX_TRANSCRIPT_BYTES`)과 함께 정한 값이다. 둘의 관계, 실측, 노드당 세션 수, 바꾸는 방법은 [용량 관리](/run-server/self-hosting/operate/capacity)에 있다.
 

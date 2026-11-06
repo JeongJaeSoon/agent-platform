@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import type { SlackThreadStatusFacts } from "../ports/slack-outbox-store.ts";
 import {
   type SlackSessionStatusMaterial,
   type SlackThreadStatus,
   slackSessionStatus,
+  slackStatusMaterial,
 } from "./slack-session-status.ts";
 
 const idle: SlackSessionStatusMaterial = {
@@ -88,4 +90,27 @@ describe("slackSessionStatus", () => {
       expect(slackSessionStatus({ ...idle, ...change })).toBe(expected);
     });
   }
+});
+
+describe("slackStatusMaterial", () => {
+  const facts: SlackThreadStatusFacts = {
+    admissionState: "active",
+    executionRevoked: false,
+    unknownTurn: false,
+    checkpointRevision: 3,
+    answerableRequest: false,
+    runningTurn: false,
+    queuedTurn: false,
+    requestedPushes: [],
+    actionStages: [
+      { kind: "push_intent", id: "i", state: "pinned" },
+      { kind: "pull_request", id: "p", state: "opening" },
+    ],
+  };
+
+  test("carries the open intents and pull request stages, and they leave the thread active", async () => {
+    const material = await slackStatusMaterial("s", facts);
+    expect(material.actionStages).toEqual(facts.actionStages);
+    expect(slackSessionStatus(material)).toBe("active");
+  });
 });

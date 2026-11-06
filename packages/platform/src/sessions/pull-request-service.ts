@@ -12,6 +12,7 @@ import {
   type PullRequestReceiptResult,
   type PullRequestRefusal,
   type PullRequestState,
+  type PullRequestTemplateRecord,
   type PushRequestState,
   type SetPullRequestStateResponse,
   type UpdatePullRequestRequest,
@@ -34,6 +35,7 @@ import {
   type PullRequestStageError,
   pullRequestBackoffMs,
 } from "../ports/pull-request-drain.ts";
+import type { PullRequestSettingsStore } from "../ports/pull-request-settings.ts";
 import {
   PULL_REQUEST_REFUSAL_ERRORS,
   type PullRequestOperation,
@@ -51,6 +53,17 @@ import {
   withPullRequestTail,
 } from "./git-attribution.ts";
 import { renderPullRequestBody } from "./pull-request-body.ts";
+import {
+  type ResolvedPullRequestSettings,
+  resolvePullRequestSettings,
+} from "./pull-request-settings.ts";
+import {
+  type PreparedTemplate,
+  prepareTemplateText,
+  readRepositoryTemplate,
+  type TemplateRead,
+  templateRecord,
+} from "./pull-request-template.ts";
 import {
   cleanBody,
   cleanTitle,
@@ -103,6 +116,7 @@ export function createPullRequestService(deps: {
   redact: (line: string) => string;
   /** Who the session's work is attributed to, for the body's tail. */
   attribution: SessionAttributionStore;
+  settings: Pick<PullRequestSettingsStore, "get" | "agentOfSession">;
   consoleOrigin: string | null;
   logger: {
     warn(message: string, fields?: Readonly<Record<string, unknown>>): void;
@@ -110,14 +124,26 @@ export function createPullRequestService(deps: {
 }) {
   const { authorization, store, catalog, gate, redact, logger } = deps;
 
-  async function tailFor(source: {
-    sessionId: string;
-    id: string;
-    gitCommit: string;
-  }): Promise<string> {
+  async function settingsFor(ownerId: string, sessionId: string) {
+    const [{ settings }, agent] = await Promise.all([
+      deps.settings.get(ownerId),
+      deps.settings.agentOfSession(ownerId, sessionId),
+    ]);
+    return resolvePullRequestSettings(settings, agent);
+  }
+
+  async function tailFor(
+    source: {
+      sessionId: string;
+      id: string;
+      gitCommit: string;
+    },
+    sessionLink: "url" | "id",
+  ): Promise<string> {
     return pullRequestTail({
       sessionId: source.sessionId,
       sessionUrl: sessionUrlOf(deps.consoleOrigin, source.sessionId),
+      sessionLink,
       commit: source.gitCommit,
       pushRequestId: source.id,
       record: await deps.attribution.attribution(source.sessionId),
@@ -130,7 +156,8 @@ export function createPullRequestService(deps: {
    * is kept as written (cleaned, engine signature lines removed) and none
    * leaves the tail alone. Both entries that write a body come through here.
    */
-  function bodyFor(
+  async function bodyFor(
+    forge: GitHubApi,
     content: {
       body?: string | undefined;
       summary?: string | undefined;
@@ -142,9 +169,46 @@ export function createPullRequestService(deps: {
         typeof renderPullRequestBody
       >[0]["fields"]["related"];
     },
-    where: { repositoryId: string; maxLength: number; tail: string },
-  ): { body: string; source: PullRequestBodySource } {
+    where: {
+      repositoryId: string;
+      maxLength: number;
+      tail: string;
+      settings: ResolvedPullRequestSettings;
+    },
+  ): Promise<{
+    body: string;
+    source: PullRequestBodySource;
+    template: PullRequestTemplateRecord | null;
+  }> {
     if (hasStructuredFields(content)) {
+      const { settings } = where;
+      const read: TemplateRead | null = settings.readRepository
+        ? await readRepositoryTemplate(forge, {
+            templateName: settings.templateName,
+          })
+        : null;
+      if (read?.kind === "skipped" && read.error !== undefined) {
+        logger.warn("Pull request template not read", { error: read.error });
+      }
+      let supplied: {
+        layer: "agent" | "workspace";
+        template: PreparedTemplate;
+      } | null = null;
+      let suppliedSkip: PullRequestTemplateRecord["skipped"];
+      if (read?.kind !== "found" && settings.text !== null) {
+        const prepared = prepareTemplateText(settings.text.template);
+        if (prepared.ok) {
+          supplied = {
+            layer: settings.text.layer,
+            template: prepared.template,
+          };
+        } else {
+          suppliedSkip =
+            prepared.reason === "unsupported"
+              ? "unbalanced_comment"
+              : prepared.reason;
+        }
+      }
       const rendered = renderPullRequestBody({
         fields: content,
         locale: DEFAULT_USER_LOCALE,
@@ -155,18 +219,42 @@ export function createPullRequestService(deps: {
           id: where.repositoryId,
           repositories: catalog.repositories,
         },
+        template:
+          read?.kind === "found" ? read.template : (supplied?.template ?? null),
       });
+      const commit = read === null ? null : (read.commit ?? null);
+      const record: PullRequestTemplateRecord =
+        read?.kind === "found"
+          ? rendered.templateUsed
+            ? templateRecord(read)
+            : { commit: read.commit, path: read.path, skipped: "too_large" }
+          : supplied !== null && !rendered.templateUsed
+            ? { commit, skipped: "too_large" }
+            : suppliedSkip !== undefined
+              ? { commit, skipped: suppliedSkip }
+              : read === null
+                ? { commit }
+                : templateRecord(read);
+      const kind = !rendered.templateUsed
+        ? "platform"
+        : read?.kind === "found"
+          ? "repository"
+          : (supplied?.layer ?? "workspace");
       return {
         body: rendered.body,
         source: {
-          kind: "platform",
+          kind,
+          ...(record.path === undefined ? {} : { path: record.path }),
+          ...(record.skipped === undefined ? {} : { skipped: record.skipped }),
           ...(rendered.relatedDropped === 0
             ? {}
             : { related_dropped: rendered.relatedDropped }),
         },
+        template: record,
       };
     }
     return {
+      template: null,
       body: withPullRequestTail(
         cleanBody(
           stripEngineSignatures(content.body ?? ""),
@@ -448,7 +536,8 @@ export function createPullRequestService(deps: {
         return await refuse("not_pushed", fields, source.state);
       }
       const { forge, base } = await forgeFor(actor, source, refuse);
-      const tail = await tailFor(source);
+      const settings = await settingsFor(actor.ownerId, source.sessionId);
+      const tail = await tailFor(source, settings.sessionLink);
       let opened: {
         number: number;
         url: string;
@@ -459,10 +548,11 @@ export function createPullRequestService(deps: {
         body.title ?? `Agent session ${source.sessionId}`,
         redact,
       );
-      const written = bodyFor(body, {
+      const written = await bodyFor(forge, body, {
         repositoryId: source.repositoryId,
         maxLength: forge.maxBodyLength,
         tail,
+        settings,
       });
       try {
         const found = await forge.findPullRequestForBranch(head);
@@ -511,6 +601,7 @@ export function createPullRequestService(deps: {
         head,
         base: opened.base,
         created,
+        template: created ? written.template : null,
       });
       return {
         pull_request: saved.pullRequest,
@@ -658,11 +749,15 @@ export function createPullRequestService(deps: {
           found.headRepository === repository,
       );
       const open = candidates.filter((found) => found.state === "open");
-      const tail = await tailFor({
-        sessionId: job.sessionId,
-        id: job.id,
-        gitCommit: job.gitCommit,
-      });
+      const settings = await settingsFor(job.ownerId, job.sessionId);
+      const tail = await tailFor(
+        {
+          sessionId: job.sessionId,
+          id: job.id,
+          gitCommit: job.gitCommit,
+        },
+        settings.sessionLink,
+      );
       if (open.length > 1) {
         return stop("uncertain", "duplicate_pull_request", {
           numbers: open.map((found) => found.number),
@@ -718,19 +813,26 @@ export function createPullRequestService(deps: {
           merged: marked.some((found) => found.mergedAt !== null),
         });
       }
-      // Too little lease left to create and still record it.
-      if (Date.now() >= options.deadline) {
-        return { kind: "retry", error: "lease_expired", delayMs: 0 };
-      }
+      // The body can take several forge reads (the repository template), so
+      // it is built first and the lease checked right before the create.
       const title = cleanTitle(
         job.intent?.title ?? `Agent session ${job.sessionId}`,
         redact,
       );
-      const written = bodyFor(job.intent ?? {}, {
+      const written = await bodyFor(forge, job.intent ?? {}, {
         repositoryId: job.repositoryId,
         maxLength: forge.maxBodyLength,
         tail,
+        settings,
       });
+      // Too little lease left to create and still record it. This attempt
+      // created nothing, but the row does not say whether an earlier one
+      // reached the create, so even on the last attempt this is a retry: the
+      // next claim ends `uncertain` rather than `failed` (a failed stage
+      // invites a second request, and a second pull request).
+      if (Date.now() >= options.deadline) {
+        return { kind: "retry", error: "lease_expired", delayMs: 0 };
+      }
       let made: Awaited<ReturnType<typeof forge.createPullRequest>>;
       try {
         made = await forge.createPullRequest({
@@ -764,6 +866,7 @@ export function createPullRequestService(deps: {
           headSha: made.headSha,
           title: made.created ? title : null,
           created: made.created,
+          template: made.created ? written.template : null,
         },
       };
     },
@@ -813,11 +916,13 @@ export function createPullRequestService(deps: {
       }
       // A title alone leaves the body; anything else writes it again whole.
       const rewrites = body.body !== undefined || hasStructuredFields(body);
+      const settings = await settingsFor(actor.ownerId, source.sessionId);
       const written = rewrites
-        ? bodyFor(body, {
+        ? await bodyFor(forge, body, {
             repositoryId: source.repositoryId,
             maxLength: forge.maxBodyLength,
-            tail: await tailFor(source),
+            tail: await tailFor(source, settings.sessionLink),
+            settings,
           })
         : null;
       try {
@@ -841,6 +946,7 @@ export function createPullRequestService(deps: {
           push_request_id: source.id,
           verdict: "allow",
           created: false,
+          ...(written?.template == null ? {} : { template: written.template }),
         },
       });
       return {

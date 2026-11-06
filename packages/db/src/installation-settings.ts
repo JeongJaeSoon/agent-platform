@@ -145,6 +145,7 @@ export function createPostgresInstallationSettingsStore(
           const connections: Array<{
             id: string;
             provider: CatalogProfileConfig["provider"];
+            replaces?: CatalogProfileConfig["provider"];
           }> = [];
           for (const row of await tx
             .select()
@@ -165,7 +166,18 @@ export function createPostgresInstallationSettingsStore(
               continue;
             }
             if (ref !== null) refs.push(ref);
-            connections.push({ id: row.id, provider: parsed.data });
+            const former =
+              row.replacesAuth === null
+                ? undefined
+                : catalogProviderSchema.safeParse({
+                    ...row.definition,
+                    auth: row.replacesAuth,
+                  });
+            connections.push({
+              id: row.id,
+              provider: parsed.data,
+              ...(former?.success ? { replaces: former.data } : {}),
+            });
           }
           const repositories: Array<{
             id: string;

@@ -18,6 +18,11 @@ export interface InstallationSettings {
   connections: ReadonlyArray<{
     id: string;
     provider: CatalogProfileConfig["provider"];
+    /**
+     * The provider as it was while its credential came from the deployment,
+     * when the console has since moved it to a stored value.
+     */
+    replaces?: CatalogProfileConfig["provider"];
   }>;
   repositories: ReadonlyArray<{
     id: string;

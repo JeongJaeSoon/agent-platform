@@ -339,6 +339,8 @@ function mcpServersOf(
     url: `${egressCredentialUrl}/mcp/${s.name}`,
     token: s.access.token,
     tools: runtimeConfig.tools,
+    ...(s.platform === true ? { platform: true } : {}),
+    ...(s.trusted === undefined ? {} : { trusted: s.trusted }),
   }));
 }
 

@@ -23,6 +23,22 @@ describe("platformPromptOf", () => {
   });
 });
 
+describe("platformPromptOf revision", () => {
+  const revisionWhen = (actionFlows: boolean | undefined) =>
+    platformPromptOf({
+      identity: { name: "a", description: null, language: "ko" },
+      surface: { kind: "web" },
+      repositoryUrl: null,
+      ...(actionFlows === undefined ? {} : { actionFlows }),
+    }).prompt_revision;
+
+  test("is 2 only for a session created while the action flows are on", () => {
+    expect(revisionWhen(true)).toBe(2);
+    expect(revisionWhen(false)).toBe(1);
+    expect(revisionWhen(undefined)).toBe(1);
+  });
+});
+
 describe("platformPromptOf repository", () => {
   test("names the repository by its owner/repo path, and nothing for a path that is not one", () => {
     const repositoryOf = (repositoryUrl: string | null) =>

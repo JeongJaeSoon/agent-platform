@@ -4,7 +4,17 @@
 
 ## 한눈에
 
-Werft의 모듈과 각 모듈의 책임은 [README](../../README.md)의 모듈 구성 문단에 있고, 여기서는 모듈마다 코드가 어디 있는지를 적는다. 아래 control host·worker·egress proxy가 Kiel(세션 런타임)의 구성요소이고, 공개 `/v1` API는 control host의 api role이 서빙한다.
+이 저장소 코드의 중심은 Werft의 Kiel 모듈(세션 런타임)과 그 공개 `/v1` API다. 공식 TypeScript Claude Agent SDK 세션을 격리된 worker에서 실행하고, HTTP API·이벤트·승인·제어·checkpoint 복구로 다룬다.
+
+Werft는 안에서 네 모듈로 나뉜다. 모듈 이름은 저장소 안에서만 쓰고, API나 SDK처럼 바깥에 보이는 곳에는 내놓지 않는다. Musterrolle은 사용자·로그인·워크스페이스·역할·연동 계정과 권한 판정, Kollegium은 에이전트 정의·버전·런치와 에이전트를 부르는 웹·Slack·API 채널, Lotse는 세션끼리의 연결과 협업, Kiel은 세션 런타임(격리 실행·제어·승인·복구)을 맡는다. `/v1` API는 control host가 서빙하고, 그 안의 인증 경로 `/v1/auth/*`는 Musterrolle 몫이다. 외부 도구는 Werft 안에 넣지 않고 Werft 밖의 remote MCP server에 연결해 쓰는 것이 설계 방향이다.
+
+credential 경계: provider key와 저장소·object store credential은 worker에 직접 전달하지 않지만, 살아 있는 attempt는 제한된 egress token으로 허용된 경로를 호출할 수 있다.
+
+`docs/openapi.json`과 `docs/api/` 아래 생성물은 손으로 고치지 않는다. `bun run --cwd apps/control-host openapi:generate`로 함께 다시 만든다.
+
+이름 범위: 바깥에 내놓는 이름은 Werft다. TypeScript SDK는 `packages/sdk`에 있고 npm 패키지 이름은 `@werft-ai/sdk`, 클래스는 `Werft`, 환경 변수는 `WERFT_API_KEY`·`WERFT_BASE_URL`이다. 내부 패키지는 `@werft-ai/*` 스코프를 쓴다. 바꾸면 이미 설치된 곳이 깨지는 이름, 곧 compose project, 런타임 라벨, 설치 경로에는 옛 이름이 남아 있다.
+
+아래는 모듈마다 코드가 어디 있는지다. 아래 control host·worker·egress proxy가 Kiel(세션 런타임)의 구성요소이고, 공개 `/v1` API는 control host의 api role이 서빙한다.
 
 - **Musterrolle**: `packages/contracts/src/musterrolle`, `packages/platform/src/musterrolle`, control host의 인증 route(`/v1/auth/*`)와 API 키·멤버·팀 route, `packages/db`(사용자·워크스페이스·인증·권한 테이블과 그 쿼리), `packages/platform/src/ports/identity-store.ts`. Kiel의 계약과 port도 이 계약과 policy 타입을 import한다. 권한 판정은 `packages/platform/src/musterrolle/policy.ts`의 `createAuthorizationPolicy`가 맡는다. 요청 주체를 다시 읽은 뒤 action의 scope, 관리 action이면 역할, 세션이면 공유 범위와 에이전트 관리자 여부로 판정한다.
 - **Kollegium**: `packages/contracts/src/kollegium`(에이전트 정의·채널 연결 surface·chat envelope), `packages/platform/src/agents`, control host의 에이전트 route와 `slack` role(`apps/control-host/src/slack`). 에이전트 release의 `policy_pins.tools`는 도구별 권한 정책(`allow`·`ask`·`deny`, 기본값은 내장 도구 allow·MCP 도구 ask)을 release를 만들 때 고정한 값이다. remote MCP server 경로는 이 값에서 `allow`인 MCP 도구만 세션에 주고, egress proxy가 중계하는 `tools/call`마다 호출한 도구가 그 목록에 있는지 검사한다(`packages/db/src/mcp-egress.ts`가 읽고 `packages/platform/src/workers/mcp-egress.ts`가 판정한다). worker의 `canUseTool` → `pending_requests` 경로는 이 값을 읽지 않는다.
@@ -93,7 +103,7 @@ Werft의 모듈과 각 모듈의 책임은 [README](../../README.md)의 모듈 �
 
 immutable checkpoint manifest와 authoritative pointer는 `packages/platform`의 `CheckpointService`가 담당하고, `apps/control-host`의 api role이 이를 S3 object store·Postgres `CheckpointStore`·git bundle verifier로 조립해 Worker Gateway에 붙인다. Gateway의 finalize는 manifest ref가 `requestCheckpoint`가 발급한 `sessions/<sid>/checkpoints/<rev>/<attempt>/<publishId>/manifest.json`이고 본문 digest·bundle이 검증된 checkpoint만 받으며, pointer는 turn의 terminal과 같은 트랜잭션에서 `finalizeAtomic`만 "정확히 current+1"로 전진시킨다. turn 없이 pointer를 옮기는 경로는 없다. 워커용 `/internal/worker/checkpoint-request`·`/restore-plan`은 lease fence 안에서 읽은 pointer로 답한다. 워커는 turn 경계에 engine process tree의 descendant나 reparent 뒤에도 workspace 안을 cwd로 둔 process가 남아 있으면 `background_writer`로 checkpoint를 거절한다. 또한 경로·형태·크기·mtime·ctime으로 만든 workspace 지문을 capture 전후에 비교하고, 바뀌었으면 전체 capture를 한 번 다시 시도한 뒤 다시 바뀌면 publish를 거절한다. 워커 heartbeat의 `transcript` 보고는 세션의 `last_transcript_persisted_at`과 `checkpoint_pending_reason`이 되고, `mirror_error`가 기록된 세션은 새 입력과 checkpoint 없는 completed 종료를 409 `CHECKPOINT_UNAVAILABLE`로 거절한다 — 같은 attempt의 checkpoint는 이를 지우지 못하고 **다른** attempt가 커밋한 checkpoint만 지운다. 롤백한 빌드가 모르는 reason(새 빌드가 남긴 값)은 세션 상세에 `unknown`으로 보이고 경고 로그를 남기며, 새 입력은 `mirror_error`처럼 거절한다. transcript가 checkpoint 상한(`TRANSCRIPT_LIMITS`)을 넘으면 worker는 workspace를 올리기 전에, finalize는 part를 읽기 전에 `transcript_too_large`·`transcript_part_too_large`를 기록한다. 이 값은 새 입력과 queue에 있던 turn의 실행을 막지만, 상한을 넘긴 turn의 checkpoint 없는 completed 종료는 받고 마지막 pointer는 복원 지점으로 남긴다. 커밋된 checkpoint가 상한의 80%를 처음 넘으면 `transcript_near_limit` 이벤트를 남기고 세션 상세 `attention`은 `TRANSCRIPT_LIMIT`가 된다. completed turn에 checkpoint를 강제하지는 않는다: 세션 상세의 `durability`가 `last_completed_turn_id`와 `last_checkpointed_turn_id`의 차이로 드러낸다. 기존 storage primitive를 완성된 SDK checkpoint로 간주하지 않는다.
 
-checkpoint 객체의 version 고정과 복원 뒤 재고정은 [backup-restore.md](../operator/backup-restore.md)에, GC는 [api-server.md § checkpoint object store](../operator/api-server.md#checkpoint-object-store)에, 복원이 계속 실패하는 세션의 처리는 [execution.md](../operator/execution.md#checkpoint-복원이-계속-실패하는-세션)에 있다.
+checkpoint 객체의 version 고정과 복원 뒤 재고정은 [backup-restore.md](../operator/backup-restore.md)에, GC는 [api-server.md § checkpoint object store](../operator/api-server.md#checkpoint-object-store)에, 복원이 계속 실패하는 세션의 처리는 [실행 기반과 worker 격리](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/execution/#checkpoint-복원이-계속-실패하는-세션)에 있다.
 
 ## SDK와 LiteLLM 방향
 

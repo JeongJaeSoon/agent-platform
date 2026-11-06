@@ -423,4 +423,48 @@ describe("claimFingerprint", () => {
       /ghs_|ghp_|gho_|github_pat_|x-access-token/,
     );
   });
+
+  test("platform and trusted reach the adapter's MCP server input, and move no checkpoint fingerprint", () => {
+    const tools = [
+      "Read",
+      "mcp__github__request_push",
+      "mcp__github__submit_review",
+    ];
+    const server = {
+      name: "github",
+      endpoint: "https://builtin.invalid/mcp/github",
+      binding: `sha256:${"0".repeat(64)}`,
+      access: claimToken,
+    };
+    const profileOf = (extra: object) =>
+      runtimeProfile(
+        config,
+        claude,
+        {
+          principal,
+          runtimeConfig: {
+            ...shipped["claude-coding-local"],
+            tools,
+            mcp_servers: [{ ...server, ...extra }],
+          },
+        },
+        () => null,
+      );
+    const marked = profileOf({
+      platform: true,
+      trusted: ["mcp__github__request_push"],
+    });
+    expect(marked.bundle.mcpServers).toEqual([
+      expect.objectContaining({
+        name: "github",
+        platform: true,
+        trusted: ["mcp__github__request_push"],
+      }),
+    ]);
+    const plain = profileOf({});
+    expect(Object.keys(plain.bundle.mcpServers[0] ?? {})).not.toContain(
+      "trusted",
+    );
+    expect(claude.fingerprint(marked)).toEqual(claude.fingerprint(plain));
+  });
 });

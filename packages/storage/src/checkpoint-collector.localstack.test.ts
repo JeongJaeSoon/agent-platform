@@ -89,6 +89,9 @@ function memoryStore(
     async readPointer() {
       return pointer;
     },
+    async listPinnedCommits() {
+      return [];
+    },
     async listCheckpoints(_session, { belowRevision, limit }) {
       return rows
         .filter((row) => row.revision < belowRevision)

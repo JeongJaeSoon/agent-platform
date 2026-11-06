@@ -68,6 +68,7 @@ describe("database schema", () => {
       "agent_admins",
       "agent_github_settings",
       "agent_identities",
+      "agent_pull_request_settings",
       "agent_releases",
       "agent_versions",
       "agents",

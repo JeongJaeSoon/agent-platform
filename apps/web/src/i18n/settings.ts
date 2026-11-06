@@ -32,6 +32,16 @@ export const settingsKo = {
   "settings.setValueTitle": "{id}의 값 바꾸기",
   "settings.setValueDescription":
     "새 값은 이 항목에만 묶여 저장됩니다. 도는 세션은 멈추지 않습니다.",
+  "settings.convert": "화면에서 키 넣기",
+  "settings.convertFor": "{id} 화면에서 키 넣기",
+  "settings.convertTitle": "{id}의 키를 화면에서 넣기",
+  "settings.convertDescription":
+    "이 연결은 서버의 환경 변수나 Secrets Manager에 있는 키를 씁니다. 키를 여기에 붙여 넣으면 DB에 봉인해 저장하고, 이 연결과 그 위의 프로필은 저장한 키로 돕니다. 서버가 기존 값을 읽어 옮기지는 않습니다. 도는 세션은 멈추지 않습니다.",
+  "settings.done.converted": "{id}의 키를 저장했습니다.",
+  "settings.error.not_external":
+    "이미 화면에서 넣은 키를 쓰는 항목입니다. 값 바꾸기를 쓰세요.",
+  "settings.error.alias_taken":
+    "다른 연결이 이 연결의 옛 정의와 같아 키를 옮길 수 없습니다.",
   "settings.value": "값",
   "settings.save": "저장",
   "settings.saving": "저장 중…",
@@ -137,6 +147,16 @@ export const settingsEn: Record<keyof typeof settingsKo, string> = {
   "settings.setValueTitle": "Replace the value of {id}",
   "settings.setValueDescription":
     "The new value is stored for this entry alone. Running sessions keep running.",
+  "settings.convert": "Enter key on screen",
+  "settings.convertFor": "Enter the key of {id} on screen",
+  "settings.convertTitle": "Enter the key of {id} on screen",
+  "settings.convertDescription":
+    "This connection uses a key from the server's environment or Secrets Manager. Paste the key here and it is sealed in the database; the connection and the profiles over it then run on the stored key. The server does not read the old value and copy it. Running sessions keep running.",
+  "settings.done.converted": "The key of {id} was stored.",
+  "settings.error.not_external":
+    "This entry already keeps a key entered on screen. Use Replace value.",
+  "settings.error.alias_taken":
+    "Another connection is exactly what this one was, so its key cannot be moved.",
   "settings.value": "Value",
   "settings.save": "Save",
   "settings.saving": "Saving…",
@@ -244,6 +264,16 @@ export const settingsJa: Record<keyof typeof settingsKo, string> = {
   "settings.setValueTitle": "{id} の値を変える",
   "settings.setValueDescription":
     "新しい値はこの項目だけに結びつけて保存します。実行中のセッションは止まりません。",
+  "settings.convert": "画面でキーを入れる",
+  "settings.convertFor": "{id} のキーを画面で入れる",
+  "settings.convertTitle": "{id} のキーを画面で入れる",
+  "settings.convertDescription":
+    "この接続は、サーバーの環境変数または Secrets Manager にあるキーを使っています。ここにキーを貼り付けると DB に封印して保存し、この接続とその上のプロファイルは保存したキーで動きます。サーバーが古い値を読んで移すことはありません。実行中のセッションは止まりません。",
+  "settings.done.converted": "{id} のキーを保存しました。",
+  "settings.error.not_external":
+    "すでに画面で入れたキーを使う項目です。値を変えるを使ってください。",
+  "settings.error.alias_taken":
+    "別の接続がこの接続の元の定義と同じため、キーを移せません。",
   "settings.value": "値",
   "settings.save": "保存",
   "settings.saving": "保存中…",

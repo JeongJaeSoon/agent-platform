@@ -64,6 +64,15 @@ function harness(
     getRepository: async () => {
       throw new Error("not used");
     },
+    getBranchHead: async () => {
+      throw new Error("not used");
+    },
+    readTree: async () => {
+      throw new Error("not used");
+    },
+    readBlob: async () => {
+      throw new Error("not used");
+    },
     findPullRequestForBranch: async () => {
       throw new Error("not used");
     },

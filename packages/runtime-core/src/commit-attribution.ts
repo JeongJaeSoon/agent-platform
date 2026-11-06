@@ -25,6 +25,15 @@ export type CommitFacts = {
   authorEmail: string;
   committerName: string;
   committerEmail: string;
+  /**
+   * The trailer block git itself recognizes in the message, one unfolded
+   * `Key: value` line each (`git interpret-trailers --parse --no-divider`).
+   * Only these lines are attribution: GitHub and git read a `Co-authored-by`
+   * or `Agent-Session` line from anywhere else in the body as plain text. The
+   * message is read only to refuse an engine line, which no trailer setting of
+   * the repository judged in may hide.
+   */
+  trailers: string;
   message: string;
 };
 
@@ -74,16 +83,18 @@ export const MAX_REPORTED_MISMATCHES = 20;
  * `git log --no-walk=unsorted --stdin --format=<this>`: one record per commit,
  * fields split by US, records ended by RS. Neither byte occurs in names,
  * emails or messages git accepts in practice; a message holding one fails the
- * parse, which callers treat as a mismatch.
+ * parse, which callers treat as a mismatch. The trailer block comes from git's
+ * own parser (`%(trailers)`), so this judgment cannot drift from git's.
  */
-export const COMMIT_FACTS_FORMAT = "%H%x1f%an%x1f%ae%x1f%cn%x1f%ce%x1f%B%x1e";
+export const COMMIT_FACTS_FORMAT =
+  "%H%x1f%an%x1f%ae%x1f%cn%x1f%ce%x1f%B%x1f%(trailers:only,unfold)%x1e";
 
 export function parseCommitFacts(stdout: string): CommitFacts[] | null {
   const facts: CommitFacts[] = [];
   for (const record of stdout.split("\x1e")) {
     if (record.trim() === "") continue;
     const fields = record.replace(/^\n/, "").split("\x1f");
-    if (fields.length !== 6) return null;
+    if (fields.length !== 7) return null;
     const [sha, authorName, authorEmail, committerName, committerEmail] =
       fields as [string, string, string, string, string, string];
     if (!/^[0-9a-f]{40}$/.test(sha)) return null;
@@ -94,6 +105,7 @@ export function parseCommitFacts(stdout: string): CommitFacts[] | null {
       committerName,
       committerEmail,
       message: fields[5] as string,
+      trailers: fields[6] as string,
     });
   }
   return facts;
@@ -123,29 +135,41 @@ export function attributionProblems(
     problems.push("committer");
 
   const strip = new Set(stripEmails.map((email) => email.toLowerCase()));
-  const lines = commit.message
-    .split("\n")
-    .map((line) => line.replace(/\r$/, ""));
-  const coAuthorLines = lines.flatMap((line) => {
-    const match = COAUTHOR_LINE.exec(line);
-    return match === null ? [] : [match[1] as string];
-  });
+  const coAuthors = (text: string) =>
+    text
+      .split("\n")
+      .map((line) => line.replace(/\r$/, ""))
+      .flatMap((line) => {
+        const match = COAUTHOR_LINE.exec(line);
+        return match === null ? [] : [match[1] as string];
+      });
+  // A required line counts only in git's unfolded trailer block (a line
+  // outside it is plain text to GitHub). An engine line is refused anywhere:
+  // as a line of the message, wherever it sits, and in the block with folded
+  // lines joined. A repository trailer.* setting that renames what git parses
+  // cannot hide the first; the hook strips whole lines only, so a folded
+  // engine line is refused here and left to the agent to fix.
   if (
-    coAuthorLines.some((value) => {
-      const email = emailOf(value);
-      return email !== null && strip.has(email);
-    })
+    [...coAuthors(commit.trailers), ...coAuthors(commit.message)].some(
+      (value) => {
+        const email = emailOf(value);
+        return email !== null && strip.has(email);
+      },
+    )
   ) {
     problems.push("engine_co_author");
   }
+  const trailerLines = commit.trailers
+    .split("\n")
+    .map((line) => line.replace(/\r$/, ""));
   if (expectation.coAuthor !== null) {
     const wanted = `${expectation.coAuthor.name} <${expectation.coAuthor.email}>`;
-    if (coAuthorLines.filter((value) => value === wanted).length !== 1)
+    if (coAuthors(commit.trailers).filter((v) => v === wanted).length !== 1)
       problems.push("co_author");
   }
   if (expectation.agentSession !== null) {
     const wanted = `Agent-Session: ${expectation.agentSession}`;
-    if (lines.filter((line) => line === wanted).length !== 1)
+    if (trailerLines.filter((line) => line === wanted).length !== 1)
       problems.push("agent_session");
   }
   return problems;
@@ -182,7 +206,8 @@ export function attributionMismatches(
 /** One git invocation inside the repository being judged. */
 export type RangeGit = (
   args: readonly string[],
-) => Promise<{ exitCode: number; stdout: string }>;
+  /** `truncated`: stdout was cut at a cap, so later commits may be missing. */
+) => Promise<{ exitCode: number; stdout: string; truncated?: boolean }>;
 
 export type RangeAttribution =
   | { status: "ok"; mismatches: AttributionMismatch[]; checked: number }
@@ -203,6 +228,15 @@ export async function rangeAttribution(
     not: readonly string[];
     expectations: readonly AttributionExpectation[];
     stripEmails: readonly string[];
+    /**
+     * Reads a message's trailer block (what `git interpret-trailers --parse
+     * --no-divider` prints), null when it cannot. A caller whose repository
+     * has config of its own (the worker's workspace: `trailer.*` can rename
+     * keys) passes one that runs git outside any repository, so the log's own
+     * `%(trailers)` is not trusted. The control host's bare repository has
+     * none and omits it.
+     */
+    trailersOf?: (message: string) => Promise<string | null>;
   },
 ): Promise<RangeAttribution> {
   const log = await git([
@@ -212,9 +246,18 @@ export async function rangeAttribution(
     input.tip,
     ...(input.not.length === 0 ? [] : ["--not", ...input.not]),
   ]);
-  if (log.exitCode !== 0) return { status: "unreadable" };
+  if (log.exitCode !== 0 || log.truncated === true) {
+    return { status: "unreadable" };
+  }
   const facts = parseCommitFacts(log.stdout);
   if (facts === null) return { status: "unreadable" };
+  if (input.trailersOf !== undefined) {
+    for (const fact of facts) {
+      const trailers = await input.trailersOf(fact.message);
+      if (trailers === null) return { status: "unreadable" };
+      fact.trailers = trailers;
+    }
+  }
   const all = attributionMismatches(
     facts,
     input.expectations,
