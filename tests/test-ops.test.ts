@@ -439,7 +439,7 @@ exit 0
     const result = await run(["start"], env);
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain(
-      "echo 'services: {}' | docker compose --project-name werft-test-ops -f - down --remove-orphans",
+      `echo '{"services":{"x":{"image":"alpine:3"}},"networks":{"default":{}}}' | docker compose --project-name werft-test-ops -f - down --remove-orphans`,
     );
     expect(result.stderr).not.toMatch(/ -v( |$)|--volumes/);
   });

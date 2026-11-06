@@ -78,8 +78,10 @@ ENV_FILE="${TEST_OPS_ENV_FILE:-/etc/werft/test-ops.env}"
 STATE_DIR="${TEST_OPS_STATE_DIR:-/var/lib/werft/test-ops}"
 PROJECT="${TEST_OPS_PROJECT:-werft-test-ops}"
 # A failed first deploy leaves no current.json, so `stop` has nothing to read. Compose
-# finds a project by its labels, but some versions refuse to run with no compose file.
-DOWN_BY_NAME="echo 'services: {}' | docker compose --project-name ${PROJECT} -f - down --remove-orphans"
+# finds a project by its labels, but some versions refuse to run with no compose file
+# and, given a model, remove only the networks a service of it uses: one placeholder
+# service puts core's `default` network in the model. Nothing is pulled or created.
+DOWN_BY_NAME="echo '{\"services\":{\"x\":{\"image\":\"alpine:3\"}},\"networks\":{\"default\":{}}}' | docker compose --project-name ${PROJECT} -f - down --remove-orphans"
 CURRENT="${STATE_DIR}/current.json"
 # The manifest of an upgrade that stopped the installation and did not finish.
 PENDING="${STATE_DIR}/pending.json"
