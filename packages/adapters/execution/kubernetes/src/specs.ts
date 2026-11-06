@@ -23,13 +23,13 @@ import type { KubernetesBackendConfig } from "./config.ts";
 export const LABELS = {
   partOf: "app.kubernetes.io/part-of",
   component: "app.kubernetes.io/component",
-  installation: "agent-platform.installation",
-  executionId: "agent-platform.session-execution-id",
-  generation: "agent-platform.generation",
-  sessionId: "agent-platform.session-id",
+  installation: "werft.installation",
+  executionId: "werft.session-execution-id",
+  generation: "werft.generation",
+  sessionId: "werft.session-id",
 } as const;
 
-export const PART_OF = "agent-platform";
+export const PART_OF = "werft";
 
 export const COMPONENTS = {
   bootstrap: "bootstrap",
@@ -39,14 +39,14 @@ export const COMPONENTS = {
 
 export const ANNOTATIONS = {
   /** `launchNonceFingerprint` of the nonce in the Pod's Secret, never the nonce. */
-  bootstrapFingerprint: "agent-platform.bootstrap-fingerprint",
+  bootstrapFingerprint: "werft.bootstrap-fingerprint",
   /** Which isolation contract the Pod was created under. */
-  isolation: "agent-platform.isolation",
+  isolation: "werft.isolation",
   /** The intent's `launchSpec`; absent when the launch stored none. */
-  launchSpec: "agent-platform.launch-spec",
-  operationId: "agent-platform.operation-id",
+  launchSpec: "werft.launch-spec",
+  operationId: "werft.operation-id",
   /** On the workspace PVC: the size it was created with. */
-  workspaceSize: "agent-platform.workspace-size",
+  workspaceSize: "werft.workspace-size",
 } as const;
 
 export {
@@ -150,9 +150,9 @@ export function podNameFor(ref: ExecutionRef, installationId: string): string {
  */
 export function workspaceClaimNameFor(
   sessionId: string,
-  installationId: string,
+  config: Pick<KubernetesBackendConfig, "installationId" | "volumeNamePrefix">,
 ): string {
-  return `ap-ws-${installationId}-${namePart("Session id", sessionId)}`;
+  return `${config.volumeNamePrefix}${config.installationId}-${namePart("Session id", sessionId)}`;
 }
 
 /** New for every create: an old Pod's Secret may still be on its way out. */
@@ -305,10 +305,7 @@ export function podFor(
         {
           name: "workspace",
           persistentVolumeClaim: {
-            claimName: workspaceClaimNameFor(
-              intent.sessionId,
-              config.installationId,
-            ),
+            claimName: workspaceClaimNameFor(intent.sessionId, config),
           },
         },
         { emptyDir: tmpfs, name: "tmp" },
@@ -365,7 +362,7 @@ export function workspaceClaimFor(
         ...baseLabels("workspace", config.installationId),
         [LABELS.sessionId]: sessionId,
       },
-      name: workspaceClaimNameFor(sessionId, config.installationId),
+      name: workspaceClaimNameFor(sessionId, config),
       namespace: config.namespace,
     },
     spec: {

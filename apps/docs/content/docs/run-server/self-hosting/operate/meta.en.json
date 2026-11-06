@@ -4,6 +4,7 @@
     "configuration",
     "capacity",
     "database",
+    "execution",
     "kubernetes-deployment",
     "kubernetes-backend",
     "metrics",

@@ -38,6 +38,8 @@ describeExecutionBackendContract("LocalDockerBackend", {
         tmpfsSizeBytes: 16 * 1024 * 1024,
         user: "1000:1000",
         workspaceDir: "/workspace",
+        volumeLabelNamespace: "werft",
+        volumeNamePrefix: "werft-ws-",
         workspaceGcMinAgeMs: 0,
         // See backend.integration.test.ts: the quota is covered by
         // workspace.integration.test.ts on a daemon that can carry one.

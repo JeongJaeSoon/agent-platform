@@ -59,6 +59,7 @@ export function testConfig(
     user: "1000:1000",
     workerServiceAccount: null,
     workspaceDir: "/workspace",
+    volumeNamePrefix: "werft-ws-",
     workspaceGcMinAgeMs: 0,
     workspaceSizeBytes: 64 * 1024 * 1024,
   };

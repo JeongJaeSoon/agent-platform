@@ -379,6 +379,10 @@ const NOT_SETTINGS: Record<string, string> = {
     "inlined into the console demo build by apps/web/vite.config.ts",
   CHOKIDAR_USEPOLLING:
     "the Vite dev server's file watcher (docs/contributing/development.md)",
+  EXECUTION_VOLUME_LABEL_NAMESPACE:
+    "kept out of public docs; an existing install sets it to keep its volumes",
+  EXECUTION_VOLUME_NAME_PREFIX:
+    "kept out of public docs; an existing install sets it to keep its volumes",
 };
 
 function withoutComments(source: string): string {
@@ -473,7 +477,10 @@ describe("Operator settings", () => {
       .join("\n");
     const names = shellSettings();
     expect(names).toContain("API_MEMORY_MB");
-    const missing = [...names].filter((name) => !documented(docs, name)).sort();
+    const missing = [...names]
+      .filter((name) => !(name in NOT_SETTINGS))
+      .filter((name) => !documented(docs, name))
+      .sort();
     expect(missing).toEqual([]);
   });
 });

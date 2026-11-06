@@ -187,7 +187,7 @@ services:
       # The worker gateway runs on the host; only the proxy may reach it.
       - "host.docker.internal:host-gateway"
     labels:
-      agent-platform.egress-proxy: ${EXECUTION_INSTALLATION_ID:-local}
+      werft.egress-proxy: ${EXECUTION_INSTALLATION_ID:-local}
     # Also unhealthy when /app/src no longer matches what the process loaded
     # . The image bakes the source in, so this now only fires when
     # someone mounts a source tree over it and moves that checkout.
@@ -436,6 +436,10 @@ services:
       EXECUTION_WORKSPACE_QUOTA_INODES: ${EXECUTION_WORKSPACE_QUOTA_INODES:-1000000}
       EXECUTION_WORKSPACE_GC_MIN_AGE_SEC: ${EXECUTION_WORKSPACE_GC_MIN_AGE_SEC:-3600}
       EXECUTION_WORKSPACE_STOPPED_TTL_SEC: ${EXECUTION_WORKSPACE_STOPPED_TTL_SEC:-86400}
+      # Empty means the built-in names. An install whose volumes were made
+      # under other names sets both, or its sessions start on empty workspaces.
+      EXECUTION_VOLUME_LABEL_NAMESPACE: ${EXECUTION_VOLUME_LABEL_NAMESPACE:-}
+      EXECUTION_VOLUME_NAME_PREFIX: ${EXECUTION_VOLUME_NAME_PREFIX:-}
       WORKER_CPUS: ${WORKER_CPUS:-1}
       WORKER_MEMORY_MB: ${WORKER_MEMORY_MB:-4608}
       # The bucket and region the scheduler names to each worker. No key and

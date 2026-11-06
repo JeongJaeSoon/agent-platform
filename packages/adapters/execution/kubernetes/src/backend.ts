@@ -537,7 +537,7 @@ export class KubernetesBackend implements ExecutionBackend {
       const checked = this.replacementWorkspaces.get(sessionId);
       if (checked !== undefined && checked !== uid) {
         throw new WorkspaceClaimError(
-          workspaceClaimNameFor(sessionId, config.installationId),
+          workspaceClaimNameFor(sessionId, config),
           "is not the claim the replacement was checked against; it was recreated since, without the session's tree",
         );
       }
@@ -547,7 +547,7 @@ export class KubernetesBackend implements ExecutionBackend {
     const promised = this.replacementWorkspaces.get(sessionId);
     if (promised !== undefined) {
       throw new WorkspaceClaimError(
-        workspaceClaimNameFor(sessionId, config.installationId),
+        workspaceClaimNameFor(sessionId, config),
         "is gone since the replacement was checked against it; a new one would start the session on an empty tree",
       );
     }
@@ -564,7 +564,7 @@ export class KubernetesBackend implements ExecutionBackend {
       }
       if ((await this.existingWorkspace(sessionId)) === null) {
         throw new WorkspaceClaimError(
-          workspaceClaimNameFor(sessionId, config.installationId),
+          workspaceClaimNameFor(sessionId, config),
           "vanished as it was created",
         );
       }
@@ -573,7 +573,7 @@ export class KubernetesBackend implements ExecutionBackend {
 
   /** The session's claim UID once it is known to be fit to mount; null when none. */
   private async existingWorkspace(sessionId: string): Promise<string | null> {
-    const name = workspaceClaimNameFor(sessionId, this.config.installationId);
+    const name = workspaceClaimNameFor(sessionId, this.config);
     const claim = await this.client.get(
       this.config.namespace,
       "persistentvolumeclaims",

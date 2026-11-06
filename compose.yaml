@@ -1,6 +1,6 @@
 # `docker compose` from the repository root runs the local stack defined in
 # infra/compose.yml (docs/quickstart.md). Same project name, so a
 # stack started either way is the same stack.
-name: agent-platform
+name: werft
 include:
   - infra/compose.yml

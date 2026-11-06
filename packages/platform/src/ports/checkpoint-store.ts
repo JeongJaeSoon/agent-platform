@@ -66,4 +66,12 @@ export interface CheckpointStore {
     sessionId: string,
     options: { belowRevision: number; limit: number },
   ): Promise<CheckpointPointer[]>;
+  /**
+   * The distinct commits the session's push requests pinned, newest request
+   * first, whatever their state but `rejected` (a rejected one never pushes):
+   * the commits a remote may hold or a pending approval may still push. At
+   * most `limit` are returned, so a caller that passes its bound plus one can
+   * tell that the set did not fit.
+   */
+  listPinnedCommits(sessionId: string, limit: number): Promise<string[]>;
 }

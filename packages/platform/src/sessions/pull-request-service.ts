@@ -11,6 +11,7 @@ import {
   type PullRequestReceiptResult,
   type PullRequestRefusal,
   type PullRequestState,
+  type PullRequestTemplateRecord,
   type PushRequestState,
   type SetPullRequestStateResponse,
   type UpdatePullRequestRequest,
@@ -19,6 +20,7 @@ import {
 import type { AuthorizationPolicy } from "../musterrolle/policy.ts";
 import { ForgeCredentialError, type ForgePullRequest } from "../ports/forge.ts";
 import {
+  type GitHubApi,
   GitHubCallError,
   type GitHubGate,
   GitHubGateError,
@@ -40,6 +42,10 @@ import {
   withPullRequestTail,
 } from "./git-attribution.ts";
 import { renderPullRequestBody } from "./pull-request-body.ts";
+import {
+  readRepositoryTemplate,
+  templateRecord,
+} from "./pull-request-template.ts";
 import {
   cleanBody,
   cleanTitle,
@@ -113,7 +119,8 @@ export function createPullRequestService(deps: {
    * is kept as written (cleaned, engine signature lines removed) and none
    * leaves the tail alone. Both entries that write a body come through here.
    */
-  function bodyFor(
+  async function bodyFor(
+    forge: GitHubApi,
     content: {
       body?: string | undefined;
       summary?: string | undefined;
@@ -126,8 +133,18 @@ export function createPullRequestService(deps: {
       >[0]["fields"]["related"];
     },
     where: { repositoryId: string; maxLength: number; tail: string },
-  ): { body: string; source: PullRequestBodySource } {
+  ): Promise<{
+    body: string;
+    source: PullRequestBodySource;
+    template: PullRequestTemplateRecord | null;
+  }> {
     if (hasStructuredFields(content)) {
+      // Only fields the platform lays out read the repository's template; a
+      // legacy `body` is the agent's own layout and is kept as written.
+      const read = await readRepositoryTemplate(forge);
+      if (read.kind === "skipped" && read.error !== undefined) {
+        logger.warn("Pull request template not read", { error: read.error });
+      }
       const rendered = renderPullRequestBody({
         fields: content,
         locale: DEFAULT_USER_LOCALE,
@@ -138,18 +155,30 @@ export function createPullRequestService(deps: {
           id: where.repositoryId,
           repositories: catalog.repositories,
         },
+        template: read.kind === "found" ? read.template : null,
       });
+      // A template the fields could not fit beside is passed over like one
+      // that is too large.
+      const record: PullRequestTemplateRecord =
+        read.kind === "found" && !rendered.templateUsed
+          ? { commit: read.commit, path: read.path, skipped: "too_large" }
+          : templateRecord(read);
+      const kind = rendered.templateUsed ? "repository" : "platform";
       return {
         body: rendered.body,
         source: {
-          kind: "platform",
+          kind,
+          ...(record.path === undefined ? {} : { path: record.path }),
+          ...(record.skipped === undefined ? {} : { skipped: record.skipped }),
           ...(rendered.relatedDropped === 0
             ? {}
             : { related_dropped: rendered.relatedDropped }),
         },
+        template: record,
       };
     }
     return {
+      template: null,
       body: withPullRequestTail(
         cleanBody(
           stripEngineSignatures(content.body ?? ""),
@@ -387,7 +416,7 @@ export function createPullRequestService(deps: {
         body.title ?? `Agent session ${source.sessionId}`,
         redact,
       );
-      const written = bodyFor(body, {
+      const written = await bodyFor(forge, body, {
         repositoryId: source.repositoryId,
         maxLength: forge.maxBodyLength,
         tail,
@@ -439,6 +468,8 @@ export function createPullRequestService(deps: {
         head,
         base: opened.base,
         created,
+        // An adopted pull request keeps the body it has.
+        template: created ? written.template : null,
       });
       return {
         pull_request: saved.pullRequest,
@@ -495,7 +526,7 @@ export function createPullRequestService(deps: {
       // A title alone leaves the body; anything else writes it again whole.
       const rewrites = body.body !== undefined || hasStructuredFields(body);
       const written = rewrites
-        ? bodyFor(body, {
+        ? await bodyFor(forge, body, {
             repositoryId: source.repositoryId,
             maxLength: forge.maxBodyLength,
             tail: await tailFor(source),
@@ -522,6 +553,7 @@ export function createPullRequestService(deps: {
           push_request_id: source.id,
           verdict: "allow",
           created: false,
+          ...(written?.template == null ? {} : { template: written.template }),
         },
       });
       return {

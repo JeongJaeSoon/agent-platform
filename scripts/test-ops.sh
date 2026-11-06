@@ -8,6 +8,9 @@
 #                                              preflight, then move to another release. A worker image
 #                                              change is refused while any checkpoint is uncollected,
 #                                              unless <file> lists exactly the affected sessions
+#   scripts/test-ops.sh stop                    take the deployed release down; the volumes stay (never -v)
+#   scripts/test-ops.sh start                   bring the deployed release back on the same volumes, after a
+#                                              stop, a compose down, or a host restart that left it down
 #   scripts/test-ops.sh status                  containers, release, /readyz, scheduler and reconciler health, disk
 #   scripts/test-ops.sh key create <owner> --scopes <scope>[,<scope>...] | key revoke <key_id>
 #   scripts/test-ops.sh backup [--stop]         stop admissions and writers, scripts/backup.sh, reopen
@@ -24,11 +27,11 @@
 # and every later command uses that.
 #
 # Settings come from one env file outside the checkout, $TEST_OPS_ENV_FILE
-# (/etc/agent-platform/test-ops.env, mode 0600), which compose reads through
+# (/etc/werft/test-ops.env, mode 0600), which compose reads through
 # --env-file; this script never sources it. State — the deployed manifest,
 # upgrade approvals, backups, drill logs — goes to $TEST_OPS_STATE_DIR
-# (/var/lib/agent-platform/test-ops). The compose project is
-# $TEST_OPS_PROJECT (agent-platform-test-ops).
+# (/var/lib/werft/test-ops). The compose project is
+# $TEST_OPS_PROJECT (werft-test-ops).
 #
 # Exit codes: 2 usage, 3 upgrade refused, 1 anything else.
 #
@@ -38,9 +41,9 @@
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib/backup-lib.sh"
 
-ENV_FILE="${TEST_OPS_ENV_FILE:-/etc/agent-platform/test-ops.env}"
-STATE_DIR="${TEST_OPS_STATE_DIR:-/var/lib/agent-platform/test-ops}"
-PROJECT="${TEST_OPS_PROJECT:-agent-platform-test-ops}"
+ENV_FILE="${TEST_OPS_ENV_FILE:-/etc/werft/test-ops.env}"
+STATE_DIR="${TEST_OPS_STATE_DIR:-/var/lib/werft/test-ops}"
+PROJECT="${TEST_OPS_PROJECT:-werft-test-ops}"
 CURRENT="${STATE_DIR}/current.json"
 # The manifest of an upgrade that stopped the installation and did not finish.
 PENDING="${STATE_DIR}/pending.json"
@@ -61,7 +64,7 @@ WAIT_TIMEOUT_SEC=600
 EXIT_REFUSED=3
 
 usage() {
-  sed -n '2,37p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
+  sed -n '2,40p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
   exit "$EXIT_USAGE"
 }
 
@@ -96,7 +99,7 @@ case "$VERB" in
       esac
     done
     ;;
-  status)
+  status|start|stop)
     [ $# -eq 0 ] || usage
     ;;
   backup)
@@ -130,7 +133,7 @@ esac
 [ -z "$APPROVED" ] || [ -r "$APPROVED" ] || die "approval file $APPROVED not found"
 case "$PROJECT" in
   ""|[!a-z0-9]*|*[!a-z0-9_-]*) die "TEST_OPS_PROJECT must match [a-z0-9][a-z0-9_-]*: '$PROJECT'" ;;
-  agent-platform) die "TEST_OPS_PROJECT agent-platform is the local stack's project" ;;
+  werft) die "TEST_OPS_PROJECT werft is the local stack's project" ;;
 esac
 umask 077
 
@@ -323,8 +326,15 @@ preflight() {
   local head engine compose_version running_port=""
   require_tools docker jq bun git curl
   head="$(git -C "$REPO_ROOT" rev-parse HEAD)"
-  [ "$head" = "$SOURCE_COMMIT" ] \
-    || die "the checkout is at $head, the manifest's source_commit is $SOURCE_COMMIT; check that commit out first"
+  if [ "$VERB" = start ]; then
+    # Start recreates containers from the compose files, and those live in
+    # infra/: another commit is fine while they are the release's own.
+    [ "$head" = "$SOURCE_COMMIT" ] || git -C "$REPO_ROOT" diff --quiet "$SOURCE_COMMIT" "$head" -- infra 2>/dev/null \
+      || die "the checkout is at $head and its infra/ differs from the manifest's source_commit $SOURCE_COMMIT (or that commit is not in this checkout); check that commit out first"
+  else
+    [ "$head" = "$SOURCE_COMMIT" ] \
+      || die "the checkout is at $head, the manifest's source_commit is $SOURCE_COMMIT; check that commit out first"
+  fi
   [ -z "$(git -C "$REPO_ROOT" status --porcelain --untracked-files=no)" ] \
     || die "the checkout has local changes; the compose files must be the release's"
   engine="$(docker version --format '{{.Server.Version}}' 2>/dev/null)" || die "cannot reach the Docker daemon"
@@ -376,7 +386,7 @@ stop_writers() {
   [ -n "$installation" ] || die "no EXECUTION_INSTALLATION_ID; cannot tell this installation's workers apart"
   log "stopping admissions and writers: api, scheduler, reconciler"
   ops_compose stop api scheduler reconciler
-  workers="$(docker ps -q --filter "label=agent-platform.installation=${installation}")" \
+  workers="$(docker ps -q --filter "label=werft.installation=${installation}")" \
     || die "docker ps failed; cannot tell whether workers of installation $installation run"
   if [ -n "$workers" ]; then
     log "stopping $(printf '%s\n' "$workers" | grep -c .) worker container(s) of installation $installation"
@@ -389,8 +399,8 @@ stop_writers() {
 in_use_by_others() {
   local installation found
   installation="$(rendered scheduler EXECUTION_INSTALLATION_ID)"
-  found="$(docker ps -aq --filter "label=agent-platform.installation=${installation}" \
-    && docker ps -aq --filter "label=agent-platform.egress-proxy=${installation}")" \
+  found="$(docker ps -aq --filter "label=werft.installation=${installation}" \
+    && docker ps -aq --filter "label=werft.egress-proxy=${installation}")" \
     || die "docker ps failed; cannot tell whether installation id $installation is in use"
   [ -z "$found" ] \
     || die "containers on this daemon already carry installation id $installation; pick another EXECUTION_INSTALLATION_ID"
@@ -513,7 +523,7 @@ deploy() {
   take_lock
   [ ! -e "$CURRENT" ] || die "a release is already deployed ($CURRENT); use upgrade"
   ! project_has_resources "$PROJECT" \
-    || die "project '$PROJECT' already has containers, volumes or networks while $CURRENT names no release"
+    || die "project '$PROJECT' already has containers, volumes or networks while $CURRENT names no release; its data is not touched. If this installation was deployed under other names, set TEST_OPS_PROJECT, TEST_OPS_STATE_DIR and TEST_OPS_ENV_FILE to them"
   load_manifest "$MANIFEST"
   preflight
   in_use_by_others
@@ -585,6 +595,38 @@ upgrade() {
   record_release "$MANIFEST" upgrade
   rm -f "$PENDING"
   log "upgrade: done"
+}
+
+# The deployed release up again on the volumes it left. Refused where nothing
+# was deployed and while an upgrade is unfinished (load_current): both need
+# deploy or upgrade, not this.
+start() {
+  [ -r "$CURRENT" ] || die "no release is deployed ($CURRENT); deploy one first"
+  take_lock
+  load_current
+  [ -r "$IDENTITY" ] || die "$IDENTITY is missing; it is written by deploy"
+  preflight
+  if [ "$STORE" = localstack ] && [ -z "$(ops_compose ps -q localstack)" ]; then
+    log "start: LocalStack was down, so its in-memory bucket is empty; if the API refuses to start, restore the objects with reseed (docs/operator/test-ops.md)"
+  fi
+  start_apps
+  printf '%s start by %s: source %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(id -un)" "$SOURCE_COMMIT" \
+    >> "${STATE_DIR}/history.log"
+  log "start: done"
+}
+
+# Containers and networks go, volumes stay: the compose down of the
+# single-server page, without the env file and image variables typed by hand.
+stop() {
+  [ -r "$CURRENT" ] || die "no release is deployed ($CURRENT); there is nothing to stop"
+  take_lock
+  load_current
+  render
+  check_identity
+  stop_writers
+  ops_compose down --remove-orphans
+  printf '%s stop by %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(id -un)" >> "${STATE_DIR}/history.log"
+  log "stop: done; the volumes stay — bring it back with scripts/test-ops.sh start"
 }
 
 status_report() {
@@ -696,17 +738,18 @@ reseed() {
 # volume from an older release is not deleted: no backup of this checkout holds
 # it, so it may be the last copy.
 reset() {
-  local installation old
+  local installation volume_namespace old
   take_lock
   load_current
   render
   check_identity
   installation="$(rendered scheduler EXECUTION_INSTALLATION_ID)"
+  volume_namespace="$(rendered scheduler EXECUTION_VOLUME_LABEL_NAMESPACE)"
   log "reset: deleting project $PROJECT (installation $installation) and ALL its data"
   ops_compose down -v --remove-orphans
-  docker ps -aq --filter "label=agent-platform.installation=${installation}" | xargs -r docker rm -f >/dev/null
-  docker network ls -q --filter "label=agent-platform.installation=${installation}" | xargs -r docker network rm >/dev/null
-  docker volume ls -q --filter "label=agent-platform.installation=${installation}" | xargs -r docker volume rm >/dev/null
+  docker ps -aq --filter "label=werft.installation=${installation}" | xargs -r docker rm -f >/dev/null
+  docker network ls -q --filter "label=werft.installation=${installation}" | xargs -r docker network rm >/dev/null
+  docker volume ls -q --filter "label=${volume_namespace:-werft}.installation=${installation}" | xargs -r docker volume rm >/dev/null
   old="${STATE_DIR}/reset-$(date -u +%Y%m%dT%H%M%SZ).json"
   mv "$CURRENT" "$old"
   rm -f "$IDENTITY" "$PENDING"
@@ -797,6 +840,8 @@ case "$VERB" in
     ;;
   deploy) deploy ;;
   upgrade) upgrade ;;
+  start) start ;;
+  stop) stop ;;
   status) status_report ;;
   key) key "$@" ;;
   backup) backup ;;

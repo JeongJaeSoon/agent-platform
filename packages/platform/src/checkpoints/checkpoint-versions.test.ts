@@ -95,6 +95,9 @@ function memoryCheckpointStore() {
         .sort((left, right) => right.revision - left.revision)
         .slice(0, limit);
     },
+    async listPinnedCommits() {
+      return [];
+    },
   };
   async function commit(input: CommitCheckpointInput) {
     if (pointer !== null && input.checkpoint.revision <= pointer.revision) {

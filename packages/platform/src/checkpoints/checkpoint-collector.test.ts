@@ -136,6 +136,9 @@ function memorySession() {
     async readPushPinnedRevisions() {
       return [...state.pinned];
     },
+    async listPinnedCommits() {
+      return [];
+    },
     async listCheckpoints(_session, { belowRevision, limit }) {
       return rows
         .filter((row) => row.revision < belowRevision)
