@@ -34,6 +34,7 @@ import {
   createPostgresMcpEgressStore,
   createPostgresMemberStore,
   createPostgresPendingRequests,
+  createPostgresPullRequestSettingsStore,
   createPostgresPullRequests,
   createPostgresPushFollowUpStore,
   createPostgresPushIntents,
@@ -76,6 +77,7 @@ import {
   createAgentAdminService,
   createAgentGitHubService,
   createAgentIdentityService,
+  createAgentPullRequestService,
   createAgentService,
   createApiKeyService,
   createAuthorizationPolicy,
@@ -216,6 +218,7 @@ import {
 } from "./routes/achievements.ts";
 import { registerAgentGitHubRoutes } from "./routes/agent-github.ts";
 import { registerAgentIdentityRoutes } from "./routes/agent-identities.ts";
+import { registerAgentPullRequestRoutes } from "./routes/agent-pull-request.ts";
 import { registerAgentRoutes } from "./routes/agents.ts";
 import { registerApiKeyRoutes } from "./routes/api-keys.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
@@ -861,9 +864,11 @@ const githubWork = createGitHubWorkService({
 });
 const githubOAuth = createPostgresGitHubOAuthStore(db, secretKey);
 const githubCallback = githubCallbackUrl(consoleOrigin);
+const pullRequestSettings = createPostgresPullRequestSettingsStore(db);
 const githubSettings = createGitHubSettingsService({
   authorization,
   store: githubSettingsStore,
+  pullRequestSettings,
   oauth: githubOAuth,
   callbackUrl: githubCallback,
   secretsOn: secretKey !== null,
@@ -895,6 +900,11 @@ const agentGitHub = createAgentGitHubService({
     ? {}
     : { pinned: { apps: githubAppStore, pins: githubPins } }),
 });
+const agentPullRequest = createAgentPullRequestService({
+  authorization,
+  agents: agentStore,
+  settings: pullRequestSettings,
+});
 const pushStore = createPostgresPushRequests(db);
 const pushIntentStore = createPostgresPushIntents(db);
 const pushRequests = createPushRequestService({
@@ -912,6 +922,7 @@ const pullRequests = createPullRequestService({
   gate: github,
   redact: sanitizeText,
   attribution: sessionAttribution,
+  settings: pullRequestSettings,
   consoleOrigin,
   logger,
 });
@@ -951,6 +962,7 @@ const githubMcp = createGitHubMcpServer({
       gate: github,
       redact: sanitizeText,
       attribution: sessionAttribution,
+      settings: pullRequestSettings,
       consoleOrigin,
       logger,
     }),
@@ -1052,6 +1064,8 @@ const workers = createWorkerGateway({
     store: sessionAttribution,
     ledger: commitAttributions,
     consoleOrigin,
+    sessionLink: async (workspaceId) =>
+      (await pullRequestSettings.get(workspaceId)).settings.session_link,
     appBotUserId: createAppBotUsers({ logger }),
     commitPin: {
       resolver: githubResolver,
@@ -1232,6 +1246,7 @@ const app = createApiApp({
     registerGitHubSettingsRoutes(router, githubSettings);
     registerGitHubPackagesRoutes(router, githubPackages);
     registerAgentGitHubRoutes(router, agentGitHub);
+    registerAgentPullRequestRoutes(router, agentPullRequest);
     registerSessionRoutes(router, sessions);
     registerSessionOutputRoutes(router, sessionOutputs);
     registerSessionShareRoutes(router, shares, sessions);
