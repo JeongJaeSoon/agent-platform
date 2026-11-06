@@ -7,6 +7,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -325,6 +326,42 @@ exit 1
     writeFileSync(join(copy, "infra/compose.extra.yml"), "services: {}\n");
     expect(preflight().stderr).toContain("does not list");
   });
+
+  bundleTest(
+    "checks the files before any verb runs docker or the bundled helper",
+    () => {
+      const copy = join(work, "copy-all-verbs");
+      cpSync(unpacked, copy, { recursive: true });
+      // A changed helper (the bundle's own code), then a symlink SHA256SUMS does
+      // not list.
+      writeFileSync(join(copy, "scripts/lib/test-ops.ts"), "process.exit(0);\n");
+      const before = existsSync(calls) ? readFileSync(calls, "utf8") : "";
+      const result = (verb: string[]) =>
+        sh(["bash", join(copy, "scripts/test-ops.sh"), ...verb], {
+          cwd: work,
+          env: env(),
+        });
+      for (const verb of [
+        ["stop"],
+        ["status"],
+        ["preflight", join(work, "none.json")],
+        ["deploy", join(work, "none.json")],
+        ["reset", "--yes"],
+      ]) {
+        const run = result(verb);
+        expect(run.exitCode).not.toBe(0);
+        expect(run.stderr).toContain("differs from SHA256SUMS");
+      }
+      cpSync(
+        join(unpacked, "scripts/lib/test-ops.ts"),
+        join(copy, "scripts/lib/test-ops.ts"),
+      );
+      symlinkSync("/etc/hosts", join(copy, "infra/extra-link"));
+      expect(result(["stop"]).stderr).toContain("does not list");
+      const after = existsSync(calls) ? readFileSync(calls, "utf8") : "";
+      expect(after).toBe(before);
+    },
+  );
 
   bundleTest(
     "renders its compose layers with every bind source inside the bundle",

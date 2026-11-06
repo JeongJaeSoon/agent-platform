@@ -390,19 +390,25 @@ version_at_least() {
   done
 }
 
-# The bundle is what its SHA256SUMS lists and nothing else, and the loaded
-# manifest names this release's commit and exactly its three images. A checkout
-# has git for this; SHA256SUMS catches damage and stray files, not a forged
+# The bundle is what its SHA256SUMS lists and nothing else. This runs for every
+# verb before anything in the bundle executes (the helper image comes from the
+# bundle's own manifest). SHA256SUMS catches damage and stray files, not a forged
 # bundle, so fetch it from the GitHub Release (docs/operator/test-ops.md).
-check_bundle() {
-  local listed actual image app name want
+check_bundle_files() {
+  local listed actual
   [ -r "$RELEASE_MANIFEST" ] && [ -r "${REPO_ROOT}/SHA256SUMS" ] \
     || die "the bundle is incomplete: release-manifest.json or SHA256SUMS is missing"
   (cd "$REPO_ROOT" && if command -v sha256sum >/dev/null 2>&1; then sha256sum -c --quiet SHA256SUMS; else shasum -a 256 -c --quiet SHA256SUMS; fi) >&2 \
     || die "a bundle file differs from SHA256SUMS (above); download the bundle again"
   listed="$(awk '{print $2}' "${REPO_ROOT}/SHA256SUMS" | sort)"
-  actual="$(cd "$REPO_ROOT" && find . -type f ! -name SHA256SUMS | sed 's|^\./||' | sort)"
+  actual="$(cd "$REPO_ROOT" && find . ! -type d ! -name SHA256SUMS | sed 's|^\./||' | sort)"
   [ "$listed" = "$actual" ] || die "the bundle holds files SHA256SUMS does not list, or lacks listed ones; download it again"
+}
+
+# The loaded manifest names this release's commit and exactly its three images.
+# A checkout has git for this.
+check_bundle() {
+  local image app name want
   [ "$(jq -r .commit "$RELEASE_MANIFEST")" = "$SOURCE_COMMIT" ] \
     || die "the manifest's source_commit is $SOURCE_COMMIT, this bundle is $(jq -r .commit "$RELEASE_MANIFEST")"
   for app in control-host:API_IMAGE worker:WORKER_IMAGE egress-proxy:EGRESS_PROXY_IMAGE; do
@@ -935,6 +941,7 @@ if [ "$VERB" = manifest ]; then
   exit 0
 fi
 
+[ "$MODE" = bundle ] && check_bundle_files
 check_env_file
 # Deploy takes TEST_OPS_OBJECT_STORE (localstack by default) and records it;
 # after that, the recorded one is the installation's.
