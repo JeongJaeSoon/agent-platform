@@ -42,6 +42,8 @@ const NO_GITHUB = {
   github: null,
   repositoryCeiling: null,
   githubEnabled: false,
+  pushAttached: "ask" as const,
+  attachedApproval: null,
   policyFields: { policy_source: "release" as const },
 };
 const KEYS: Record<string, readonly SessionScope[]> = {
@@ -337,6 +339,8 @@ describe("push request routes", () => {
       repositoryCeiling: null,
       githubEnabled: true,
       policyApproval: null,
+      pushAttached: "ask" as const,
+      attachedApproval: null,
       policyFields: {},
     };
 

@@ -14,6 +14,7 @@ import {
 import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { createPostgresAgentGitHubStore } from "./agent-github.ts";
 import {
   agentGitHubSettingsOf,
   captureGitHubPolicyStart,
@@ -41,6 +42,19 @@ const PIN_OFF = {
   push_approval: false,
   features: { ...GITHUB_CEILING_NONE },
   actions_allow: [],
+};
+
+/** A snapshot taken when the agent's attached push was `allow`. */
+const START_ATTACHED_ALLOW = {
+  enabled: true,
+  revision: 1,
+  settings: {
+    repositories: ["sample-app"],
+    push_approval: true,
+    features: { ...GITHUB_CEILING_NONE },
+    actions_allow: [],
+  },
+  push_attached: "allow",
 };
 
 integration("the readers of an agent's GitHub settings", () => {
@@ -146,19 +160,22 @@ integration("the readers of an agent's GitHub settings", () => {
       revision?: number;
       /** A person's id for a row a person saved; absent for a migration's. */
       updatedBy?: string;
+      /** Absent: null, a row saved before the column. */
+      pushAttached?: string;
     },
   ) {
     await pool.query(
       `INSERT INTO agent_github_settings (agent_id, workspace_id, repositories,
-         push_approval, features, actions_allow, revision, updated_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         push_approval, features, actions_allow, revision, updated_by, push_attached)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        ON CONFLICT (agent_id) DO UPDATE SET
          repositories = EXCLUDED.repositories,
          push_approval = EXCLUDED.push_approval,
          features = EXCLUDED.features,
          actions_allow = EXCLUDED.actions_allow,
          revision = EXCLUDED.revision,
-         updated_by = EXCLUDED.updated_by`,
+         updated_by = EXCLUDED.updated_by,
+         push_attached = EXCLUDED.push_attached`,
       [
         agentId,
         workspaceId,
@@ -168,6 +185,7 @@ integration("the readers of an agent's GitHub settings", () => {
         JSON.stringify(row.actionsAllow ?? []),
         row.revision ?? 1,
         row.updatedBy ?? null,
+        row.pushAttached ?? null,
       ],
     );
   }
@@ -183,6 +201,8 @@ integration("the readers of an agent's GitHub settings", () => {
         : never
       : never;
     policyFields?: object;
+    /** Default: the session's own repository. */
+    repositoryId?: string;
   }) =>
     pushes.create({
       ownerId: input.workspaceId,
@@ -190,7 +210,7 @@ integration("the readers of an agent's GitHub settings", () => {
       actor: ACTOR,
       idempotencyKey: `k-${randomUUID()}`,
       payloadHash: "h",
-      repositoryId: "sample-app",
+      repositoryId: input.repositoryId ?? "sample-app",
       repositoryBinding: "sha256:binding",
       checkpointRevision: 1,
       gitCommit: COMMIT,
@@ -232,6 +252,7 @@ integration("the readers of an agent's GitHub settings", () => {
       currentRepositories: null,
       startActionsAllow: null,
       enabledAtStart: true,
+      pushAttached: "ask",
     });
     await settingsRow(workspaceId, agentId, {
       repositories: ["sample-app", "docs"],
@@ -261,6 +282,7 @@ integration("the readers of an agent's GitHub settings", () => {
       currentRepositories: null,
       startActionsAllow: null,
       enabledAtStart: true,
+      pushAttached: "ask",
     });
   });
 
@@ -381,6 +403,207 @@ integration("the readers of an agent's GitHub settings", () => {
       refusal: "approval_required",
       policy_source: "agent",
       agent_settings_revision: 2,
+    });
+  });
+
+  describe("push_attached", () => {
+    const columnOf = async (agentId: string) => {
+      const { rows } = await pool.query<{ push_attached: string | null }>(
+        "SELECT push_attached FROM agent_github_settings WHERE agent_id = $1",
+        [agentId],
+      );
+      return rows[0]?.push_attached;
+    };
+
+    test("a row written without the column holds null and reads as ask, with no approval by policy", async () => {
+      const { workspaceId, agentId, sessionId } = await fixture({
+        source: "agent",
+      });
+      // The row as it was stored before the column existed.
+      await settingsRow(workspaceId, agentId, {
+        pushApproval: false,
+        updatedBy: randomUUID(),
+      });
+      expect(await columnOf(agentId)).toBeNull();
+      expect(await agentGitHubSettingsOf(db, agentId)).toMatchObject({
+        pushAttached: null,
+      });
+      const found = await pushes.findSession(workspaceId, sessionId);
+      expect(found).toMatchObject({
+        pushAttached: "ask",
+        attachedApproval: null,
+      });
+      // Reading it does not write the column.
+      expect(await columnOf(agentId)).toBeNull();
+    });
+
+    test("the column accepts allow, ask and deny and nothing else", async () => {
+      const { workspaceId, agentId } = await fixture({ source: "agent" });
+      for (const value of ["allow", "ask", "deny"]) {
+        await settingsRow(workspaceId, agentId, { pushAttached: value });
+        expect(await columnOf(agentId)).toBe(value);
+      }
+      await expect(
+        settingsRow(workspaceId, agentId, { pushAttached: "sometimes" }),
+      ).rejects.toThrow();
+    });
+
+    test("allow is a policy approval for an attached repository even while the own repository asks; ask or deny after that sends it back to a person", async () => {
+      for (const narrowed of ["ask", "deny"]) {
+        const { workspaceId, agentId, sessionId } = await fixture({
+          source: "agent",
+          start: START_ATTACHED_ALLOW,
+        });
+        await settingsRow(workspaceId, agentId, {
+          pushApproval: true,
+          pushAttached: "allow",
+          revision: 2,
+          updatedBy: randomUUID(),
+        });
+        const found = await pushes.findSession(workspaceId, sessionId);
+        // The own repository still asks; the attached one is approved.
+        expect(found?.policyApproval).toBeNull();
+        expect(found?.attachedApproval).toMatchObject({
+          source: "agent",
+          settingsRevision: 2,
+        });
+        const created = await request({
+          workspaceId,
+          sessionId,
+          repositoryId: "docs",
+          policyApproval: found?.attachedApproval ?? null,
+          policyFields: found?.policyFields ?? {},
+        });
+        if (created.outcome !== "written") throw new Error("not written");
+        expect(await stateOf(created.request.id)).toMatchObject({
+          state: "approved",
+          approval_basis: "policy",
+        });
+
+        await settingsRow(workspaceId, agentId, {
+          pushApproval: true,
+          pushAttached: narrowed,
+          revision: 3,
+          updatedBy: randomUUID(),
+        });
+        expect(await claimed()).not.toContain(sessionId);
+        expect(await stateOf(created.request.id)).toMatchObject({
+          state: "requested",
+          approval_basis: null,
+        });
+      }
+    });
+
+    // The real save path, as the PUT route reaches it. `pushAttached` is left
+    // out of the input unless a test names it.
+    const save = (
+      workspaceId: string,
+      agentId: string,
+      input: {
+        expectedRevision: number | null;
+        pushApproval: boolean;
+        pushAttached?: "allow" | "ask" | "deny";
+      },
+    ) =>
+      createPostgresAgentGitHubStore(db).putSettings({
+        workspaceId,
+        agentId,
+        expectedRevision: input.expectedRevision,
+        settings: {
+          repositories: ["sample-app"],
+          push_approval: input.pushApproval,
+          features: { ...GITHUB_CEILING_NONE },
+          actions_allow: [],
+        },
+        startRepositoryId: null,
+        ...(input.pushAttached === undefined
+          ? {}
+          : { pushAttached: input.pushAttached }),
+        userId: randomUUID(),
+        principal: { ownerId: workspaceId },
+        managerRoles: [],
+        check: () => {},
+      });
+
+    test("a row from before the column stays null, and asks, after a save that changes another field", async () => {
+      const { workspaceId, agentId } = await fixture({ source: "agent" });
+      await settingsRow(workspaceId, agentId, {
+        pushApproval: true,
+        updatedBy: randomUUID(),
+      });
+      expect(await columnOf(agentId)).toBeNull();
+      const saved = await save(workspaceId, agentId, {
+        expectedRevision: 1,
+        pushApproval: false,
+      });
+      expect(saved).toMatchObject({ outcome: "saved", revision: 2 });
+      expect(await columnOf(agentId)).toBeNull();
+      expect(await agentGitHubSettingsOf(db, agentId)).toMatchObject({
+        pushApproval: false,
+        pushAttached: null,
+      });
+    });
+
+    test("a first save that leaves the field out stores allow", async () => {
+      const { workspaceId, agentId } = await fixture({ source: "agent" });
+      expect(await columnOf(agentId)).toBeUndefined();
+      const saved = await save(workspaceId, agentId, {
+        expectedRevision: null,
+        pushApproval: true,
+      });
+      expect(saved).toMatchObject({ outcome: "saved", revision: 1 });
+      expect(await columnOf(agentId)).toBe("allow");
+    });
+
+    test("a save that leaves the field out keeps a stored deny", async () => {
+      const { workspaceId, agentId } = await fixture({ source: "agent" });
+      await save(workspaceId, agentId, {
+        expectedRevision: null,
+        pushApproval: true,
+        pushAttached: "deny",
+      });
+      expect(await columnOf(agentId)).toBe("deny");
+      const saved = await save(workspaceId, agentId, {
+        expectedRevision: 1,
+        pushApproval: false,
+      });
+      expect(saved).toMatchObject({ outcome: "saved", revision: 2 });
+      expect(await columnOf(agentId)).toBe("deny");
+    });
+
+    test("a session with no snapshot is capped at ask even when the row now says allow", async () => {
+      const { workspaceId, agentId, sessionId } = await fixture({
+        source: "agent",
+      });
+      await settingsRow(workspaceId, agentId, {
+        pushApproval: true,
+        pushAttached: "allow",
+        updatedBy: randomUUID(),
+      });
+      expect(await pushes.findSession(workspaceId, sessionId)).toMatchObject({
+        pushAttached: "ask",
+        attachedApproval: null,
+      });
+    });
+
+    test("while the row still says allow, the approved attached push is claimed", async () => {
+      const { workspaceId, agentId, sessionId } = await fixture({
+        source: "agent",
+        start: START_ATTACHED_ALLOW,
+      });
+      await settingsRow(workspaceId, agentId, {
+        pushApproval: true,
+        pushAttached: "allow",
+        updatedBy: randomUUID(),
+      });
+      const found = await pushes.findSession(workspaceId, sessionId);
+      await request({
+        workspaceId,
+        sessionId,
+        repositoryId: "docs",
+        policyApproval: found?.attachedApproval ?? null,
+      });
+      expect(await claimed()).toContain(sessionId);
     });
   });
 
@@ -647,7 +870,28 @@ integration("the readers of an agent's GitHub settings", () => {
           features: REVIEW_ON,
           actions_allow: [],
         },
+        push_attached: "ask",
       });
+    });
+
+    test("a new session's snapshot starts at the row's own push_attached, allow included", async () => {
+      const { workspaceId, agentId, releaseId } = await fixture({
+        source: "agent",
+      });
+      for (const [stored, expected] of [
+        ["allow", "allow"],
+        ["deny", "deny"],
+        [undefined, "ask"],
+      ] as const) {
+        await settingsRow(workspaceId, agentId, {
+          updatedBy: PERSON,
+          ...(stored === undefined ? {} : { pushAttached: stored }),
+        });
+        const taken = await db.transaction((tx) =>
+          captureGitHubPolicyStart(tx, releaseId),
+        );
+        expect(taken.push_attached).toBe(expected);
+      }
     });
 
     test("capturing also holds the agent's switch until the session exists", async () => {
@@ -792,6 +1036,7 @@ integration("the readers of an agent's GitHub settings", () => {
         currentRepositories: ["sample-app", "docs"],
         startActionsAllow: null,
         enabledAtStart: true,
+        pushAttached: "ask",
       });
       expect(
         await createPostgresGitHubMcpStore(db).sessionState(sessionId),

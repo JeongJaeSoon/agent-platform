@@ -7,6 +7,7 @@ import {
   type PushRequest,
   type PushResolution,
   pushBranchFor,
+  pushClassOf,
   type ReceiptActor,
 } from "@werft-ai/contracts";
 import { namesWorkingTreeSnapshot } from "@werft-ai/runtime-core";
@@ -206,6 +207,13 @@ export function createPushRequestService(deps: {
       ) {
         return refuse("repository_not_allowed", repository);
       }
+      const attachedPush =
+        pushClassOf(session.repositoryId, repositoryId) === "push.attached";
+      // `push.attached = deny` ends the request here; `ask` and `allow` are
+      // told apart below by whether a policy approves it.
+      if (attachedPush && session.pushAttached === "deny") {
+        return refuse("repository_not_allowed", repository);
+      }
       const pinned = await source.readPushSource(sessionId);
       if (pinned.status === "none") return refuse("no_checkpoint", repository);
       if (pinned.status === "unavailable") {
@@ -239,10 +247,9 @@ export function createPushRequestService(deps: {
           targetBranch: pushBranchFor(sessionId, body.branch),
           checkpointRevision: pinned.revision,
           gitCommit: pinned.gitCommit,
-          policyApproval:
-            repositoryId === session.repositoryId
-              ? session.policyApproval
-              : null,
+          policyApproval: attachedPush
+            ? session.attachedApproval
+            : session.policyApproval,
           policyFields: session.policyFields,
         }),
       );

@@ -36,6 +36,7 @@ const TAB: Tab = {
   github: SETTINGS,
   settings_revision: 3,
   start_repository_id: null,
+  push_attached: "ask",
   legacy_defaults: null,
   options: {
     repository_ceiling_unset: false,
@@ -483,6 +484,7 @@ describe("에이전트 GitHub 탭", () => {
       ...TAB,
       github: null,
       settings_revision: null,
+      push_attached: "allow" as const,
       legacy_defaults: defaults,
     };
     const { api } = renderAt(
@@ -522,6 +524,8 @@ describe("에이전트 GitHub 탭", () => {
         expected_revision: null,
         settings: defaults,
         start_repository_id: null,
+        // What a first save starts from (owner decision D6).
+        push_attached: "allow",
       },
     ]);
     expect(api.calls.filter((c) => c.path.endsWith("/releases"))).toEqual([]);
@@ -657,6 +661,8 @@ describe("에이전트 GitHub 탭", () => {
         expected_revision: 3,
         settings: { ...SETTINGS, push_approval: false },
         start_repository_id: null,
+        // A row from before the column reads `ask`; saving keeps it.
+        push_attached: "ask",
       },
     ]);
     expect(
@@ -667,6 +673,49 @@ describe("에이전트 GitHub 탭", () => {
     await waitFor(() =>
       expect(screen.queryByText(/저장하지 않은 변경/)).toBeNull(),
     );
+  });
+
+  test("첨부 저장소 push는 저장된 값을 보여 주고, 바꾸면 한 칸만 PUT하며, 되돌리면 초안이 사라진다", async () => {
+    const { server } = await activeAgent();
+    const sent: unknown[] = [];
+    renderAt(
+      DETAIL,
+      routesFor(server, TAB, {
+        [`PUT ${PATH}/github/settings`]: async (request) => {
+          sent.push(await request.json());
+          return json(200, { settings_revision: 4, receipt_id: RECEIPT_ID });
+        },
+      }),
+    );
+    const user = await setupUser();
+    await screen.findByRole("heading", { name: "권한" });
+    const select = screen.getByLabelText(
+      "첨부 저장소 push",
+    ) as HTMLSelectElement;
+    // The row holds `ask` (a row from before the column reads as it).
+    expect(select.value).toBe("ask");
+
+    await user.selectOptions(select, "deny");
+    await screen.findByText(/저장하지 않은 변경 1건/);
+    await user.selectOptions(select, "ask");
+    await waitFor(() =>
+      expect(screen.queryByText(/저장하지 않은 변경/)).toBeNull(),
+    );
+
+    await user.selectOptions(select, "allow");
+    await screen.findByText(/첨부 저장소는 사람 승인 없이 붙으므로/);
+    await user.click(await screen.findByRole("button", { name: "저장" }));
+    await screen.findByText(
+      "GitHub 설정을 저장했습니다. 새 릴리스는 만들지 않았습니다.",
+    );
+    expect(sent).toEqual([
+      {
+        expected_revision: 3,
+        settings: SETTINGS,
+        start_repository_id: null,
+        push_attached: "allow",
+      },
+    ]);
   });
 
   test("시작 저장소는 고른 저장소 안에서만 정하고, 저장소를 끄면 지정이 풀린다", async () => {
@@ -795,6 +844,7 @@ describe("에이전트 GitHub 탭", () => {
           ...TAB,
           github: null,
           settings_revision: null,
+          push_attached: "allow" as const,
           legacy_defaults: empty,
         },
         {
@@ -835,6 +885,7 @@ describe("에이전트 GitHub 탭", () => {
         expected_revision: null,
         settings: { ...empty, repositories: ["werft-sandbox"] },
         start_repository_id: null,
+        push_attached: "allow",
       },
     ]);
   });

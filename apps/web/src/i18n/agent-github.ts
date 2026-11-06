@@ -134,6 +134,14 @@ export const agentGitHubKo = {
     "켜면 에이전트가 만든 commit을 sessions:approve 권한이 있는 사람이 승인해야 push합니다. 기존 에이전트는 켜진 채로 옮겨졌습니다.",
   "agentGitHub.pushApprovalOff":
     "승인 없이 agent/<세션> 브랜치로 push하고 PR을 엽니다.",
+  "agentGitHub.pushAttached": "첨부 저장소 push",
+  "agentGitHub.pushAttachedHint":
+    "세션이 붙인 저장소의 agent/<세션> 브랜치로 push할 때의 규칙입니다. 세션의 주 저장소는 위의 승인 설정을 따릅니다.",
+  "agentGitHub.pushAttached.allow": "승인 없이 허용",
+  "agentGitHub.pushAttached.ask": "사람 승인 필요",
+  "agentGitHub.pushAttached.deny": "허용하지 않음",
+  "agentGitHub.pushAttachedAllowNote":
+    "첨부 저장소는 사람 승인 없이 붙으므로, 허용하면 붙이기와 push가 사람 없이 이어집니다. 대상은 agent/<세션> 브랜치뿐이고 force push는 하지 않습니다.",
   "agentGitHub.startHint":
     "저장소를 지정하지 않고 시작한 세션이 처음 쓰는 저장소입니다. 고른 저장소 안에서만 정할 수 있습니다.",
   "agentGitHub.startNone": "지정 안 함",
@@ -321,6 +329,14 @@ export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
     "When on, someone with sessions:approve approves the agent's commits before they are pushed. Existing agents moved over with it on.",
   "agentGitHub.pushApprovalOff":
     "Pushes to agent/<session> branches and opens pull requests without approval.",
+  "agentGitHub.pushAttached": "Push to attached repositories",
+  "agentGitHub.pushAttachedHint":
+    "The rule for pushing to agent/<session> branches of repositories a session attached. The session's own repository follows the approval setting above.",
+  "agentGitHub.pushAttached.allow": "Allow without approval",
+  "agentGitHub.pushAttached.ask": "Ask a person",
+  "agentGitHub.pushAttached.deny": "Do not allow",
+  "agentGitHub.pushAttachedAllowNote":
+    "A repository is attached without a person's approval, so allowing this lets attaching and pushing run with no person involved. It reaches only agent/<session> branches and never force-pushes.",
   "agentGitHub.startHint":
     "The repository a session uses first when it starts without naming one. It can only be one of the chosen repositories.",
   "agentGitHub.startNone": "Not set",
@@ -512,6 +528,14 @@ export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
     "オンにすると、エージェントが作った commit を sessions:approve 権限のある人が承認してから push します。既存のエージェントはオンのまま移行しました。",
   "agentGitHub.pushApprovalOff":
     "承認なしで agent/<セッション> ブランチに push し、PR を開きます。",
+  "agentGitHub.pushAttached": "追加リポジトリへの push",
+  "agentGitHub.pushAttachedHint":
+    "セッションが追加したリポジトリの agent/<セッション> ブランチへ push するときのルールです。セッションの主リポジトリは上の承認設定に従います。",
+  "agentGitHub.pushAttached.allow": "承認なしで許可",
+  "agentGitHub.pushAttached.ask": "人の承認が必要",
+  "agentGitHub.pushAttached.deny": "許可しない",
+  "agentGitHub.pushAttachedAllowNote":
+    "追加リポジトリは人の承認なしで追加されるため、許可すると追加と push が人を介さず続きます。対象は agent/<セッション> ブランチだけで、force push は行いません。",
   "agentGitHub.startHint":
     "リポジトリを指定せずに始めたセッションが最初に使うリポジトリです。選んだリポジトリの中からだけ指定できます。",
   "agentGitHub.startNone": "指定しない",
