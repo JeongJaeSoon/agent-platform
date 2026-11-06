@@ -441,6 +441,15 @@ esac
       expect(run.err).toContain("too long");
     });
 
+    test.each([
+      ["a prerelease ending in a dash", "v1.2.3-rc-", "must end in"],
+      ["a number past uint64", "v18446744073709551616.0.0", "19 or more"],
+    ])("%s is refused before anything is published", (_name, heading, why) => {
+      const run = detect(base, changelog(heading, "v0.1.1", "v0.1.0"));
+      expect(run.code).toBe(1);
+      expect(run.err).toContain(why);
+    });
+
     test("a version whose tag exists is refused", () => {
       const run = detect(base, changelog("v0.1.2", "v0.1.1", "v0.1.0"), [
         { match: "git/ref/tags/", out: "{}" },

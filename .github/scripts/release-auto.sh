@@ -57,6 +57,10 @@ detect() {
     [ -z "$gone" ] || fail "${added} appears where ${gone//$'\n'/, } was: a renamed section is not a release"
     [[ "$added" =~ $version_pattern ]] \
       || fail "'${added}' is not v<major>.<minor>.<patch>[-<prerelease>]"
+    # Helm parses the numbers as uint64, and a label value must end in an
+    # alphanumeric. Both fail only after the images are published, so refuse here.
+    [[ ! "$added" =~ [0-9]{19} ]] || fail "'${added}' has a number of 19 or more digits"
+    [[ "$added" =~ [0-9A-Za-z]$ ]] || fail "'${added}' must end in a letter or digit to be a chart label"
     # chart-package.ts rejects a helm.sh/chart label "werft-<version>" over 63
     # characters, and by then the images are published: refuse it here.
     [ "${#added}" -le 58 ] || fail "'${added}' is too long: the chart label werft-${added#v} would pass 63 characters"
