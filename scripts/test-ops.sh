@@ -98,7 +98,7 @@ WAIT_TIMEOUT_SEC=600
 EXIT_REFUSED=3
 
 usage() {
-  sed -n '2,46p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
+  sed -n '2,47p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
   exit "$EXIT_USAGE"
 }
 
