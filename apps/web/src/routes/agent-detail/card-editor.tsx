@@ -1,6 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ApiError, unwrap } from "@werft-ai/client";
-import type { AgentCard, AgentDetail, AgentVersion } from "@werft-ai/contracts";
+import type {
+  AgentCard,
+  AgentDetail,
+  AgentVersion,
+  SaveAgentResponse,
+} from "@werft-ai/contracts";
 import { AGENT_DESCRIPTION_MAX_LENGTH } from "@werft-ai/contracts/agent-card";
 import { useWerft } from "@werft-ai/react";
 import {
@@ -42,8 +47,9 @@ import type { Outcome } from "../../components/outcome.tsx";
 import { SECTION_BODY } from "../../components/section-body.ts";
 import { useI18n } from "../../i18n/i18n.tsx";
 import { agentRefusal } from "../agents.tsx";
+import { saveFailureText } from "./effective-behavior.tsx";
 import { releasedProfile } from "./releases.tsx";
-import { latestVersion } from "./versions.tsx";
+import { draftVersion, latestVersion, shownVersion } from "./versions.tsx";
 
 export function CardEditor({
   detail,
@@ -72,7 +78,7 @@ export function CardEditor({
   const { client } = useWerft();
   const queryClient = useQueryClient();
   const role = useRole();
-  const latest = latestVersion(detail);
+  const latest = openVersion(detail);
   // The edit is tied to the version it started from, not to whatever a
   // background refetch last brought in, so unsaved input is never replaced.
   const [edit, setEdit] = useState(() => startEdit(detail));
@@ -105,7 +111,10 @@ export function CardEditor({
   // The editor replaces the button that opened it.
   useEffect(() => title.current?.focus(), []);
 
-  const save = useMutation<AgentDetail, ApiError, Submitted>({
+  // The profile the save releases on: the one picked here, else the one the
+  // agent runs. None: the card is kept and nothing is released.
+  const releaseProfile = profileId ?? releasedProfile(detail);
+  const save = useMutation<SaveAgentResponse, ApiError, Submitted>({
     mutationFn: ({
       baseName,
       baseDescription,
@@ -128,11 +137,16 @@ export function CardEditor({
               : {}),
             // Name and description alone change the row, not the version.
             ...(sendsCard && draft
-              ? { card: cardFromDraft(draft, base?.card) }
+              ? {
+                  card: cardFromDraft(draft, base?.card),
+                  ...(releaseProfile
+                    ? { runtime_profile_id: releaseProfile }
+                    : {}),
+                }
               : {}),
           },
         }),
-      ) as Promise<AgentDetail>,
+      ) as Promise<SaveAgentResponse>,
     onMutate: () => onOutcome(null),
     onSuccess: async (updated, submitted) => {
       // The server keeps one version per card content, so the card just saved
@@ -143,16 +157,39 @@ export function CardEditor({
       if (saved) onSaved(saved.id);
       const isNew =
         saved !== undefined && !detail.versions.some((v) => v.id === saved.id);
-      onOutcome({
-        kind: "notice",
-        text: !submitted.sendsCard
-          ? t("agent.identitySaved")
-          : isNew
-            ? t("agent.saved", { version: saved.version_no })
-            : saved && saved.id !== submitted.baseId
-              ? t("agent.savedExisting", { version: saved.version_no })
-              : t("agent.savedNoChange"),
-      });
+      const { release } = updated;
+      onOutcome(
+        release.status === "failed"
+          ? {
+              kind: "error",
+              text: saved
+                ? t("agent.save.failedVersion", {
+                    version: saved.version_no,
+                    reason: saveFailureText(t, release.reason),
+                  })
+                : t("agent.save.failed", {
+                    reason: saveFailureText(t, release.reason),
+                  }),
+            }
+          : {
+              kind: "notice",
+              text: !submitted.sendsCard
+                ? t("agent.identitySaved")
+                : release.status === "applied"
+                  ? t("agent.save.applied", {
+                      version: saved?.version_no ?? "",
+                    })
+                  : release.status === "superseded"
+                    ? t("agent.save.superseded")
+                    : isNew
+                      ? t("agent.saved", { version: saved.version_no })
+                      : saved && saved.id !== submitted.baseId
+                        ? t("agent.savedExisting", {
+                            version: saved.version_no,
+                          })
+                        : t("agent.savedNoChange"),
+            },
+      );
       if (sameEdit(latestEdit.current, submitted)) onClose(false);
       // Input typed while the request was in flight stays; it is now an edit
       // of the version just saved, or of the one it started from when only
@@ -165,7 +202,7 @@ export function CardEditor({
           : {
               ...current,
               baseId: now?.id ?? null,
-              seenLatestId: latestVersion(updated)?.id ?? null,
+              seenLatestId: openVersion(updated)?.id ?? null,
               // A field not typed in since the submit follows the server, so
               // a change made elsewhere is not sent back as the user's on the
               // next save; one typed in since keeps the input.
@@ -181,9 +218,10 @@ export function CardEditor({
                   : current.description,
             },
       );
+      const { release: _release, ...stored } = updated;
       queryClient.setQueryData(
         queryKeysOf(client).agent(detail.agent.id),
-        updated,
+        stored,
       );
       await queryClient.invalidateQueries(agentListsFilter(client));
     },
@@ -324,12 +362,20 @@ const sameEdit = (a: Edit, b: Edit) =>
   JSON.stringify(a.draft) === JSON.stringify(b.draft);
 
 const descriptionOf = (detail: AgentDetail) => detail.agent.description ?? "";
+/**
+ * The version an edit starts from: a save waiting for its release (or refused),
+ * else the one new sessions run. Not the highest number, which a refused save
+ * leaves ahead of what runs.
+ */
+const openVersion = (detail: AgentDetail) =>
+  draftVersion(detail) ?? shownVersion(detail);
+
 function startEdit(detail: AgentDetail, from?: AgentVersion): Edit {
-  const latest = latestVersion(detail);
-  const base = from ?? latest;
+  const open = openVersion(detail);
+  const base = from ?? open;
   return {
     baseId: base?.id ?? null,
-    seenLatestId: latest?.id ?? null,
+    seenLatestId: open?.id ?? null,
     baseName: detail.agent.name,
     baseDescription: descriptionOf(detail),
     name: detail.agent.name,

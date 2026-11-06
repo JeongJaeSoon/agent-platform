@@ -1922,7 +1922,7 @@ describe("에이전트 상세", () => {
     await user.click(screen.getByRole("button", { name: "저장" }));
     expect(
       await screen.findByText(
-        /저장했습니다 — 버전 2\. 아직 활성화되지 않았습니다/,
+        /저장했습니다 — 버전 2\. 새 세션에는 적용하지 못했습니다/,
       ),
     ).toBeDefined();
     expect(screen.queryByText(/다른 곳에서 카드를 저장해/)).toBeNull();
@@ -2956,7 +2956,10 @@ describe("편집 중 다른 곳의 저장", () => {
       ...server.routes,
       [`GET /v1/agents/${AGENT_ID}`]: () => json(200, legacy(server.detail())),
       [`PATCH /v1/agents/${AGENT_ID}`]: () =>
-        json(200, legacy(server.detail())),
+        json(200, {
+          ...legacy(server.detail()),
+          release: { status: "unchanged", reason: null, release_id: null },
+        }),
     });
     const user = await setupUser();
     await openCardEditor(user);
@@ -3172,7 +3175,11 @@ describe("편집 중 다른 곳의 저장", () => {
       ...meOk,
       ...server.routes,
       [`GET /v1/agents/${OTHER}`]: () => json(200, otherDetail),
-      [`PATCH /v1/agents/${OTHER}`]: () => json(200, otherDetail),
+      [`PATCH /v1/agents/${OTHER}`]: () =>
+        json(200, {
+          ...otherDetail,
+          release: { status: "unchanged", reason: null, release_id: null },
+        }),
     });
     // Visit the other agent first so it is cached when we come back to it.
     await screen.findByRole("heading", { name: "환불 담당" });
