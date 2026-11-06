@@ -246,11 +246,13 @@ export function createPostgresPushIntents(db: Database): PushIntentStore {
           AND s.id = i.session_id AND t.id = i.turn_id
           AND ((t.status NOT IN ('queued', 'running', 'needs_input')
                 AND NOT EXISTS (
-                  -- A parked turn whose group still waits is carried on by
-                  -- the answer, which takes the intent over.
+                  -- A parked turn whose group is not cancelled and not yet
+                  -- carried on keeps its intent: the answer or a person's
+                  -- resume takes it over, even after every request expired.
                   SELECT 1 FROM ${pendingRequests} p
                   WHERE p.turn_id = t.id AND p.parked_at IS NOT NULL
-                    AND p.settled_at IS NULL
+                    AND (p.settled_outcome IS NULL
+                         OR p.settled_outcome <> 'cancelled')
                     AND NOT EXISTS (
                       SELECT 1 FROM ${turnContinuations} c
                       WHERE c.parked_turn_id = t.id)))
