@@ -27,6 +27,7 @@ import type {
   ObjectRef,
   TranscriptRevision,
 } from "@werft-ai/runtime-core";
+import { storedOutputs } from "@werft-ai/runtime-core";
 import { createGitWorkspaceBundleVerifier } from "@werft-ai/storage";
 import {
   createMemoryCheckpointObjectStore,
@@ -57,7 +58,9 @@ import {
   earlierProfileKey,
   ownToolsKey,
   parseImageRuntime,
+  pinnedObjectsOf,
   planArchiveRepin,
+  planProblems,
   planRepin,
   planRuntime,
   refsOf,
@@ -707,6 +710,58 @@ describe("backup → restore re-pin", () => {
         seeded,
       );
       expect(result.status).toBe("ready");
+    });
+  });
+
+  test("verify-restore's plan check reads back and holds a stored output like a transcript part", async () => {
+    await withDir(async (dir) => {
+      const source = createMemoryCheckpointObjectStore({ versioned: true });
+      const seeded = await seed(source, [], undefined, undefined, [
+        { path: "out/report.md", text: "# report" },
+      ]);
+      await syncDown(source, dir);
+      const restored = await restoredBucket();
+      await syncUp(dir, restored, new Set([seeded.row.manifestRef]));
+      const planned = await planRepin({
+        codecs,
+        objects: restored,
+        objectsDir: dir,
+        rows: [seeded.row],
+      });
+      const [row] = await applyRepin({ objects: restored, planned });
+      if (row === undefined) throw new Error("no row");
+      const bytes = await restored.get(
+        seeded.row.manifestRef,
+        row.manifestVersion,
+      );
+      if (bytes === undefined) throw new Error("manifest not written");
+      const manifest = claudeCheckpointCodec.decode(bytes);
+      const result = await restorePlan(
+        restored,
+        pointerOf({ ...seeded.row, ...row }),
+        seeded,
+      );
+      if (result.status !== "ready") throw new Error(result.status);
+      const stored = storedOutputs(manifest.outputs)[0];
+      if (stored?.version === undefined) throw new Error("no stored output");
+
+      // The plan's artifacts do not list outputs; the manifest does.
+      expect(
+        result.plan.artifacts.flatMap((a) => a.objects).map((o) => o.key),
+      ).not.toContain(stored.key);
+      const pinned = pinnedObjectsOf(result.plan, manifest, bytes);
+      expect(pinned.map((o) => o.key)).toContain(stored.key);
+      expect(await planProblems(restored, pinned)).toEqual([]);
+
+      restored.releaseHold(stored.key, stored.version);
+      expect(await planProblems(restored, pinned)).toEqual([
+        `${stored.key} version ${stored.version} is not held`,
+      ]);
+
+      restored.purgeVersion(stored.key, stored.version);
+      expect(await planProblems(restored, pinned)).toEqual([
+        `${stored.key} version ${stored.version} does not read back`,
+      ]);
     });
   });
 

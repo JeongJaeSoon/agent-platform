@@ -162,7 +162,7 @@ while IFS='|' read -r session revision ref expected manifest_version held is_poi
     # file first: a jq that failed halfway inside a process substitution
     # would just end the loop early, and the row would pass unchecked.
     refs="$WORK/refs-$ROWS"
-    if ! jq -j '(([.transcripts.root] + (.transcripts.subagents | to_entries | map(.value))) | .[].parts[]), .workspace.untracked[] | "\(.key)\u0000\(.version // "")\u0000\(.sha256)\u0000\(.bytes)\u0000"' "$manifest" > "$refs"; then
+    if ! jq -j '(([.transcripts.root] + (.transcripts.subagents | to_entries | map(.value))) | .[].parts[]), .workspace.untracked[], (.outputs // [])[] | select(has("omitted") | not) | "\(.key)\u0000\(.version // "")\u0000\(.sha256)\u0000\(.bytes)\u0000"' "$manifest" > "$refs"; then
       fail "$tag manifest: could not list its objects"
       ok=0
     fi
