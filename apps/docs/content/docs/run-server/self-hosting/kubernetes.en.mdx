@@ -43,7 +43,7 @@ kubectl -n werft exec <worker-pod> -- df -h /workspace
 kubectl -n werft exec <worker-pod> -- df -i /workspace
 ```
 
-In `kubectl get storageclass`, check that the provisioner of the StorageClass you use creates volumes whose size is enforced (for example, an EBS gp3 volume is as large as the size requested). The total in `df -h` should equal `quotaMb`; `df -i` shows the inode total. These commands were not run against a cluster (**NOT VERIFIED**). The values were read from the code (`specs.ts`, `config.ts`) and the chart.
+In `kubectl get storageclass`, check that the provisioner of the StorageClass you use creates volumes whose size is enforced (for example, an EBS gp3 volume is as large as the size requested). `REQUEST` in the PVC listing is what Werft asked for, and `CAPACITY` is the size the provisioner made. The total in `df -h` can differ from either because of filesystem overhead, so do not judge by whether they match. Check that `CAPACITY` is at least `REQUEST`, and that writing more than `REQUEST` into a test PVC of the same StorageClass ends in `ENOSPC`. `df -i` shows the inode total. These commands were not run against a cluster (**NOT VERIFIED**). The values were read from the code (`specs.ts`, `config.ts`) and the chart.
 
 - If you change `worker.workspace.quotaMb`, the PVC of an existing session no longer matches the size it was created with, and that session is refused (compared through the `werft.workspace-size` annotation). Change it while no session is in progress so that it applies from the new sessions on.
 - The default StorageClass of kind (local-path style) is known not to enforce the PVC size. This was not measured in this repository (**NOT VERIFIED**). A PVC that is `Bound` on kind does not mean a limit is in place.

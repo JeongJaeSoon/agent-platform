@@ -47,21 +47,23 @@ docker volume create --driver local --opt size=64m quota-probe && docker volume 
 
 1行目に `xfs` が出てオプションに `prjquota` があり、2行目がエラーなく終われば良いです。ext4 だと2行目は `quota size requested but no quota support` で拒否されます。設置済みなら `xfs_quota -x -c 'report -p'` で volume ごとの使用量と上限が見えます。
 
-**ext4 のサーバーを準備する。** 以下は Docker をまだ使っていないサーバーが前提です。イメージファイルに XFS を作り、`/var/lib/docker` に `loop,prjquota` で mount します。イメージファイルは mount 先の外に置きます。
+**ext4 のサーバーを準備する。** イメージファイルに XFS を作り、`/var/lib/docker` に `loop,prjquota` で mount します。イメージファイルは mount 先の外に置きます。以下は1つにつながった行なので、どれかの段階が失敗するとその後(特に Docker の起動)は実行されません。既存の `/var/lib/docker` があれば `/var/lib/docker.old` に移し、mount の後に `rsync` で戻します。Docker を一度も使っていないサーバーでは、この2段階は飛ばされます。
 
 ```bash
-sudo apt-get install -y xfsprogs          # dnf なら dnf install -y xfsprogs
-sudo systemctl stop docker docker.socket
-sudo truncate -s 60G /var/lib/docker.xfs.img
-sudo mkfs.xfs -q /var/lib/docker.xfs.img
-sudo mkdir -p /var/lib/docker
-echo '/var/lib/docker.xfs.img /var/lib/docker xfs loop,prjquota 0 0' | sudo tee -a /etc/fstab
-sudo mount /var/lib/docker
-mount | grep 'on /var/lib/docker .*prjquota'
+sudo apt-get install -y xfsprogs &&   # dnf なら dnf install -y xfsprogs
+sudo systemctl stop docker docker.socket &&
+{ [ ! -e /var/lib/docker ] || sudo mv /var/lib/docker /var/lib/docker.old; } &&
+sudo truncate -s 60G /var/lib/docker.xfs.img &&
+sudo mkfs.xfs -q /var/lib/docker.xfs.img &&
+sudo mkdir -p /var/lib/docker &&
+echo '/var/lib/docker.xfs.img /var/lib/docker xfs loop,prjquota 0 0' | sudo tee -a /etc/fstab &&
+sudo mount /var/lib/docker &&
+mount | grep 'on /var/lib/docker .*prjquota' &&
+{ [ ! -e /var/lib/docker.old ] || sudo rsync -aHAX /var/lib/docker.old/ /var/lib/docker/; } &&
 sudo systemctl start docker
 ```
 
-Docker がすでにイメージや volume を持っているなら、`mount` の前に `/var/lib/docker` を `/var/lib/docker.old` に移し、mount の後、Docker を起動する前に `sudo rsync -aHAX /var/lib/docker.old/ /var/lib/docker/` で戻します。上の確認コマンドが通ってから `deploy` に進みます。
+途中で止まったら Docker は止まったままです。原因を直すまで起動しません。すでに移していれば `/var/lib/docker.old` が元のデータです。上の確認コマンドが通ってから `deploy` に進みます。
 
 - 60G は Docker 全体(イメージ、ログ、すべての volume)の上限です。イメージファイルは sparse なので書いた分だけホストのディスクを使いますが、小さくはなりません。ホストのファイルシステムにその分の空きが必要です。
 - 確認したこと: `truncate`、`mkfs.xfs`、`mount -o loop,prjquota`、`mount | grep prjquota` は、リポジトリの CI の `workspace-quota` job がそのまま実行します(8G のイメージ)。イメージファイルを Docker の `data-root` に指定する方法は OrbStack マシン1台で1回確認しました。`/etc/fstab` の行と `rsync` での移行は、このページを書く間に実行していません(**未検証**)。先にテスト用サーバーで試します。

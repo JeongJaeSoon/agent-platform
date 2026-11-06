@@ -43,7 +43,7 @@ kubectl -n werft exec <worker-pod> -- df -h /workspace
 kubectl -n werft exec <worker-pod> -- df -i /workspace
 ```
 
-`kubectl get storageclass` で、使う StorageClass の provisioner がサイズを強制する volume を作るか確認します(例: EBS gp3 は要求したサイズがそのままブロックデバイスの大きさになる)。`df -h` の合計が `quotaMb` と一致するはずで、`df -i` で inode の合計が見えます。これらのコマンドはクラスターで実行していません(**未検証**)。値はコード(`specs.ts`、`config.ts`)と chart から読みました。
+`kubectl get storageclass` で、使う StorageClass の provisioner がサイズを強制する volume を作るか確認します(例: EBS gp3 は要求したサイズがそのままブロックデバイスの大きさになる)。PVC 一覧の `REQUEST` は Werft が要求した値、`CAPACITY` はプロビジョナーが作ったサイズです。`df -h` の合計はファイルシステムのオーバーヘッドでどちらとも違うことがあるので、一致するかどうかで判定しません。確認するのは、`CAPACITY` が `REQUEST` 以上であることと、同じ StorageClass の試験用 PVC に `REQUEST` より多く書き込んだとき `ENOSPC` になることです。`df -i` で inode の合計が見えます。これらのコマンドはクラスターで実行していません(**未検証**)。値はコード(`specs.ts`、`config.ts`)と chart から読みました。
 
 - `worker.workspace.quotaMb` を変えると、既存セッションの PVC は作成時のサイズと合わなくなり、そのセッションは拒否されます(`werft.workspace-size` annotation と比べる)。新しいセッションから適用するには、進行中のセッションがないときに変えます。
 - kind の既定 StorageClass(local-path 系)は PVC のサイズを強制しないことが知られています。このリポジトリでは測っていません(**未検証**)。kind で PVC が `Bound` になっても、上限が効いているとは限りません。

@@ -43,7 +43,7 @@ kubectl -n werft exec <worker-pod> -- df -h /workspace
 kubectl -n werft exec <worker-pod> -- df -i /workspace
 ```
 
-`kubectl get storageclass`에서 쓸 StorageClass의 provisioner가 용량을 강제하는 볼륨(예: EBS gp3는 요청한 크기가 곧 블록 장치 크기다)을 만드는지 확인한다. `df -h`의 총량이 `quotaMb`와 같아야 하고, `df -i`로 inode 총량을 본다. 이 명령들은 클러스터에서 실행해 보지 않았다(**미검증**). 값은 코드(`specs.ts`, `config.ts`)와 chart에서 읽었다.
+`kubectl get storageclass`에서 쓸 StorageClass의 provisioner가 용량을 강제하는 볼륨(예: EBS gp3는 요청한 크기가 곧 블록 장치 크기다)을 만드는지 확인한다. PVC의 `REQUEST`는 Werft가 요청한 값이고 `CAPACITY`는 프로비저너가 만든 크기다. `df -h`의 총량은 파일시스템 오버헤드 때문에 이 값과 다를 수 있으므로 일치 여부로 판정하지 않는다. 확인할 것은 `CAPACITY`가 `REQUEST` 이상인지와, 같은 StorageClass로 만든 시험 PVC에 `REQUEST`보다 많이 썼을 때 `ENOSPC`가 나는지다. `df -i`로 inode 총량을 본다. 이 명령들은 클러스터에서 실행해 보지 않았다(**미검증**). 값은 코드(`specs.ts`, `config.ts`)와 chart에서 읽었다.
 
 - `worker.workspace.quotaMb`를 바꾸면 이미 있는 세션의 PVC는 만들 때의 크기와 달라 그 세션이 거절된다(`werft.workspace-size` annotation과 비교한다). 새 세션부터 적용하려면 진행 중인 세션이 없을 때 바꾼다.
 - kind의 기본 StorageClass(local-path 계열)는 PVC 크기를 강제하지 않는 것으로 알려져 있다. 이 저장소에서 측정하지 않았다(**미검증**). kind에서 `Bound`가 됐다고 상한이 선 것은 아니다.
