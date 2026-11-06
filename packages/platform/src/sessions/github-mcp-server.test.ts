@@ -133,6 +133,7 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
     readTree: unused,
     readBlob: unused,
     findPullRequestForBranch: unused,
+    findPullRequestsForBranch: unused,
     createPullRequest: unused,
     getPullRequest: async (number) => ({
       pullRequest: {

@@ -1,5 +1,5 @@
 {
-  "id": "6d6a15ee-37b4-4644-ba5c-e66c0d781f4c",
+  "id": "63c51464-6a1f-483d-84de-155299d62f34",
   "prevId": "544501ff-df84-47ee-8dd3-7d63f7bf810d",
   "version": "7",
   "dialect": "postgresql",
@@ -7287,12 +7287,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "replaces_auth": {
-          "name": "replaces_auth",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
         "disabled_at": {
           "name": "disabled_at",
           "type": "timestamp with time zone",
@@ -8249,9 +8243,80 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
+        },
+        "pr_claim_token": {
+          "name": "pr_claim_token",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pr_lease_expires_at": {
+          "name": "pr_lease_expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pr_attempts": {
+          "name": "pr_attempts",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "pr_next_attempt_at": {
+          "name": "pr_next_attempt_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pr_error": {
+          "name": "pr_error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pr_error_details": {
+          "name": "pr_error_details",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pr_verified_number": {
+          "name": "pr_verified_number",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pr_verified_head_sha": {
+          "name": "pr_verified_head_sha",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
+        "push_requests_pr_drain_idx": {
+          "name": "push_requests_pr_drain_idx",
+          "columns": [
+            {
+              "expression": "pr_state",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "pr_next_attempt_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"push_requests\".\"pr_state\" IN ('due','opening')",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "push_requests_pr_open_idx": {
           "name": "push_requests_pr_open_idx",
           "columns": [
@@ -12092,7 +12157,7 @@
         },
         "slack_outbox_kind_check": {
           "name": "slack_outbox_kind_check",
-          "value": "\"slack_outbox\".\"kind\" IN ('instruction', 'reply', 'notice', 'failure_notice', 'input_notice', 'welcome')"
+          "value": "\"slack_outbox\".\"kind\" IN ('instruction', 'reply', 'notice', 'failure_notice', 'input_notice', 'welcome', 'action_notice')"
         },
         "slack_outbox_status_check": {
           "name": "slack_outbox_status_check",
