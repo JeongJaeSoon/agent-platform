@@ -168,6 +168,7 @@ import {
   memberParamsSchema,
   memberUserParamsSchema,
   memberViewSchema,
+  openPullRequestQuerySchema,
   openPullRequestRequestSchema,
   openPullRequestResponseSchema,
   passwordResetRequestSchema,
@@ -225,6 +226,7 @@ import {
   revokeCredentialBindingResponseSchema,
   type SessionScope,
   SLACK_INSTALL_STATE_TTL_SECONDS,
+  scheduledPullRequestResponseSchema,
   searchSlackChannelsQuerySchema,
   searchSlackChannelsResponseSchema,
   sessionCredentialUnboundDetailsSchema,
@@ -362,6 +364,7 @@ const requestComponents = {
   CreatePushRequestRequest: createPushRequestRequestSchema,
   ResolvePushRequestRequest: resolvePushRequestRequestSchema,
   OpenPullRequestRequest: openPullRequestRequestSchema,
+  OpenPullRequestQuery: openPullRequestQuerySchema,
   CommentPullRequestRequest: commentPullRequestRequestSchema,
   DispatchWorkflowRequest: dispatchWorkflowRequestSchema,
   RerunWorkflowRequest: rerunWorkflowRequestSchema,
@@ -466,6 +469,7 @@ const responseComponents = {
   PushRequest: pushRequestSchema,
   ListPushRequestsResponse: listPushRequestsResponseSchema,
   OpenPullRequestResponse: openPullRequestResponseSchema,
+  ScheduledPullRequestResponse: scheduledPullRequestResponseSchema,
   CommentPullRequestResponse: commentPullRequestResponseSchema,
   DispatchWorkflowResponse: dispatchWorkflowResponseSchema,
   GitHubWorkflowRun: githubWorkflowRunSchema,
@@ -756,6 +760,13 @@ export type RouteDeclaration = {
     // A file download: the body is the file's bytes, not JSON.
     | { status: 200; download: true; description: string }
     | { status: 204; description?: string };
+  // A second success status the route can answer, with its own body.
+  alsoSucceeds?: {
+    status: 202;
+    schema: ComponentName;
+    description: string;
+    example?: unknown;
+  };
   errors: number[];
   errorCodes?: Partial<Record<number, readonly ApiErrorCode[]>>;
   // Appended to ERROR_CODE_WHEN's sentence where a code is narrower here.
@@ -3578,10 +3589,11 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Push requests",
     summary: "Open a pull request from a pushed request",
     description:
-      "Opens a pull request on the request's repository's forge (GitHub or GHES) from the request's branch (`agent/<session-id>` or `agent/<session-id>-<branch>`) into that catalog entry's `branch`. Only a `pushed` request opens one, and only while the catalog entry is still the one the request pinned. The platform calls GitHub with its own credential: an installation token of the catalog's GitHub App, scoped to this repository with `contents: read` and `pull_requests: write`.\n\nThe content is the structured fields `summary`, `changes`, `rationale`, `testing`, `notes` and `related`, or the legacy `body` text, never both. The platform lays the fields out on the repository's pull request template when its default branch has one (`.github/`, the repository root or `docs/`, a `pull_request_template.md` or the one file of a `PULL_REQUEST_TEMPLATE/` directory; read at the default branch's commit as it is when the request is handled, never from the pull request's own branch), under the template's headings or at its `<!-- werft:slot summary -->` lines, keeping the template's own text, comments and checkboxes; otherwise on its default template, a heading per field that has content, in Korean. A template that is over 16 KiB, not a plain UTF-8 file, ambiguous (several in a directory), unreadable, or written with HTML, tables, reference definitions or comments that share a row with text is passed over for the default template, and the pull request still opens; `body_source.kind` is `repository` with the template's `path`, or `platform` with `skipped` saying why, and the receipt's `template` records the commit, path and blob read. The template's own mentions, closing keywords and references are broken like the fields', a line that looks like a secret is replaced like theirs, and it cannot pass for the platform's tail. On either layout, `related` items become `Closes #N` (an issue of the pull request's own repository, when `closes` is true) or `Refs owner/repo#N`, written by the platform from the catalog, and an item whose `repository_id` the session's catalog does not have is left out (`body_source.related_dropped` counts them). A legacy `body` is used as written. `body_source` says which one the platform wrote, and is null when the pull request was already open and its body was left alone.\n\n`title` (default `Agent session <session-id>`) and the text are cleaned before GitHub sees them: `@` mentions, cross-repository references (`owner/repo#N`), closing keywords (`Closes #N` and the like) and HTML comments are broken with a zero-width space, a line that looks like a secret is replaced by `[REDACTED]`, an engine's own signature line (Claude Code's `Generated with` link) is removed, and the body is cut to GitHub's limit, the last fields first. The body ends with a line naming the session and the commit. The platform never approves, merges or asks for reviews.\n\nSafe to retry: a request opens at most one pull request. When one is already recorded, or GitHub already has an open one for the branch, it is answered with `created: false` (200). Every attempt, refused ones included, leaves an `open_pull_request` receipt; `receipt_id` names this one, and a refusal's `error.details.receipt_id` names it.\n\nA verified credential that holds `sessions:approve` opens one, as for a push decision. One that may only submit to the session (an agent's key without `sessions:approve`, or the key that started the session) opens one too, since the request was already pushed. The token is issued through the agent's GitHub settings: with GitHub off for the agent, or the repository outside its release, the call is refused with `GITHUB_REFUSED`. Worker credentials are not accepted on `/v1` (401).",
+      "Opens a pull request on the request's repository's forge (GitHub or GHES) from the request's branch (`agent/<session-id>` or `agent/<session-id>-<branch>`) into that catalog entry's `branch`. Only a `pushed` request opens one (without `?schedule=true`; a request that is not pushed yet is refused with `PUSH_NOT_PUSHED`, as before; with `?schedule=true` the call is held until the push finishes, and `PUSH_REQUEST_RESOLVED` answers a request a later one superseded), and only while the catalog entry is still the one the request pinned. The platform calls GitHub with its own credential: an installation token of the catalog's GitHub App, scoped to this repository with `contents: read` and `pull_requests: write`.\n\nThe content is the structured fields `summary`, `changes`, `rationale`, `testing`, `notes` and `related`, or the legacy `body` text, never both. The platform lays the fields out on the repository's pull request template when its default branch has one (`.github/`, the repository root or `docs/`, a `pull_request_template.md` or the one file of a `PULL_REQUEST_TEMPLATE/` directory; read at the default branch's commit as it is when the request is handled, never from the pull request's own branch), under the template's headings or at its `<!-- werft:slot summary -->` lines, keeping the template's own text, comments and checkboxes; otherwise on its default template, a heading per field that has content, in Korean. A template that is over 16 KiB, not a plain UTF-8 file, ambiguous (several in a directory), unreadable, or written with HTML, tables, reference definitions or comments that share a row with text is passed over for the default template, and the pull request still opens; `body_source.kind` is `repository` with the template's `path`, or `platform` with `skipped` saying why, and the receipt's `template` records the commit, path and blob read. The template's own mentions, closing keywords and references are broken like the fields', a line that looks like a secret is replaced like theirs, and it cannot pass for the platform's tail. On either layout, `related` items become `Closes #N` (an issue of the pull request's own repository, when `closes` is true) or `Refs owner/repo#N`, written by the platform from the catalog, and an item whose `repository_id` the session's catalog does not have is left out (`body_source.related_dropped` counts them). A legacy `body` is used as written. `body_source` says which one the platform wrote, and is null when the pull request was already open and its body was left alone.\n\n`title` (default `Agent session <session-id>`) and the text are cleaned before GitHub sees them: `@` mentions, cross-repository references (`owner/repo#N`), closing keywords (`Closes #N` and the like) and HTML comments are broken with a zero-width space, a line that looks like a secret is replaced by `[REDACTED]`, an engine's own signature line (Claude Code's `Generated with` link) is removed, and the body is cut to GitHub's limit, the last fields first. The body ends with a line naming the session and the commit. The platform never approves, merges or asks for reviews.\n\nSafe to retry: a request opens at most one pull request. When one is already recorded, or GitHub already has an open one for the branch, it is answered with `created: false` (200). Every attempt, refused ones included, leaves an `open_pull_request` receipt; `receipt_id` names this one, and a refusal's `error.details.receipt_id` names it.\n\nA verified credential that holds `sessions:approve` opens one, as for a push decision. One that may only submit to the session (an agent's key without `sessions:approve`, or the key that started the session) opens one too, since the request was already pushed. The token is issued through the agent's GitHub settings: with GitHub off for the agent, or the repository outside its release, the call is refused with `GITHUB_REFUSED`. Worker credentials are not accepted on `/v1` (401).",
     scope: "approve",
     scopeCheckedBy: "service",
     idempotent: false,
+    query: "OpenPullRequestQuery",
     body: "OpenPullRequestRequest",
     requestExample: { title: "Add retry to the sync job" },
     success: {
@@ -3595,6 +3607,12 @@ export const API_ROUTE_DECLARATIONS = [
         body_source: { kind: "platform" },
         receipt_id: EXAMPLE_PULL_REQUEST.receipt_id,
       },
+    },
+    alsoSucceeds: {
+      status: 202,
+      schema: "ScheduledPullRequestResponse",
+      description:
+        'Only with `?schedule=true` and a push that is not finished: `status: "scheduled"`. The platform keeps the content of the first call and opens the pull request once the push is done (a repeated call answers `scheduled` again and changes nothing).',
     },
     errors: [...CONFLICTS, 403, 413, 503],
     errorCodes: {
@@ -7560,6 +7578,16 @@ function createApiRouteConfig(route: RouteDeclaration): ApiRouteConfig {
                 : jsonContent(success.schema, success.example),
             },
   };
+  if (route.alsoSucceeds !== undefined) {
+    responses[route.alsoSucceeds.status] = {
+      description: route.alsoSucceeds.description,
+      headers: responseHeaders(),
+      content: jsonContent(
+        route.alsoSucceeds.schema,
+        route.alsoSucceeds.example,
+      ),
+    };
+  }
   const errors = new Set<number>(route.errors);
   if (csrf || route.scope) errors.add(403);
   if (route.method !== "get") errors.add(408);

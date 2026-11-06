@@ -102,10 +102,13 @@ export function verifyGitHubMcpGrant(
 }
 
 export type GitHubMcpServices = {
-  pushRequests: Pick<PushRequestService, "create" | "get" | "requestIntent">;
+  pushRequests: Pick<
+    PushRequestService,
+    "create" | "get" | "snapshot" | "requestIntent"
+  >;
   pullRequests: Pick<
     PullRequestService,
-    "open" | "update" | "comment" | "setState"
+    "open" | "schedule" | "update" | "comment" | "setState"
   >;
   githubWork: Pick<
     GitHubWorkService,
@@ -238,16 +241,21 @@ async function personRejection(
     !isRecord(details) ||
     details.refusal !== "not_pushed" ||
     details.push_request_state !== "rejected" ||
-    !isRecord(args) ||
-    typeof args.push_request_id !== "string"
+    !isRecord(args)
   ) {
     return null;
   }
+  // A call by intent id learns the request from the refusal's details.
+  const pushRequestId =
+    typeof args.push_request_id === "string"
+      ? args.push_request_id
+      : details.push_request_id;
+  if (typeof pushRequestId !== "string") return null;
   const request = await services.pushRequests
-    .get(actor, sessionId, args.push_request_id)
+    .get(actor, sessionId, pushRequestId)
     .catch(() => null);
   return {
-    pushRequestId: args.push_request_id,
+    pushRequestId,
     reason: request?.resolution_reason ?? null,
   };
 }
@@ -378,6 +386,17 @@ export function createGitHubMcpServer(deps: {
             by: "platform",
             retryable: false,
           });
+        }
+        // Before anything is written, in either flow: no PR tool is trusted
+        // to run unseen yet, so a pull request cannot ride along with the
+        // push, and the actions flow must not store an intent for it either.
+        if ((body as { pull_request?: unknown }).pull_request !== undefined) {
+          throw new SessionServiceError(
+            "BAD_REQUEST",
+            "pull_request needs a tool call",
+            undefined,
+            { refusal: "pull_request_needs_tool_call" },
+          );
         }
         if (deps.actionFlows?.() === true) {
           if (turnAtCall === null) {
@@ -615,12 +634,40 @@ async function run(
         >,
       });
     case "open_pull_request": {
-      const { push_request_id, ...body } = args as z.infer<
+      const { push_request_id, push_intent_id, ...body } = args as z.infer<
         (typeof GITHUB_MCP_TOOL_ARGUMENTS)["open_pull_request"]
       >;
-      return services.pullRequests.open(actor, sessionId, push_request_id, {
-        readBody: async () => body,
-      });
+      // An intent, with no push request yet, can only be scheduled. A push
+      // request opens when it is pushed and is scheduled when it is not.
+      if (push_intent_id !== undefined) {
+        return services.pullRequests.schedule(
+          actor,
+          sessionId,
+          { pushIntentId: push_intent_id },
+          { readBody: async () => body },
+        );
+      }
+      if (push_request_id === undefined) {
+        throw new Error("open_pull_request without an id passed the schema");
+      }
+      return services.pullRequests.schedule(
+        actor,
+        sessionId,
+        { pushRequestId: push_request_id },
+        { readBody: async () => body },
+      );
+    }
+    case "get_push_request": {
+      const { push_request_id, push_intent_id } = args as z.infer<
+        (typeof GITHUB_MCP_TOOL_ARGUMENTS)["get_push_request"]
+      >;
+      return services.pushRequests.snapshot(
+        actor,
+        sessionId,
+        push_intent_id !== undefined
+          ? { pushIntentId: push_intent_id }
+          : { pushRequestId: push_request_id as string },
+      );
     }
     case "update_pull_request": {
       const { push_request_id, ...body } = args as z.infer<

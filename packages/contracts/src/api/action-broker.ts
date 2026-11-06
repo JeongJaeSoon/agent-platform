@@ -99,6 +99,13 @@ export const ACTION_REFUSAL_CODES = {
   lease_expired: actionRefusalSpec("platform", true),
   push_failed: actionRefusalSpec("platform", true),
   request_open: actionRefusalSpec("platform", true),
+  // A later push request to the same target exists; the content belongs there.
+  superseded: actionRefusalSpec("platform"),
+  // The push intent ended before it became a push request.
+  intent_ended: actionRefusalSpec("platform"),
+  // `request_push.pull_request` needs the PR tool trusted in this session;
+  // nothing was created. Call request_push without it, then open_pull_request.
+  pull_request_needs_tool_call: actionRefusalSpec("platform"),
   no_repository: byPolicy,
   repository_not_allowed: byPolicy,
   allowed_in_newer_release: byPolicy,

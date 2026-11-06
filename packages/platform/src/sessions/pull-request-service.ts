@@ -7,6 +7,7 @@ import {
   isSessionPushBranch,
   type OpenPullRequestRequest,
   type OpenPullRequestResponse,
+  type OpenPullRequestResult,
   type PullRequestBodySource,
   type PullRequestReceiptResult,
   type PullRequestRefusal,
@@ -41,6 +42,7 @@ import {
   type PullRequestReceipt,
   type PullRequestSource,
   type PullRequestStore,
+  type ScheduleRef,
 } from "../ports/pull-requests.ts";
 import type { SessionAttributionStore } from "../ports/session-attribution.ts";
 import { repositoryBinding, type SessionCatalog } from "./catalog.ts";
@@ -265,15 +267,18 @@ export function createPullRequestService(deps: {
     };
   }
 
-  async function begin(
+  async function begin<Id extends string | null>(
     actor: PushActor,
     rawSessionId: string,
-    rawPushRequestId: string,
+    // Null for a push intent that has no push request yet.
+    rawPushRequestId: Id,
     operation: PullRequestOperation,
   ) {
     requireVerified(actor);
     const sessionId = rawSessionId.toLowerCase();
-    const pushRequestId = rawPushRequestId.toLowerCase();
+    const pushRequestId = (
+      rawPushRequestId === null ? null : rawPushRequestId.toLowerCase()
+    ) as Id;
     const receipt = {
       ownerId: actor.ownerId,
       sessionId,
@@ -285,6 +290,7 @@ export function createPullRequestService(deps: {
       refusal: PullRequestRefusal,
       fields: Partial<PullRequestReceiptResult> = {},
       pushRequestState?: PushRequestState,
+      details?: Readonly<Record<string, unknown>>,
     ): Promise<never> => {
       const receiptId = await store.recordReceipt({
         ...receipt,
@@ -298,6 +304,7 @@ export function createPullRequestService(deps: {
       });
       const { code, message } = PULL_REQUEST_REFUSAL_ERRORS[refusal];
       throw new SessionServiceError(code, message, undefined, {
+        ...details,
         refusal,
         receipt_id: receiptId,
         ...(pushRequestState === undefined
@@ -427,7 +434,57 @@ export function createPullRequestService(deps: {
     return { pullRequest, fields };
   }
 
-  return {
+  const service = {
+    /**
+     * `?schedule=true` and the MCP call with a push intent id: holds the
+     * content until the push is done (the drain opens the pull request), or
+     * answers through `open` when the request is past scheduling. The content
+     * is stored as validated; cleaning and rendering happen when it opens.
+     */
+    async schedule(
+      actor: PushActor,
+      rawSessionId: string,
+      ref: ScheduleRef,
+      input: { readBody: () => Promise<OpenPullRequestRequest> },
+    ): Promise<OpenPullRequestResult> {
+      const requestId = ref.pushRequestId ?? null;
+      const { sessionId, receipt, refuse } = await begin(
+        actor,
+        rawSessionId,
+        requestId,
+        "open_pull_request",
+      );
+      const body = await input.readBody();
+      const outcome = await store.schedule({
+        ownerId: actor.ownerId,
+        sessionId,
+        ref,
+        content: body,
+        actor: receipt.actor,
+      });
+      switch (outcome.kind) {
+        case "scheduled":
+          return {
+            status: "scheduled",
+            push_request_id: outcome.pushRequestId,
+            push_intent_id:
+              outcome.pushIntentId ?? ref.pushIntentId?.toLowerCase() ?? null,
+            receipt_id: outcome.receiptId,
+          };
+        case "open_now":
+          return await service.open(actor, sessionId, outcome.pushRequestId, {
+            readBody: async () => body,
+          });
+        case "refused":
+          return await refuse(
+            outcome.refusal,
+            requestId === null ? {} : { push_request_id: requestId },
+            outcome.pushRequestState,
+            outcome.details,
+          );
+      }
+    },
+
     async open(
       actor: PushActor,
       rawSessionId: string,
@@ -731,7 +788,11 @@ export function createPullRequestService(deps: {
         tail,
         settings,
       });
-      // Too little lease left to create and still record it.
+      // Too little lease left to create and still record it. This attempt
+      // created nothing, but the row does not say whether an earlier one
+      // reached the create, so even on the last attempt this is a retry: the
+      // next claim ends `uncertain` rather than `failed` (a failed stage
+      // invites a second request, and a second pull request).
       if (Date.now() >= options.deadline) {
         return { kind: "retry", error: "lease_expired", delayMs: 0 };
       }
@@ -1033,6 +1094,7 @@ export function createPullRequestService(deps: {
       };
     },
   };
+  return service;
 }
 
 export type PullRequestService = ReturnType<typeof createPullRequestService>;

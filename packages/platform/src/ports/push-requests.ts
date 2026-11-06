@@ -13,6 +13,7 @@ import type {
   PushRequest,
   PushRequestFlow,
   PushRequestOrigin,
+  PushRequestSnapshot,
   ReceiptActor,
   RepositoryCeiling,
 } from "@werft-ai/contracts";
@@ -332,6 +333,17 @@ export interface PushRequestStore {
     sessionId: string,
     pushRequestId: string,
   ): Promise<PushRequest | null>;
+  /**
+   * Where one push stands (intent, push request, pull request stage), read
+   * in one repeatable-read transaction so an intent turning into a request
+   * cannot show two different pictures. Either id finds the same push once
+   * they are linked. Null outside the owner's session.
+   */
+  snapshot(
+    ownerId: string,
+    sessionId: string,
+    ref: { pushRequestId: string } | { pushIntentId: string },
+  ): Promise<PushRequestSnapshot | null>;
   /**
    * requested → approved | rejected. An approval is refused when the
    * session's checkpoint pointer no longer names the pinned revision; the

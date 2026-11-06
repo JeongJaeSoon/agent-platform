@@ -25,17 +25,52 @@ import {
   commentPullRequestRequestSchema,
   commentPullRequestResponseSchema,
   openPullRequestRequestSchema,
-  openPullRequestResponseSchema,
+  openPullRequestResultSchema,
   setPullRequestStateResponseSchema,
   updatePullRequestRequestSchema,
   updatePullRequestResponseSchema,
 } from "./pull-request.ts";
 import {
   createPushRequestRequestSchema,
+  pullRequestStageSchema,
+  pushIntentRefusalSchema,
+  pushIntentStatusSchema,
   pushRequestIdSchema,
   pushRequestSchema,
+  pushRequestStateSchema,
 } from "./push-request.ts";
 import { githubPolicyReceiptFieldsSchema } from "./receipt.ts";
+
+/** Exactly one of the two ids names the push the call is about. */
+const hasOneOfPushIds = (a: {
+  push_request_id?: string | undefined;
+  push_intent_id?: string | undefined;
+}) => (a.push_request_id === undefined) !== (a.push_intent_id === undefined);
+const ONE_PUSH_ID_MESSAGE =
+  "give exactly one of push_request_id and push_intent_id";
+
+/**
+ * What `get_push_request` answers: the intent, the push request and the pull
+ * request stage of one push, read together. Public codes only.
+ */
+export const pushRequestSnapshotSchema = z
+  .object({
+    push_intent_id: z.uuid().nullable(),
+    intent_status: pushIntentStatusSchema.nullable(),
+    intent_refusal: pushIntentRefusalSchema.nullable(),
+    push_request_id: pushRequestIdSchema.nullable(),
+    push_state: pushRequestStateSchema.nullable(),
+    repository_id: z.string(),
+    target_branch: z.string(),
+    pull_request_scheduled: z.boolean(),
+    pull_request_stage: pullRequestStageSchema.nullable(),
+    pull_request_error: z.string().nullable(),
+    pull_request: z
+      .object({ number: z.number().int(), url: z.string() })
+      .nullable(),
+  })
+  .strict();
+export type PushRequestSnapshot = z.infer<typeof pushRequestSnapshotSchema>;
 
 /**
  * The built-in MCP server a session's agent reaches GitHub through (design
@@ -79,11 +114,26 @@ export const GITHUB_MCP_TOOL_ARGUMENTS = {
   // The REST body plus `source_ref`, which only the tool takes. Until the
   // multi-branch stage it is answered `source_ref_unsupported`.
   request_push: createPushRequestRequestSchema
-    .safeExtend({ source_ref: z.string().min(1).max(255).optional() })
+    .safeExtend({
+      source_ref: z.string().min(1).max(255).optional(),
+      // Accepted only where the PR tool is trusted; elsewhere
+      // `pull_request_needs_tool_call` (nothing is created).
+      pull_request: openPullRequestRequestSchema.optional(),
+    })
     .strict(),
-  open_pull_request: openPullRequestRequestSchema.safeExtend({
-    push_request_id: pushRequestIdSchema,
-  }),
+  open_pull_request: openPullRequestRequestSchema
+    .safeExtend({
+      push_request_id: pushRequestIdSchema.optional(),
+      push_intent_id: z.uuid().optional(),
+    })
+    .refine(hasOneOfPushIds, { message: ONE_PUSH_ID_MESSAGE }),
+  get_push_request: z
+    .object({
+      push_request_id: pushRequestIdSchema.optional(),
+      push_intent_id: z.uuid().optional(),
+    })
+    .strict()
+    .refine(hasOneOfPushIds, { message: ONE_PUSH_ID_MESSAGE }),
   update_pull_request: updatePullRequestRequestSchema.safeExtend({
     push_request_id: pushRequestIdSchema,
   }),
@@ -133,6 +183,7 @@ export const GITHUB_MCP_TOOL_FEATURES: Record<
 > = {
   request_push: null,
   open_pull_request: null,
+  get_push_request: null,
   update_pull_request: null,
   comment_pull_request: null,
   close_pull_request: null,
@@ -292,6 +343,8 @@ export type ActionClass = (typeof ACTION_CLASS_VALUES)[number];
 export const GITHUB_MCP_TOOL_CLASSES: Record<GitHubMcpTool, ActionClass> = {
   request_push: "push",
   open_pull_request: "pull_request.write",
+  // A read of the push the model asked for; its class is the push's.
+  get_push_request: "push",
   update_pull_request: "pull_request.write",
   comment_pull_request: "pull_request.write",
   close_pull_request: "pull_request.write",
@@ -386,9 +439,11 @@ export const GITHUB_MCP_FIXED_TOOLS = listedGitHubMcpTools(
  */
 export const GITHUB_MCP_TOOL_DESCRIPTIONS: Record<GitHubMcpTool, string> = {
   request_push:
-    "Request a push to branch agent/<session-id>, or agent/<session-id>-<branch> when `branch` is given. `repository_id` names an attached repository; omitted, the session's own. With the installation's agent action flows on, a call inside a running turn pushes the state this turn ends with, and the answer is `deferred` with `push_intent_id` and `waits_for: turn_end`; the platform makes the push request when the turn ends. Otherwise (the flows off, or no running turn) the last checkpoint is pushed and the push request is returned, which waits for a person when the release requires approval, or `deferred` when no checkpoint exists yet. `source_ref` is not supported yet.",
+    "Request a push to branch agent/<session-id>, or agent/<session-id>-<branch> when `branch` is given. `repository_id` names an attached repository; omitted, the session's own. With the installation's agent action flows on, a call inside a running turn pushes the state this turn ends with, and the answer is `deferred` with `push_intent_id` and `waits_for: turn_end`; the platform makes the push request when the turn ends. Otherwise (the flows off, or no running turn) the last checkpoint is pushed and the push request is returned, which waits for a person when the release requires approval, or `deferred` when no checkpoint exists yet. `source_ref` is not supported yet. `pull_request` is not accepted yet: a call that carries it is refused with `pull_request_needs_tool_call` and nothing is created; open the pull request with `open_pull_request` instead.",
+  get_push_request:
+    "Read where one push stands: the intent (`intent_status`, `intent_refusal`), the push request (`push_state`) and its pull request stage (`pull_request_stage`, `pull_request_error`, `pull_request`). Give `push_request_id` or `push_intent_id`, never both; both ids answer the same push once the intent became a push request.",
   open_pull_request:
-    "Open, or return the already open, pull request from the branch and commit of a pushed push request (`push_request_id`). Content fields: `title`; `summary` (what changed and why, a few sentences); `changes` (one change per item); `rationale` (the reason for the change); `testing` (how it was checked); `notes` (what a reviewer needs to know); `related` (issues: `number`, optional `repository_id`, `closes` to close it on merge). `body` is the legacy single text and cannot be combined with the fields above.",
+    "Open, or return the already open, pull request from the branch and commit of a pushed push request (`push_request_id`), or schedule it with `push_intent_id` (or a push request that is not pushed yet): `scheduled` means the platform opens it once the push finishes, with the content of the first call. Content fields: `title`; `summary` (what changed and why, a few sentences); `changes` (one change per item); `rationale` (the reason for the change); `testing` (how it was checked); `notes` (what a reviewer needs to know); `related` (issues: `number`, optional `repository_id`, `closes` to close it on merge). `body` is the legacy single text and cannot be combined with the fields above.",
   update_pull_request:
     "Set the title or the content of the pull request that the push request's branch has open. Given any of `summary`, `changes`, `rationale`, `testing`, `notes` or `related`, the body is written again from those fields (a field left out is empty); `body` (legacy) replaces the body as text; `title` alone leaves the body. The platform's closing lines stay, naming the push request's commit.",
   comment_pull_request:
@@ -435,7 +490,8 @@ const requestPushResultSchema = z.union([
 /** The envelope each tool answers with, as `outputSchema` states it. */
 export const GITHUB_MCP_TOOL_OUTPUTS = {
   request_push: actionResultSchema(requestPushResultSchema),
-  open_pull_request: actionResultSchema(openPullRequestResponseSchema),
+  open_pull_request: actionResultSchema(openPullRequestResultSchema),
+  get_push_request: actionResultSchema(pushRequestSnapshotSchema),
   update_pull_request: actionResultSchema(updatePullRequestResponseSchema),
   comment_pull_request: actionResultSchema(commentPullRequestResponseSchema),
   close_pull_request: actionResultSchema(setPullRequestStateResponseSchema),
@@ -464,6 +520,8 @@ const PULL_REQUEST_REFUSALS = [
   "not_pushed",
   "push_rejected",
   "push_failed",
+  "superseded",
+  "intent_ended",
   "catalog_changed",
   "no_forge",
   "github_settings_unsupported",
@@ -504,6 +562,7 @@ export const GITHUB_MCP_TOOL_REFUSALS: Record<
     "target_refused",
     "attribution_mismatch",
     "uncommitted_changes",
+    "pull_request_needs_tool_call",
     "github_settings_unsupported",
     "github_refused",
     "backend_unavailable",
@@ -511,6 +570,13 @@ export const GITHUB_MCP_TOOL_REFUSALS: Record<
     "no_running_turn",
   ],
   open_pull_request: PULL_REQUEST_REFUSALS,
+  get_push_request: [
+    ...COMMON_REFUSALS,
+    "missing_scope",
+    "unverified_principal",
+    "not_found",
+    "backend_unavailable",
+  ],
   update_pull_request: [...PULL_REQUEST_REFUSALS, "no_pull_request"],
   comment_pull_request: [...PULL_REQUEST_REFUSALS, "no_pull_request"],
   close_pull_request: [

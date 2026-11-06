@@ -14,6 +14,7 @@ import {
   type PushRequest,
   type PushRequestFlow,
   type PushRequestOrigin,
+  type PushRequestSnapshot,
   type PushRequestState,
   pushBranchFor,
   pushClassOf,
@@ -45,6 +46,8 @@ import {
   catalogRepositories,
   githubWorkspaceSettings,
   idempotencyKeys,
+  pullRequests,
+  pushIntents,
   pushRequests,
   receipts,
   sessions,
@@ -570,6 +573,11 @@ export function createPostgresPushRequests(
             targetBranch,
             requestedBy: input.actor,
             requestReceiptId: receiptId,
+            // Taken after the session lock, not at transaction start: the
+            // pull request schedule orders requests by this value under the
+            // same lock, and a transaction that waited for the lock must not
+            // look older than the one it waited for.
+            createdAt: sql`clock_timestamp()`,
             // An intent request is always `actions`, whatever the setting
             // is when the runner makes it.
             origin: input.origin ?? "direct",
@@ -622,6 +630,97 @@ export function createPostgresPushRequests(
         )
         .limit(1);
       return row ? publicPushRequest(row) : null;
+    },
+
+    snapshot(ownerId, rawSessionId, ref) {
+      const sessionId = rawSessionId.toLowerCase();
+      if (!UUID.test(sessionId)) return Promise.resolve(null);
+      const byIntent = "pushIntentId" in ref;
+      const wanted = (
+        "pushIntentId" in ref ? ref.pushIntentId : ref.pushRequestId
+      ).toLowerCase();
+      if (!UUID.test(wanted)) return Promise.resolve(null);
+      return db.transaction(
+        async (tx) => {
+          let intent: typeof pushIntents.$inferSelect | undefined;
+          let requestId: string | null = null;
+          if (byIntent) {
+            [intent] = await tx
+              .select()
+              .from(pushIntents)
+              .where(
+                and(
+                  eq(pushIntents.id, wanted),
+                  eq(pushIntents.sessionId, sessionId),
+                  eq(pushIntents.ownerId, ownerId),
+                ),
+              )
+              .limit(1);
+            if (!intent) return null;
+            requestId = intent.pushRequestId;
+          } else {
+            requestId = wanted;
+            [intent] = await tx
+              .select()
+              .from(pushIntents)
+              .where(
+                and(
+                  eq(pushIntents.pushRequestId, wanted),
+                  eq(pushIntents.sessionId, sessionId),
+                  eq(pushIntents.ownerId, ownerId),
+                ),
+              )
+              .limit(1);
+          }
+          const [request] =
+            requestId === null
+              ? []
+              : await tx
+                  .select()
+                  .from(pushRequests)
+                  .where(
+                    and(
+                      eq(pushRequests.id, requestId),
+                      eq(pushRequests.sessionId, sessionId),
+                      eq(pushRequests.ownerId, ownerId),
+                    ),
+                  )
+                  .limit(1);
+          if (!request && !intent) return null;
+          const [pull] = request
+            ? await tx
+                .select({ number: pullRequests.number, url: pullRequests.url })
+                .from(pullRequests)
+                .where(eq(pullRequests.pushRequestId, request.id))
+                .limit(1)
+            : [];
+          const scope = request ?? intent;
+          if (!scope) return null;
+          return {
+            push_intent_id: intent?.id ?? null,
+            intent_status: (intent?.status ??
+              null) as PushRequestSnapshot["intent_status"],
+            intent_refusal: (intent?.refusalCode ??
+              null) as PushRequestSnapshot["intent_refusal"],
+            push_request_id: request?.id ?? null,
+            push_state: (request?.state ??
+              null) as PushRequestSnapshot["push_state"],
+            repository_id: scope.repositoryId,
+            target_branch: scope.targetBranch,
+            pull_request_scheduled: request
+              ? request.pullRequestIntent !== null
+              : intent?.pullRequest != null,
+            pull_request_stage: (request?.prState ??
+              null) as PushRequestSnapshot["pull_request_stage"],
+            pull_request_error: request?.prError ?? null,
+            pull_request:
+              pull?.number == null
+                ? null
+                : { number: pull.number, url: pull.url },
+          };
+        },
+        { isolationLevel: "repeatable read", accessMode: "read only" },
+      );
     },
 
     async displayOf(ownerId, sessionId, pushRequestId) {
@@ -856,6 +955,21 @@ export function createPostgresPushRequests(
 
     finish(job, outcome) {
       return db.transaction(async (tx) => {
+        // The session first, then the request, as every other writer does:
+        // the notice written below references the session, and a schedule
+        // that holds the session while it waits for this request would
+        // otherwise wait on each other.
+        const [owner] = await tx
+          .select({ sessionId: pushRequests.sessionId })
+          .from(pushRequests)
+          .where(eq(pushRequests.id, job.id))
+          .limit(1);
+        if (!owner) return false;
+        await tx
+          .select({ id: sessions.id })
+          .from(sessions)
+          .where(eq(sessions.id, owner.sessionId))
+          .for("update");
         const [row] = await tx
           .select()
           .from(pushRequests)

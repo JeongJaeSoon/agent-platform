@@ -8,13 +8,15 @@ import {
   type PullRequestJob,
   type PullRequestSettled,
 } from "@werft-ai/platform";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, notInArray, sql } from "drizzle-orm";
 import { enqueueActionNotice } from "./action-notices.ts";
 import { findPullRequest, savePullRequestIn } from "./pull-requests.ts";
 import type { Database } from "./queries.ts";
 import { pushRequests, sessions } from "./schema.ts";
 
-const due = sql`(${pushRequests.prState} = 'due' AND (${pushRequests.prNextAttemptAt} IS NULL OR ${pushRequests.prNextAttemptAt} <= now())) OR (${pushRequests.prState} = 'opening' AND (${pushRequests.prLeaseExpiresAt} IS NULL OR ${pushRequests.prLeaseExpiresAt} < now()))`;
+// Parenthesized as a whole: it sits inside `and(...)`, where a bare top-level
+// OR binds looser than its neighbours and lets its other branch ignore them.
+const due = sql`((${pushRequests.prState} = 'due' AND (${pushRequests.prNextAttemptAt} IS NULL OR ${pushRequests.prNextAttemptAt} <= now())) OR (${pushRequests.prState} = 'opening' AND (${pushRequests.prLeaseExpiresAt} IS NULL OR ${pushRequests.prLeaseExpiresAt} < now())))`;
 
 const cleared = {
   prClaimToken: null,
@@ -88,13 +90,27 @@ export function createPostgresPullRequestDrain(
     async claimNextDue(leaseMs): Promise<PullRequestJob | null> {
       await endExhausted(db);
       return await db.transaction(async (tx) => {
-        // A row whose intent no longer parses leaves the candidates, so
-        // this ends.
+        // A row whose intent no longer parses leaves the candidates, so this
+        // ends. Failing one writes a notice that references the session, so
+        // that path needs the session row too; it never waits for it (a
+        // schedule holds the session while it waits for the request, and a
+        // wait here would close the circle): a session someone else holds
+        // leaves the row alone for this claim, and the loop moves on.
+        const passed: string[] = [];
         for (;;) {
           const [candidate] = await tx
             .select()
             .from(pushRequests)
-            .where(and(eq(pushRequests.state, "pushed"), due, notExhausted))
+            .where(
+              and(
+                eq(pushRequests.state, "pushed"),
+                due,
+                notExhausted,
+                passed.length === 0
+                  ? undefined
+                  : notInArray(pushRequests.id, passed),
+              ),
+            )
             .orderBy(pushRequests.createdAt)
             .limit(1)
             .for("update", { skipLocked: true });
@@ -106,6 +122,15 @@ export function createPostgresPullRequestDrain(
                   candidate.pullRequestIntent,
                 );
           if (!parsed.success) {
+            const [session] = await tx
+              .select({ id: sessions.id })
+              .from(sessions)
+              .where(eq(sessions.id, candidate.sessionId))
+              .for("update", { skipLocked: true });
+            if (!session) {
+              passed.push(candidate.id);
+              continue;
+            }
             await tx
               .update(pushRequests)
               .set({
@@ -115,6 +140,21 @@ export function createPostgresPullRequestDrain(
                 ...cleared,
               })
               .where(eq(pushRequests.id, candidate.id));
+            // The thread learns of it in the same transaction; only an
+            // `actions` request is told, as for every other result.
+            if (candidate.flow === "actions") {
+              await enqueueActionNotice(tx, {
+                sessionId: candidate.sessionId,
+                pushRequestId: candidate.id,
+                notice: {
+                  result: "pr_failed",
+                  repository: candidate.repositoryId,
+                  branch: candidate.targetBranch,
+                  commit: candidate.gitCommit,
+                  reason: "intent_invalid",
+                },
+              });
+            }
             continue;
           }
           const claimToken = randomUUID();

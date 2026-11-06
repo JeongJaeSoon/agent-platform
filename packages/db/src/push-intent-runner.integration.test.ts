@@ -15,6 +15,8 @@ import {
 import { eq, inArray } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { createPostgresPullRequestDrain } from "./pull-request-drain.ts";
+import { createPostgresPullRequests } from "./pull-requests.ts";
 import { createPostgresPushIntents } from "./push-intents.ts";
 import { createPostgresPushRequests } from "./push-requests.ts";
 import * as schema from "./schema.ts";
@@ -71,7 +73,7 @@ integration("push intent runner on PostgreSQL", () => {
   const intents = () => createPostgresPushIntents(db);
   const requests = () => createPostgresPushRequests(db);
 
-  function runner() {
+  function pushService() {
     const real = requests();
     const service = createPushRequestService({
       authorization: createAuthorizationPolicy(),
@@ -95,6 +97,11 @@ integration("push intent runner on PostgreSQL", () => {
         readPushSourceAt: async () => pinned,
       },
     });
+    return service;
+  }
+
+  function runner() {
+    const service = pushService();
     return createPushIntentRunner({
       store: intents(),
       createFromIntent: (job) => service.createFromIntent(job),
@@ -183,6 +190,72 @@ integration("push intent runner on PostgreSQL", () => {
       pushRequestId: request?.id,
       claimToken: null,
     });
+  });
+
+  test("the whole path: intent, request, approval, push, due stage, drain claim with the turn's content", async () => {
+    pinned = { status: "ready", revision: 1, gitCommit: PINNED_COMMIT };
+    const intent = await pinnedIntent();
+    await runner().runOnce();
+    const [request] = await requestsOf(intent.sessionId);
+    if (!request) throw new Error("no request");
+    const store = requests();
+    const decision = await store.decide({
+      ownerId: OWNER,
+      sessionId: intent.sessionId,
+      pushRequestId: request.id,
+      actor: ACTOR,
+      decision: "approve",
+      gitCommit: PINNED_COMMIT,
+      reason: null,
+      idempotencyKey: `d-${request.id}`,
+      payloadHash: "h",
+    });
+    expect(decision.outcome).toBe("written");
+    const job = await store.claimNextApproved(60_000);
+    if (job?.id !== request.id) throw new Error("claimed another request");
+    await store.finish(job, {
+      state: "pushed",
+      remoteUrl: "https://example.invalid/app.git",
+      remoteRef: `refs/heads/${job.targetBranch}`,
+      previousCommit: null,
+    });
+    const [pushed] = await requestsOf(intent.sessionId);
+    expect(pushed).toMatchObject({
+      state: "pushed",
+      prState: "due",
+      pullRequestIntent: { title: "from the turn" },
+    });
+    const claimed =
+      await createPostgresPullRequestDrain(db).claimNextDue(60_000);
+    expect(claimed).toMatchObject({
+      id: request.id,
+      gitCommit: PINNED_COMMIT,
+      intent: { title: "from the turn" },
+    });
+  });
+
+  test("a reservation made after the runner claimed the intent still reaches the request", async () => {
+    pinned = { status: "ready", revision: 1, gitCommit: PINNED_COMMIT };
+    const intent = await pinnedIntent();
+    await db
+      .update(pushIntents)
+      .set({ pullRequest: null })
+      .where(eq(pushIntents.id, intent.id));
+    const job = await intents().claimNext(60_000);
+    if (job?.id !== intent.id) throw new Error("claimed another intent");
+    expect(job.pullRequest ?? null).toBeNull();
+    // The model reserves the pull request while the runner holds the claim.
+    const reserved = await createPostgresPullRequests(db).schedule({
+      ownerId: OWNER,
+      sessionId: intent.sessionId,
+      ref: { pushIntentId: intent.id },
+      content: { title: "reserved late" },
+      actor: ACTOR,
+    });
+    expect(reserved.kind).toBe("scheduled");
+    await pushService().createFromIntent(job);
+    const [request] = await requestsOf(intent.sessionId);
+    expect(request?.pullRequestIntent).toEqual({ title: "reserved late" });
   });
 
   test("the session's list shows the request's flow and PR stage beside the intents", async () => {

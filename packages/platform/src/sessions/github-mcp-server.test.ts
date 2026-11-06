@@ -20,7 +20,10 @@ import {
   type GitHubWork,
 } from "../ports/github-gate.ts";
 import type { GitHubMcpSessionState } from "../ports/github-mcp.ts";
-import { PULL_REQUEST_REFUSAL_ERRORS } from "../ports/pull-requests.ts";
+import {
+  PULL_REQUEST_REFUSAL_ERRORS,
+  type ScheduleRef,
+} from "../ports/pull-requests.ts";
 import { PUSH_REFUSAL_ERRORS } from "../ports/push-requests.ts";
 import {
   attachCatalog,
@@ -82,6 +85,8 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
     pushRequestId: string;
     body: unknown;
   }> = [];
+  const scheduled: Array<{ sessionId: string; ref: ScheduleRef }> = [];
+  const snapshots: Array<{ sessionId: string; ref: unknown }> = [];
   const states: Array<{
     sessionId: string;
     pushRequestId: string;
@@ -231,6 +236,22 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
         },
         get: async () =>
           ({ resolution_reason: control.resolutionReason }) as never,
+        snapshot: async (_actor, sessionId, ref) => {
+          snapshots.push({ sessionId, ref });
+          return {
+            push_intent_id: "77777777-7777-4777-8777-777777777777",
+            intent_status: "requested" as const,
+            intent_refusal: null,
+            push_request_id: "55555555-5555-4555-8555-555555555555",
+            push_state: "pushed" as const,
+            repository_id: "app",
+            target_branch: "agent/s",
+            pull_request_scheduled: true,
+            pull_request_stage: "due" as const,
+            pull_request_error: null,
+            pull_request: null,
+          };
+        },
         requestIntent: async (_actor, sessionId, input) => {
           control.intents.push({
             sessionId,
@@ -258,6 +279,20 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
         },
       },
       pullRequests: {
+        // `open_pull_request` goes through the schedule; the fake answers it
+        // as an open, which is what a pushed legacy request does.
+        schedule(actor, sessionId, ref, input) {
+          scheduled.push({ sessionId, ref });
+          if (ref.pushIntentId !== undefined) {
+            return Promise.resolve({
+              status: "scheduled" as const,
+              push_request_id: null,
+              push_intent_id: ref.pushIntentId,
+              receipt_id: "66666666-6666-4666-8666-666666666666",
+            });
+          }
+          return this.open(actor, sessionId, ref.pushRequestId, input);
+        },
         open: async (_actor, sessionId, pushRequestId, input) => {
           opened.push({
             sessionId,
@@ -341,6 +376,8 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
     dispatches,
     pushes,
     opened,
+    scheduled,
+    snapshots,
     states,
     policies,
     gate,
@@ -434,6 +471,7 @@ describe("tools/list", () => {
     expect(toolNames(await list({}))).toEqual([
       "request_push",
       "open_pull_request",
+      "get_push_request",
       "update_pull_request",
       "comment_pull_request",
       "close_pull_request",
@@ -447,6 +485,7 @@ describe("tools/list", () => {
     expect(toolNames(await list({ actions: true }))).toEqual([
       "request_push",
       "open_pull_request",
+      "get_push_request",
       "update_pull_request",
       "comment_pull_request",
       "close_pull_request",
@@ -694,6 +733,111 @@ describe("tools/call", () => {
     expect(h.works.map((work) => work.sessionId)).toEqual([SESSION]);
   });
 
+  describe("scheduling a pull request (tools/call output)", () => {
+    const INTENT = "77777777-7777-4777-8777-777777777777";
+    const REQUEST = "55555555-5555-4555-8555-555555555555";
+
+    test("open_pull_request with push_intent_id answers scheduled with that id", async () => {
+      const h = harness();
+      const answer = payload(
+        await h.call("open_pull_request", {
+          push_intent_id: INTENT,
+          title: "Fix",
+        }),
+      );
+      expect(answer).toMatchObject({
+        body: {
+          ok: true,
+          result: {
+            status: "scheduled",
+            push_request_id: null,
+            push_intent_id: INTENT,
+          },
+        },
+      });
+      expect(h.scheduled).toEqual([
+        { sessionId: SESSION, ref: { pushIntentId: INTENT } },
+      ]);
+      expect(h.opened).toEqual([]);
+    });
+
+    test("open_pull_request with push_request_id goes through the schedule too", async () => {
+      const h = harness();
+      await h.call("open_pull_request", { push_request_id: REQUEST });
+      expect(h.scheduled).toEqual([
+        { sessionId: SESSION, ref: { pushRequestId: REQUEST } },
+      ]);
+    });
+
+    test("both ids, or neither, are a validation error and reach no service", async () => {
+      const h = harness();
+      for (const args of [
+        { push_request_id: REQUEST, push_intent_id: INTENT },
+        { title: "Fix" },
+      ]) {
+        const answer = payload(await h.call("open_pull_request", args));
+        expect(answer.isError).toBe(true);
+        expect(answer.body.refusal).toMatchObject({ code: "validation_error" });
+      }
+      expect(h.scheduled).toEqual([]);
+    });
+
+    test("get_push_request answers the same push for either id", async () => {
+      const h = harness();
+      const byIntent = payload(
+        await h.call("get_push_request", { push_intent_id: INTENT }),
+      );
+      const byRequest = payload(
+        await h.call("get_push_request", { push_request_id: REQUEST }),
+      );
+      expect(byIntent.body.result).toEqual(byRequest.body.result);
+      expect(byIntent.body.result).toMatchObject({
+        push_intent_id: INTENT,
+        push_request_id: REQUEST,
+        pull_request_stage: "due",
+      });
+      expect(h.snapshots).toEqual([
+        { sessionId: SESSION, ref: { pushIntentId: INTENT } },
+        { sessionId: SESSION, ref: { pushRequestId: REQUEST } },
+      ]);
+      const neither = payload(await h.call("get_push_request", {}));
+      expect(neither.body.refusal).toMatchObject({ code: "validation_error" });
+    });
+
+    test("request_push with pull_request is refused before anything is created", async () => {
+      const h = harness();
+      const answer = payload(
+        await h.call("request_push", { pull_request: { title: "Fix" } }),
+      );
+      expect(answer.body.ok).toBe(false);
+      expect(answer.body.refusal).toMatchObject({
+        code: "pull_request_needs_tool_call",
+        by: "platform",
+        retryable: false,
+      });
+      // Not even the empty content slips through.
+      const empty = payload(await h.call("request_push", { pull_request: {} }));
+      expect(empty.body.refusal).toMatchObject({
+        code: "pull_request_needs_tool_call",
+      });
+      expect(h.pushes).toEqual([]);
+    });
+
+    test("a scheduled call on a request a person rejected carries their words", async () => {
+      const h = harness();
+      h.control.notPushed = "rejected";
+      h.control.resolutionReason = "Not this way.";
+      const answer = payload(
+        await h.call("open_pull_request", { push_request_id: REQUEST }),
+      );
+      expect(answer.body.refusal).toMatchObject({
+        code: "push_rejected",
+        by: "person",
+        details: { reason: "Not this way." },
+      });
+    });
+  });
+
   test("a turned-off feature's tool is refused before any service", async () => {
     const h = harness();
     const answer = payload(
@@ -745,6 +889,19 @@ describe("tools/call", () => {
       // No push request was made now, and no continuation was marked.
       expect(h.pushes).toEqual([]);
       expect(h.control.marks).toEqual([]);
+    });
+
+    test("with the flow on, pull_request is still refused before an intent is stored", async () => {
+      const h = harness();
+      h.control.actionFlows = true;
+      for (const pull_request of [{ title: "Fix" }, {}]) {
+        const answer = payload(await h.call("request_push", { pull_request }));
+        expect(answer.body.refusal).toMatchObject({
+          code: "pull_request_needs_tool_call",
+        });
+      }
+      expect(h.control.intents).toEqual([]);
+      expect(h.pushes).toEqual([]);
     });
 
     test("with the flow off it takes the legacy path and writes no intent", async () => {
@@ -957,6 +1114,9 @@ describe("tools/call", () => {
             });
           },
           get: async () => {
+            throw new Error("not used");
+          },
+          snapshot: async () => {
             throw new Error("not used");
           },
           requestIntent: async () => {

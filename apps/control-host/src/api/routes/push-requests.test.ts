@@ -173,6 +173,7 @@ function app(
     },
     list: async (ownerId, sessionId) =>
       ownerId === "owner-a" && sessionId === SESSION ? [PINNED] : null,
+    snapshot: async () => null,
     get: async (ownerId, _sessionId, id) =>
       ownerId === "owner-a" && id === PUSH ? PINNED : null,
     decide: async (input) => {

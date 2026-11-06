@@ -347,7 +347,9 @@ export function createPostgresPushIntents(db: Database): PushIntentStore {
           origin: "intent",
           // Copied in the same transaction and session row lock as the
           // request insert, so a later PR reservation sees both or neither.
-          pullRequestIntent: job.pullRequest ?? null,
+          // The locked row, not the claim's copy: a reservation made after
+          // the claim is on the row.
+          pullRequestIntent: row.pullRequest ?? null,
           idempotencyKey: `intent-${job.id}`,
         });
         if (result.outcome === "refused") {
