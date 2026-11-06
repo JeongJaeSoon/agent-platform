@@ -1025,10 +1025,33 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       );
     });
 
-    test("only the tag path waits for the release environment", () => {
+    test("only the tag path waits for the release environment, once, at publish", () => {
+      expect(jobs.publish?.environment).toBe("release");
+      for (const name of ["index", "promote", "chart-publish"]) {
+        expect(jobs[name]?.environment).toBeUndefined();
+      }
       for (const name of ["publish", "index", "promote", "chart-publish"]) {
-        expect(jobs[name]?.environment).toBe("release");
         expect(jobs[`${name}-main`]?.environment).toBeUndefined();
+      }
+    });
+
+    test("every later tag-path writer is reachable only through the approved publish", () => {
+      const needsOf = (name: string): string[] => {
+        const needs = jobs[name]?.needs;
+        return needs === undefined ? [] : [needs].flat();
+      };
+      const reaches = (
+        name: string,
+        target: string,
+        seen = new Set<string>(),
+      ) => {
+        if (name === target) return true;
+        if (seen.has(name)) return false;
+        seen.add(name);
+        return needsOf(name).some((next) => reaches(next, target, seen));
+      };
+      for (const name of ["index", "promote", "chart-publish"]) {
+        expect(reaches(name, "publish")).toBe(true);
       }
     });
 

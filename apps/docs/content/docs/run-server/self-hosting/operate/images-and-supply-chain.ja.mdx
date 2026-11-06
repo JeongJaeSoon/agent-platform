@@ -69,8 +69,8 @@ docker pull "ghcr.io/jeongjaesoon/werft-worker@<digest read above>"
 これまで`v*`タグを付けたことがないため、この経路は一度も実行されていません。
 
 1. `main`の検証済みcommitに、`vX.Y.Z`または`vX.Y.Z-<プレリリース>`タグをpushします。そのcommitが`main`の祖先でなければ、公開jobが失敗します。ほかの形のタグ(`v1`、`v1.2.3+build`)はイメージだけが出て、`chart` jobで失敗します。
-2. `publish`・`index`・`promote`・`chart-publish` jobが、`release` environmentの承認を受けて終わるかを確認します。承認はこの順に別々に4回要求されます。`publish`と`index`の間の`sources`は承認なしで動き、30分までかかることがあります。
-3. `chart-publish`が終わると、`release` jobがタグのGitHub Releaseを作り、`release-manifest.json`を添付します。このjobは別に承認を受けません。先の4回の承認がすでに済んでおり、`contents: write`はこのjobだけが持ちます。Releaseはdraftとして作ってmanifestを載せ、読み直して確認してから公開します。[リリースmanifestを読む](#リリースmanifestを読む)のコマンドで、digestとchartのバージョンを確認します。
+2. `publish` jobが`release` environmentの承認を受け、続く`index`・`promote`・`chart-publish`が承認なしで終わるかを確認します。承認は`publish`の前で1回だけ要求されます。後ろのjobは`publish`が成功してはじめて動くので、その承認がすべてを守ります。`publish`と`index`の間の`sources`は30分までかかることがあります。
+3. `chart-publish`が終わると、`release` jobがタグのGitHub Releaseを作り、`release-manifest.json`を添付します。このjobは別に承認を受けません。`publish`の前の承認がすでに済んでおり、`contents: write`はこのjobだけが持ちます。Releaseはdraftとして作ってmanifestを載せ、読み直して確認してから公開します。[リリースmanifestを読む](#リリースmanifestを読む)のコマンドで、digestとchartのバージョンを確認します。
 4. 同じタグを"Re-run failed jobs"で再実行しても安全です。すでに添付されたmanifestと内容が同じなら通り、違えば失敗して上書きしません。Releaseの作成やアップロードが途中で切れたら、同じ方法で残りを埋めます。イメージが同じタグで再ビルドされてdigestが変わる場合は、`promote`が先に拒否します。
 
 リリース後は、`Chart.yaml`の`version`を次のバージョンに上げます。`main`のchartバージョンはこの値の後ろに付くので、そうすることでプレリリースが直前に出したリリースより後ろに並びます。
@@ -111,7 +111,7 @@ helm show chart "$(jq -r .chart.ref "$TAG/release-manifest.json")" --version "$(
 - **バージョン。** タグ`v1.2.3`はchart `1.2.3`、appVersion `v1.2.3`です。`main`は`<Chart.yaml version>-main-<12>`、appVersion `main-<12>`です。`-main.<12>`でない理由は、12桁がすべて数字で0から始まるとsemverではなく、helmが拒否するためです。
 - **値。** `.github/scripts/chart-package.ts`が、そのrunの`image-digests-published`から3つのdigestとworker runtimeを読み、パッケージ内の`values.yaml`に入れます。3つのアプリがちょうど1回ずつ、このcommitのpromoteされたイメージであり、repositoryがchartの既定値と同じである必要があります。リポジトリの`values.yaml`はそのままです。同じ値を`chart` artifactの`werft-<version>.values.yaml`にも残します。運用者はartifactなしで`helm show values`で読みます。digestはindexのdigestです。worker runtimeはアーキテクチャに依存しない値で、2つのアーキテクチャの値が異なれば`index`が止まります。workerの比較はdigestではなくこの値を見るので、単一manifestで公開されたchartからindexのchartに上げても、digestの値が変わるだけで再インストールの動作は変わりません。
 - **検査。** `chart` jobは3つのindexとそのアーキテクチャ別のmanifestをログインなしで照会し、パッケージをamd64のkindにインストールして、`/readyz`と`/docs`が200のときだけパッケージを渡します。arm64は`publish`のsmokeとこの照会までを確認し、kindへのインストールはしません。空のインストールはworkerを起動しないので、workerは照会までだけを確認します。package write権限はありません。pull requestでは、`helm-chart` jobの`render-check.ts`がfixture digestでパッケージを作ってレンダリングします。
-- **公開。** package writeは`chart-publish`・`chart-publish-main`だけが持ちます。タグ経路の`chart-publish`は`release` environmentを受け、`main`経路は受けません。イメージの公開が失敗したrunでは、chartの段階は動きません。
+- **公開。** package writeは`chart-publish`・`chart-publish-main`だけが持ちます。`release` environmentの承認はタグ経路の`publish`にだけあり、`chart-publish`はその後ろで承認なしに動きます。`main`経路に承認はありません。イメージの公開が失敗したrunでは、chartの段階は動きません。
 - **上書きしません。** `.github/scripts/chart-push.sh`は、同じバージョンがすでにあれば取得して展開したファイルを候補と比較します。同じなら再実行とみなしてpushせず、違えば失敗します。照会が「ない」ことを確認できなければ中断します。`denied`は存在しないパッケージに対してghcrが返しうる答えなので、ログインなしの照会でも`denied`のときに限って「ない」とみなします。
 - **読み取りの確認。** push後、HelmとDockerのログイン情報をすべて空にした状態で取得して候補と比較し、`helm show chart`を出力します。パッケージが非公開で作られていれば、ここでrunが赤で終わります。公開範囲は、パッケージ設定でリポジトリ管理者が変えます。
 - **ライセンス。** chartは、リポジトリと同じPolyForm Small Business License 1.0.0に従います。
