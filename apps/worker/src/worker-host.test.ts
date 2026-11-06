@@ -259,6 +259,22 @@ describe("WorkerHost workspace quota", () => {
     },
   );
 
+  test("a cleanup turn runs on the same engine after a quota failure", async () => {
+    const h = quotaHarness("fail", 200);
+    h.gateway.enqueue("grow the exceeded workspace");
+    h.gateway.enqueue("remove files");
+    const running = h.host.runLoop();
+    await waitFor(() => h.runtime.inputs.length === 1, "the growing input");
+    h.emit(201);
+    await waitFor(() => h.runtime.inputs.length === 2, "the cleanup input");
+    h.emit(150);
+    expect((await running).turns.map((turn) => turn.status)).toEqual([
+      "failed",
+      "completed",
+    ]);
+    expect(h.launched).toHaveLength(1);
+  });
+
   test("fail permits an already exceeded session to run cleanup", async () => {
     const h = quotaHarness("fail", 200);
     h.gateway.enqueue("delete files");
