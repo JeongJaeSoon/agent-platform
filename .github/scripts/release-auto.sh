@@ -57,7 +57,9 @@ detect() {
     [ -z "$gone" ] || fail "${added} appears where ${gone//$'\n'/, } was: a renamed section is not a release"
     [[ "$added" =~ $version_pattern ]] \
       || fail "'${added}' is not v<major>.<minor>.<patch>[-<prerelease>]"
-    [ "${#added}" -le 64 ] || fail "'${added}' is longer than 63 characters after the v"
+    # chart-package.ts rejects a helm.sh/chart label "werft-<version>" over 63
+    # characters, and by then the images are published: refuse it here.
+    [ "${#added}" -le 58 ] || fail "'${added}' is too long: the chart label werft-${added#v} would pass 63 characters"
     tag="$added"
     TAG="$tag" free
   fi

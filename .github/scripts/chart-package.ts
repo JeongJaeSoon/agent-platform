@@ -51,10 +51,9 @@ const LABEL_LIMIT = 63;
  * The ref the publish scripts act on. The release jobs of a main run set
  * RELEASE_REF to the tag they release, because the run's own ref is main.
  */
-export function effectiveRef(env: {
-  RELEASE_REF?: string;
-  GITHUB_REF?: string;
-}): string | undefined {
+export function effectiveRef(
+  env: Record<string, string | undefined>,
+): string | undefined {
   return env.RELEASE_REF || env.GITHUB_REF;
 }
 

@@ -153,6 +153,12 @@ describe("the release jobs of a main run", () => {
     expect(runs.indexOf("release-stage.sh")).toBeLessThan(
       runs.indexOf("image-promote.sh"),
     );
+    // A tag made by someone else while the approval waited must stop the run
+    // before any vX image exists.
+    expect(runs.indexOf("release-auto.sh free")).toBeGreaterThanOrEqual(0);
+    expect(runs.indexOf("release-auto.sh free")).toBeLessThan(
+      runs.indexOf("image-promote.sh"),
+    );
     expect(runs).not.toContain("docker/build-push-action");
   });
 
@@ -420,6 +426,19 @@ esac
       expect(run.code).toBe(1);
       expect(run.err).toContain(why);
       expect(run.output).toBe("");
+    });
+
+    test("a version whose chart label would pass 63 characters is refused", () => {
+      // "werft-" + 57 characters is the longest label chart-package.ts accepts.
+      const fits = `v0.1.2-${"a".repeat(51)}`;
+      const over = `v0.1.2-${"a".repeat(52)}`;
+      expect(fits.length - 1).toBe(57);
+      expect(detect(base, changelog(fits, "v0.1.1", "v0.1.0")).output).toBe(
+        `tag=${fits}\n`,
+      );
+      const run = detect(base, changelog(over, "v0.1.1", "v0.1.0"));
+      expect(run.code).toBe(1);
+      expect(run.err).toContain("too long");
     });
 
     test("a version whose tag exists is refused", () => {
