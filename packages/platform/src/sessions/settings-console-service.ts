@@ -218,7 +218,11 @@ export function createSettingsConsoleService(deps: {
             ? `${id} is taken: an id is never reused, even after it is disabled`
             : result.reason === "not_stored"
               ? `${id} takes its credential from the operator's deployment; the console only shows and disables it`
-              : `${id} is disabled`,
+              : result.reason === "not_external"
+                ? `${id} already keeps its own value: replace the value instead`
+                : result.reason === "alias_taken"
+                  ? `${id} cannot move to a stored value: another connection is, or was, exactly what it is now`
+                  : `${id} is disabled`,
           undefined,
           { reason_code: result.reason },
         );
@@ -365,6 +369,17 @@ export function createSettingsConsoleService(deps: {
       }
       return onRow(caller, kind, id, (actor) =>
         store.setValue({ kind, id }, value, actor),
+      );
+    },
+
+    convertConnection(caller: Caller, id: string, value: string) {
+      if (!deps.secretStoreOn) {
+        return writer(caller, "connection").then(() => {
+          throw STORE_OFF();
+        });
+      }
+      return onRow(caller, "connection", id, (actor) =>
+        store.convertConnection(id, value, actor),
       );
     },
 
