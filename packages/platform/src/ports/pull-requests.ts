@@ -64,6 +64,11 @@ export const PULL_REQUEST_REFUSAL_ERRORS: Record<
     code: "PUSH_REQUEST_RESOLVED",
     message: "The push intent ended before it became a push request",
   },
+  head_moved: {
+    code: "PUSH_REQUEST_RESOLVED",
+    message:
+      "The branch's open pull request holds another commit than this push request; it was not adopted",
+  },
 };
 
 export type PullRequestOperation =

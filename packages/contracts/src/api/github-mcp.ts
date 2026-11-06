@@ -443,7 +443,7 @@ export const GITHUB_MCP_TOOL_DESCRIPTIONS: Record<GitHubMcpTool, string> = {
   get_push_request:
     "Read where one push stands: the intent (`intent_status`, `intent_refusal`), the push request (`push_state`) and its pull request stage (`pull_request_stage`, `pull_request_error`, `pull_request`). Give `push_request_id` or `push_intent_id`, never both; both ids answer the same push once the intent became a push request.",
   open_pull_request:
-    "Open, or return the already open, pull request from the branch and commit of a pushed push request (`push_request_id`), or schedule it with `push_intent_id` (or a push request that is not pushed yet): `scheduled` means the platform opens it once the push finishes, with the content of the first call. Content fields: `title`; `summary` (what changed and why, a few sentences); `changes` (one change per item); `rationale` (the reason for the change); `testing` (how it was checked); `notes` (what a reviewer needs to know); `related` (issues: `number`, optional `repository_id`, `closes` to close it on merge). `body` is the legacy single text and cannot be combined with the fields above.",
+    "Open, or return the already open, pull request from the branch and commit of a pushed push request (`push_request_id`), or, with the installation's agent action flows on, schedule it with `push_intent_id` (or a push request that is not pushed yet): `scheduled` means the platform opens it once the push finishes, with the content of the first call. With the flows off, a push request that is not pushed yet is refused with `not_pushed`. A pull request already open for the branch on another commit than the pushed one is refused with `head_moved` and not adopted. Content fields: `title`; `summary` (what changed and why, a few sentences); `changes` (one change per item); `rationale` (the reason for the change); `testing` (how it was checked); `notes` (what a reviewer needs to know); `related` (issues: `number`, optional `repository_id`, `closes` to close it on merge). `body` is the legacy single text and cannot be combined with the fields above.",
   update_pull_request:
     "Set the title or the content of the pull request that the push request's branch has open. Given any of `summary`, `changes`, `rationale`, `testing`, `notes` or `related`, the body is written again from those fields (a field left out is empty); `body` (legacy) replaces the body as text; `title` alone leaves the body. The platform's closing lines stay, naming the push request's commit.",
   comment_pull_request:
@@ -522,6 +522,7 @@ const PULL_REQUEST_REFUSALS = [
   "push_failed",
   "superseded",
   "intent_ended",
+  "head_moved",
   "catalog_changed",
   "no_forge",
   "github_settings_unsupported",

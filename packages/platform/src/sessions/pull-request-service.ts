@@ -542,6 +542,7 @@ export function createPullRequestService(deps: {
         number: number;
         url: string;
         base: string;
+        headSha: string;
         created: boolean;
       };
       const title = cleanTitle(
@@ -574,6 +575,31 @@ export function createPullRequestService(deps: {
         throw error;
       }
       const { created } = opened;
+      // A pull request this call did not make is adopted only when it holds
+      // the pushed commit, as the drain requires. One that does not is not
+      // this push's result, whatever the stage says. A head that is an
+      // ancestor of the pushed commit is GitHub's lag, so the caller may ask
+      // again; any other head, and a compare that fails, end it.
+      if (!created && opened.headSha !== source.gitCommit) {
+        let lag = false;
+        try {
+          lag = await forge.isAncestor(opened.headSha, source.gitCommit);
+        } catch (error) {
+          if (!isForgeFailure(error)) throw error;
+        }
+        if (lag) return await refuse("forge_failed", { ...fields, head });
+        return await refuse(
+          "head_moved",
+          { ...fields, head, number: opened.number, url: opened.url },
+          undefined,
+          {
+            number: opened.number,
+            url: opened.url,
+            expected_sha: source.gitCommit,
+            actual_sha: opened.headSha,
+          },
+        );
+      }
       // A later push request reuses the branch's open pull request; its tail
       // names this push's commit from now on. The pull request is open
       // whether or not this lands, so a failure is only logged.

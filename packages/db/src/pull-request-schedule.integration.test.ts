@@ -13,6 +13,7 @@ import {
 import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { createPostgresPullRequestDrain } from "./pull-request-drain.ts";
 import { createPostgresPullRequests } from "./pull-requests.ts";
 import { createPostgresPushFollowUpStore } from "./push-follow-ups.ts";
 import { createPostgresPushRequests } from "./push-requests.ts";
@@ -222,6 +223,46 @@ integration("scheduling a pull request on PostgreSQL", () => {
       pushRequestId: made.id,
     });
     expect((await row(made.id)).prState).toBeNull();
+  });
+
+  test("a legacy request that is not pushed is refused, held nothing, and the drain never opens it", async () => {
+    const drain = createPostgresPullRequestDrain(db);
+    const sessionId = await newSession();
+    const made = await request(sessionId, "legacy");
+    // Waiting for a person, then approved but not pushed: both are refused
+    // as they were before scheduling existed.
+    for (const state of ["requested", "approved"] as const) {
+      if (state === "approved") await approve(sessionId, made.id);
+      expect(await schedule(sessionId, { pushRequestId: made.id })).toEqual({
+        kind: "refused",
+        refusal: "not_pushed",
+        pushRequestState: state,
+        details: { push_request_id: made.id },
+      });
+      expect(await row(made.id)).toMatchObject({
+        pullRequestIntent: null,
+        prState: null,
+      });
+    }
+    await push(made.id, "pushed");
+    // Nothing was held, so the push makes no stage: the drain has nothing
+    // to open, and only the open path (the follow-up turn) can.
+    expect(await row(made.id)).toMatchObject({
+      state: "pushed",
+      pullRequestIntent: null,
+      prState: null,
+    });
+    // Other tests leave due rows behind, so the claim is read until empty.
+    const claimed: string[] = [];
+    for (let job = await drain.claimNextDue(60_000); job !== null; ) {
+      claimed.push(job.id);
+      job = await drain.claimNextDue(60_000);
+    }
+    expect(claimed.includes(made.id)).toBe(false);
+    expect(await schedule(sessionId, { pushRequestId: made.id })).toEqual({
+      kind: "open_now",
+      pushRequestId: made.id,
+    });
   });
 
   test("a rejected or failed request is refused with its state and id", async () => {
