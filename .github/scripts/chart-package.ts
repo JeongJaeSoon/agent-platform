@@ -48,6 +48,17 @@ const RELEASE_TAG = new RegExp(
 const LABEL_LIMIT = 63;
 
 /**
+ * The ref the publish scripts act on. The release jobs of a main run set
+ * RELEASE_REF to the tag they release, because the run's own ref is main.
+ */
+export function effectiveRef(env: {
+  RELEASE_REF?: string;
+  GITHUB_REF?: string;
+}): string | undefined {
+  return env.RELEASE_REF || env.GITHUB_REF;
+}
+
+/**
  * The version a run's chart gets. On main the prerelease is one hyphenated
  * identifier, not `main.<12>`: twelve digits with a leading zero are not
  * valid semver, and helm refuses them.
@@ -225,7 +236,8 @@ function chartField(chartDir: string, field: string): string {
 
 if (import.meta.main) {
   const [publishedDir, outDir] = process.argv.slice(2);
-  const { GITHUB_REF: ref, GITHUB_SHA: sha } = process.env;
+  const { GITHUB_SHA: sha } = process.env;
+  const ref = effectiveRef(process.env);
   if (!publishedDir || !outDir || !ref || !sha) {
     console.error(
       "usage: chart-package.ts <published dir> <out dir>, with GITHUB_REF and GITHUB_SHA set",

@@ -928,6 +928,9 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       (condition ?? "").split(" && ").every((term) => {
         const prefix = term.match(/^startsWith\(github\.ref, '([^']+)'\)$/);
         if (prefix) return run.ref.startsWith(prefix[1] ?? "");
+        // The release jobs of a main run: they run only when release-detect
+        // found a new version heading, which no row below models.
+        if (term === "needs.release-detect.outputs.tag != ''") return false;
         const equal = term.match(/^github\.(event_name|ref) == '([^']+)'$/);
         if (!equal) throw new Error(`unexpected term: ${term}`);
         return (equal[1] === "ref" ? run.ref : run.event) === equal[2];
@@ -940,10 +943,12 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       expect(writers.sort()).toEqual([
         "chart-publish",
         "chart-publish-main",
+        "chart-publish-release",
         "index",
         "index-main",
         "promote",
         "promote-main",
+        "promote-release",
         "publish",
         "publish-main",
       ]);
@@ -1102,7 +1107,12 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       const packageStep = index("chart-package.ts published chart-out");
       const read = index("docker manifest inspect");
       const install = index("deploy/kind/up.sh");
-      const upload = steps.findIndex((step) => step.with?.name === "chart");
+      // The suffix is empty on the main and pushed-tag paths, `-release` on
+      // the release by merge, so its artifacts do not meet main's.
+      const suffix = expression("env.ARTIFACT_SUFFIX");
+      const upload = steps.findIndex(
+        (step) => step.with?.name === `chart${suffix}`,
+      );
       expect(packageStep).toBeGreaterThan(-1);
       expect(read).toBeGreaterThan(packageStep);
       expect(install).toBeGreaterThan(read);
@@ -1110,7 +1120,7 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       expect(steps[install]?.run).toContain("CHART_PACKAGE=");
       expect(
         steps.flatMap((step) => step.with?.name ?? []).slice(0, 1),
-      ).toEqual(["image-digests-published"]);
+      ).toEqual([`image-digests-published${suffix}`]);
       expect(runsOf(jobs.chart)).not.toContain("docker login");
       expect(runsOf(jobs["chart-publish"])).toContain("chart-push.sh");
     });
@@ -1164,11 +1174,14 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       expect(runsOf(jobs.build)).toContain(
         'image-licenses.sh "$APP" "$' + "{NAME}:sha-$" + '{GITHUB_SHA::12}"',
       );
-      // Shared steps: the tag path stays strict by the ref, not by the job.
+      // Shared steps: the tag path stays strict by the ref, not by the job,
+      // and the release by merge (RELEASE_REF set, run ref main) is strict too.
       expect(
         jobs.sources?.steps.flatMap((step) => step.env?.SOURCES_MODE ?? []),
       ).toEqual([
-        expression("github.ref == 'refs/heads/main' && 'main' || 'release'"),
+        expression(
+          "env.RELEASE_REF == '' && github.ref == 'refs/heads/main' && 'main' || 'release'",
+        ),
       ]);
       expect(runsOf(jobs.sources)).toContain(
         'image-sources.sh debian-sources unverified-sources "$SOURCES_MODE"',
@@ -2028,6 +2041,21 @@ esac
         `sha-${sha.slice(0, 12)}`,
       ]);
       expect(store.tagged().filter((tag) => tag.includes("main-"))).toEqual([]);
+    });
+
+    test("a main run that releases promotes under the release tag, and main's own ref still writes nothing else", () => {
+      const store = registry();
+      const run = store.promote({ RELEASE_REF: "refs/tags/v1.2.3" });
+      expect(run.code).toBe(0);
+      expect(store.record("worker").tags).toEqual([
+        "v1.2.3",
+        `sha-${sha.slice(0, 12)}`,
+      ]);
+      expect(store.tagged().filter((tag) => tag.includes("main-"))).toEqual([]);
+      const other = registry();
+      const refused = other.promote({ RELEASE_REF: "refs/heads/feature" });
+      expect(refused.code).toBe(1);
+      expect(other.creates()).toBe("");
     });
 
     test("any other ref writes nothing", () => {
