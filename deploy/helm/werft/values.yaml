@@ -132,6 +132,7 @@ config:
 
 api:
   replicas: 2
+  workspaceEnforce: warn
   # Above SHUTDOWN_DRAIN_MS + SHUTDOWN_CLOSE_MS (35s + 5s).
   terminationGracePeriodSeconds: 45
   # 2 bundle verifications x (git fetch + index-pack) x gitMemoryMb + 512 MiB.

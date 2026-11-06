@@ -1134,6 +1134,7 @@ const workers = createWorkerGateway({
       }),
   options: {
     sessionCostLimitUsd: limits.sessionCostLimitUsd,
+    workspaceEnforce: settings.workspaceEnforce,
     sessionTokenLimit: limits.sessionTokenLimit,
     leaseTtlMs: settings.leaseTtlMs,
     // How long a permission or question takes answers. The worker waits

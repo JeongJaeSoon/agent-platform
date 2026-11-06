@@ -284,6 +284,22 @@ github.com의 비공개 저장소로 확인하는 절차다. `scripts/local.sh u
 - **보존:** checkpoint GC는 열린 요청이 고정한 revision과 그 아래 fallback window를 지우지 않는다. 세션이 계속 checkpoint를 남겨 그 revision이 pointer의 window를 벗어나도, push할 manifest와 workspace bundle은 남는다.
 - **감사:** 요청·결정·거절된 시도마다 receipt가 남는다. operation은 `request_push`·`resolve_push`이고 push 결과는 `push`다. `actor`는 누가 했는지, `result`는 `{push_request_id, action, verdict, refusal, repository_id, checkpoint_revision, git_commit, target_branch}`다. 이름을 바꾸기 전에 남은 receipt는 operation `decide_push`, 값 `result.decision`, refusal `already_decided`, 오류 `PUSH_REQUEST_DECIDED`이고 그대로 읽힌다. 거절이면 status가 `failed`이고 `error`에 코드가 있다. 비밀 값은 담지 않는다. 인증되지 않은 시도(401)와 `AUTH_MODE=none`의 시도는 receipt 없이 요청 로그에만 남는다.
 
+### Workspace 소프트 상한 (`WORKSPACE_ENFORCE`)
+
+API의 `WORKSPACE_ENFORCE`는 `warn`(기본)·`fail`·`off` 중 하나다. 다른 값이나 빈 값이면 API가 시작하지 않는다. Compose에서는 같은 이름의 변수로, Helm에서는 `api.workspaceEnforce`로 설정한다.
+
+- `warn`: 소프트·미확인 축의 사용량이 상한을 넘으면 경고와 지표를 남기고 턴은 계속한다. 초과량에 제한이 없다.
+- `fail`: 턴 입력 전 측정값보다 사용량이 늘었고 상한을 엄격히 초과한 축이 있으면 그 턴을 중단한다. 바이트와 inode를 따로 판정하며 하드 상한이 확인된 축은 관찰만 한다. 완전한 측정은 한 번, 불완전한 측정은 같은 축의 연속 확인 뒤에 중단한다. 측정 실패만으로 턴을 실패시키지는 않는다.
+- `off`: 측정 결과를 턴 중단에 사용하지 않는다. 사용량 관찰은 계속한다.
+
+신뢰할 엔진 terminal을 받은 턴은 `failed`, reason `workspace_quota_exceeded`가 되고 receipt의 공개 오류 코드는 `WORKSPACE_QUOTA_EXCEEDED`다. 세션과 파일은 남는다. 엔진이 중단에 답하지 않아 결과를 확인할 수 없으면 `outcome_unknown`을 유지하며, 사용자 interrupt·owner 상실·이미 닫힌 턴·진행 중인 deadline을 quota보다 우선한다. 새 성공 응답이나 라우트는 추가하지 않는다.
+
+이미 초과한 세션도 정리할 수 있도록 시작 전 전면 거절은 하지 않는다. `fail`에서도 턴 시작보다 사용량이 줄거나 같은 측정값은 상한을 넘었어도 중단하지 않는다. 삭제 전용 모드는 아니며, 삭제만 허용하는 정리 모드와 90% 미만 복귀 시험을 갖추기 전에는 기본값을 `fail`로 올리지 않는다. `fail`의 입력 전 전체 스캔은 턴마다 비용이 들며, 짧은 턴이 이어질 때 관찰 스케줄러의 최소 간격과 같은 비용 목표를 보장하지 않는다. `workspace_quota_exceeded_total`은 초과를 발견한 표본 수이며 고유한 턴 수가 아니다.
+
+정책은 gateway가 worker claim의 선택 필드 `workspace_enforce`로 전달하며 **새 attempt부터** 적용된다. 설정 변경으로 실행 중 attempt가 즉시 바뀌지는 않는다. 즉시 적용이 필요하면 API 설정을 바꾼 뒤 진행 중 worker를 정상 drain하고 새 attempt로 재기동한다. 구버전 worker는 새 claim 필드를 버리며, 필드가 없는 claim을 받은 새 worker는 `warn`으로 동작한다. 구버전 client는 기본 설정에서 새 오류 코드를 그대로 읽지만 구버전 strict 응답 검증기는 새 enum을 `CLIENT_CONTRACT_MISMATCH`로 보고할 수 있다.
+
+소프트 상한은 사후 탐지이므로 측정과 interrupt 사이에 쓰기가 더 진행될 수 있고 유한한 초과량을 보장하지 않는다. 열린 채 unlink한 파일 같은 순회 측정의 한계도 있다. 큰 쓰기를 확실히 막아야 하면 스토리지의 하드 상한이 필요하다.
+
 ### 턴이 끝날 때 push하기 (`AGENT_ACTION_FLOWS`)
 
 기본은 꺼져 있다. 꺼져 있으면 `request_push`는 예전처럼 동작한다(요청을 만들고, 승인되면 이어 가는 턴이 따로 돈다). 켜면 실행 중인 턴 안의 `request_push`는 요청을 만들지 않고 "이 턴이 끝날 때의 결과를 push한다"는 의도(`push_intents`)만 남긴다. 이어 가는 턴은 없다.

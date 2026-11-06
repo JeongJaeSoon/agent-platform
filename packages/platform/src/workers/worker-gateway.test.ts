@@ -743,6 +743,7 @@ describe("WorkerGateway", () => {
         sessionCostLimitUsd: 1_000,
         sessionTokenLimit: null,
         leaseTtlMs: 30_000,
+        workspaceEnforce: "fail",
       },
     });
     const request = {
@@ -861,6 +862,7 @@ describe("WorkerGateway", () => {
     expect(claimed.profile_fingerprint).not.toContain("provider-key");
     // The engine's own budget is what the session has left.
     expect(claimed.remaining_budget_usd).toBe(749.5);
+    expect(claimed.workspace_enforce).toBe("fail");
     // Off leaves the field out, so the answer is one a worker built before it
     // still reads: its schema was this one without the field, and strict.
     const beforeTheField = bootstrapClaimResponseSchema.extend({

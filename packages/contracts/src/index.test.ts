@@ -842,6 +842,27 @@ describe("worker protocol", () => {
       remaining_budget_usd: 12.5,
     };
     expect(bootstrapClaimResponseSchema.safeParse(claim).success).toBe(true);
+    const oldWorker = bootstrapClaimResponseSchema.omit({
+      workspace_enforce: true,
+    });
+    for (const workspace_enforce of ["warn", "fail", "off"] as const) {
+      expect(
+        bootstrapClaimResponseSchema.parse({ ...claim, workspace_enforce })
+          .workspace_enforce,
+      ).toBe(workspace_enforce);
+      expect(
+        oldWorker.parse({ ...claim, workspace_enforce }),
+      ).not.toHaveProperty("workspace_enforce");
+    }
+    expect(
+      bootstrapClaimResponseSchema.parse(claim).workspace_enforce,
+    ).toBeUndefined();
+    expect(
+      bootstrapClaimResponseSchema.safeParse({
+        ...claim,
+        workspace_enforce: "force",
+      }).success,
+    ).toBe(false);
     // Only the public summary may lack a runtime; a claim always has one.
     expect(
       bootstrapClaimResponseSchema.safeParse({ ...claim, runtime: null })

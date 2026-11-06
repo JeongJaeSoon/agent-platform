@@ -1,5 +1,4 @@
 import { z } from "zod";
-
 import {
   postSessionAnswerRequestSchema,
   rememberRuleSchema,
@@ -21,6 +20,7 @@ import {
   AGENT_DESCRIPTION_MAX_LENGTH,
   AGENT_INSTRUCTIONS_MAX_LENGTH,
 } from "../shared/agent-card.ts";
+import { workspaceEnforceSchema } from "../shared/execution.ts";
 import {
   attemptIdSchema,
   epochSchema,
@@ -477,6 +477,8 @@ export const bootstrapClaimResponseSchema = workerScopeSchema.extend({
   // limit, checked before every turn. Null when the session's profile
   // declared `billing: none`: no dollar limit applies to it.
   remaining_budget_usd: z.number().nonnegative().nullable(),
+  // Applied at claim time; older workers drop this top-level field.
+  workspace_enforce: workspaceEnforceSchema.optional(),
   // The answers the turn this attempt resumes was parked on, as allows it
   // may apply once each: a permission request of that turn whose tool and
   // input hash match a grant is answered allow_once without asking, and the
@@ -1060,6 +1062,8 @@ export const restorePlanResponseSchema = z.discriminatedUnion("status", [
  * receipt fails with BUDGET_EXCEEDED rather than INTERNAL_ERROR.
  */
 export const TURN_BUDGET_EXCEEDED_REASON = "budget_exceeded";
+
+export const TURN_WORKSPACE_QUOTA_EXCEEDED_REASON = "workspace_quota_exceeded";
 
 /**
  * The terminal reason of a turn interrupted to park it on unanswered
