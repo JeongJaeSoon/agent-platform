@@ -99,6 +99,7 @@ integration("pull request drain, writers overlapped by a barrier", () => {
       repositoryBinding: "sha256:binding",
       checkpointRevision: 1,
       gitCommit: COMMIT,
+      flow: "actions",
       policyApproval: null,
       policyFields: {},
     });

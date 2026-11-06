@@ -77,6 +77,9 @@ function app(
     state: options.state ?? "pushed",
     targetBranch: `agent/${SESSION}`,
     gitCommit: "a".repeat(40),
+    prState: null,
+    prError: null,
+    prErrorDetails: null,
   };
   const fail = (call: "lookup" | "comment" | "compare") => {
     if (options.failing === call) {
@@ -213,6 +216,7 @@ function app(
     consoleOrigin: null,
     logger: { warn: () => {} },
     store: {
+      failHeadMoved: async () => {},
       schedule: async (input) => {
         scheduleCalls.push(input);
         if (options.schedule === undefined) throw new Error("not used");
