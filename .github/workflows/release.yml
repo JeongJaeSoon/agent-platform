@@ -1,0 +1,69 @@
+name: Release
+
+# One Run workflow from the Actions page, with a version and a commit, takes a
+# release from nothing to the tag publish path: check the inputs, create the
+# annotated tag, and start Images on that tag. The one approval stays where it
+# is for a tag a person pushes: `publish` in images.yml waits for the `release`
+# environment, and nothing here asks again. This workflow holds no environment
+# and no package write.
+#
+# A tag made with GITHUB_TOKEN starts no push run, but a workflow_dispatch
+# does start, so the tag is followed by a dispatch of Images on its ref. That
+# run has GITHUB_REF=refs/tags/vX like a pushed tag's, so the publish scripts
+# read the same values on both paths.
+#
+# The tag exists before the approval is given. A rejected approval or a
+# failure before `publish` leaves the tag and nothing published: re-run that
+# Images run, or dispatch Images on the tag ref again. This workflow refuses a
+# version whose tag exists, so it is not the way to retry.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release tag, v<major>.<minor>.<patch> or with a -<prerelease> (v0.1.2, v0.2.0-rc.1)'
+        required: true
+        type: string
+      sha:
+        description: 'Full 40-character commit on main. Its CI and Images push runs must be green.'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+# Two runs for the same version must not race to create the tag.
+concurrency:
+  group: release-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: write
+    env:
+      VERSION: ${{ inputs.version }}
+      SHA: ${{ inputs.sha }}
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ github.token }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      ACTOR: ${{ github.actor }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check the inputs, main, the tag, CI and Images
+        run: .github/scripts/release-tag.sh check
+      - name: Create the annotated tag
+        run: .github/scripts/release-tag.sh tag
+      - name: Start Images on the tag
+        run: .github/scripts/release-tag.sh dispatch
+      - name: Summary
+        run: |
+          {
+            echo "Tag \`${VERSION}\` at \`${SHA}\`."
+            echo
+            echo "Approve \`release\` on the [Images run of ${VERSION}](${GITHUB_SERVER_URL}/${GH_REPO}/actions/workflows/images.yml?query=branch%3A${VERSION}) to publish."
+          } >>"$GITHUB_STEP_SUMMARY"

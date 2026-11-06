@@ -928,6 +928,14 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       (condition ?? "").split(" && ").every((term) => {
         const prefix = term.match(/^startsWith\(github\.ref, '([^']+)'\)$/);
         if (prefix) return run.ref.startsWith(prefix[1] ?? "");
+        const events = term.match(
+          /^contains\(fromJSON\('(\[[^']+\])'\), github\.event_name\)$/,
+        );
+        if (events) {
+          return (JSON.parse(events[1] ?? "[]") as string[]).includes(
+            run.event,
+          );
+        }
         const equal = term.match(/^github\.(event_name|ref) == '([^']+)'$/);
         if (!equal) throw new Error(`unexpected term: ${term}`);
         return (equal[1] === "ref" ? run.ref : run.event) === equal[2];
@@ -1014,7 +1022,14 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       ["pull_request", "refs/pull/1/merge", []],
       ["schedule", "refs/heads/main", []],
       ["workflow_dispatch", "refs/heads/main", []],
-      ["workflow_dispatch", "refs/tags/v1.2.3", []],
+      // release.yml's dispatch on the tag it just made: the same chain as a
+      // pushed tag. A branch or a non-release tag stays closed.
+      [
+        "workflow_dispatch",
+        "refs/tags/v1.2.3",
+        ["chart-publish", "index", "promote", "publish"],
+      ],
+      ["workflow_dispatch", "refs/tags/sdk-v0.1.0", []],
     ] as const)("%s of %s publishes through %j", (event, ref, expected) => {
       expect(
         writers.filter((name) => passes(jobs[name]?.if, { event, ref })).sort(),
@@ -1197,8 +1212,13 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       const mainPush =
         "github.event_name == 'push' && github.ref == 'refs/heads/main'";
       expect(concurrency.group).toContain(`(${mainPush} && github.sha)`);
+      // A tag, pushed or dispatched, is one group that is never cancelled: a
+      // second dispatch queues behind a publish under way.
+      expect(concurrency.group).toContain(
+        "startsWith(github.ref, 'refs/tags/v') && 'tag' || github.event_name",
+      );
       expect(concurrency["cancel-in-progress"]).toBe(
-        expression(`!(${mainPush})`),
+        expression(`!(${mainPush}) && !startsWith(github.ref, 'refs/tags/v')`),
       );
       // Tag promotions serialize repository-wide; two v* tags on one commit
       // share sha-<12>, and the tag check is not atomic.
