@@ -33,6 +33,27 @@ function verdict(job: string, env: Record<string, string>, stepId?: string) {
   }).exitCode;
 }
 
+test("bun-setup skips both cache steps for restore-cache false and refuses it with save-cache", () => {
+  const action = Bun.YAML.parse(
+    readFileSync(
+      join(import.meta.dir, "../.github/actions/bun-setup/action.yml"),
+      "utf8",
+    ),
+  ) as { inputs: Record<string, { default: string }>; runs: { steps: Step[] } };
+  expect(action.inputs["restore-cache"]?.default).toBe("true");
+  const steps = action.runs.steps;
+  const guard = steps.find((s) => s.run?.includes("save-cache: true"));
+  expect(guard?.if).toBe(
+    "inputs.restore-cache == 'false' && inputs.save-cache == 'true'",
+  );
+  expect(guard?.run).toContain("exit 1");
+  const caches = steps.filter((s) => s.uses?.startsWith("actions/cache"));
+  expect(caches.map((s) => s.if)).toEqual([
+    "inputs.restore-cache != 'false' && inputs.save-cache == 'true'",
+    "inputs.restore-cache != 'false' && inputs.save-cache != 'true'",
+  ]);
+});
+
 test("a job that skips the bun cache restore installs nothing and saves nothing", () => {
   const dir = join(import.meta.dir, "../.github/workflows");
   let skipping = 0;
