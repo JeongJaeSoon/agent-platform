@@ -237,7 +237,7 @@ scripts/test-ops.sh start
 
 `start` は、checkout が release の source commit でなくても、`infra/` がその commit のものと同じなら起動します。checkout から読むのは compose ファイルだけだからです。
 
-env ファイルの値を変えた設置には、`scripts/test-ops.sh upgrade /var/lib/agent-platform/test-ops/current.json` で同じ release を再適用します。`CONSOLE_ORIGIN` を足してこのコマンドで適用すると、api コンテナが作り直され、`/readyz` は ready でした。`start` が変えた env の値を読むかどうかは確認していません。
+env ファイルの値を変えた設置には、`scripts/test-ops.sh upgrade /var/lib/werft/test-ops/current.json` で同じ release を再適用します。`CONSOLE_ORIGIN` を足してこのコマンドで適用すると、api コンテナが作り直され、`/readyz` は ready でした。`start` が変えた env の値を読むかどうかは確認していません。
 
 残るのは DB の volume です。LocalStack は volume を持たずメモリに保存するので、コンテナを止めると `-v` がなくても checkpoint object は消えます。DB に未回収の checkpoint が残っているのに bucket が空だと API は起動を拒否します。その場合は[再起動](#再起動)の `reseed` か `reset` です。データを守るなら S3 で設置します。これらのコマンドは、唯一のセッションが失敗で終わった(未回収の checkpoint がない)LocalStack の設置で確認しました。`stop` で止めた設置を `start` で戻すことも実行して確認しました。`stop` の後、コンテナと network は 0 個で volume は残り、`start` は exit 0、`/readyz` は 200 でした。手で実行した `compose down` で止まった設置を `start` で戻すこと、再起動の後に `start` で戻すことは、どちらも実行し、`/readyz` が 200 を返し owner でログインできました。未回収の checkpoint がある LocalStack の設置での `start` は確認していません。
 
