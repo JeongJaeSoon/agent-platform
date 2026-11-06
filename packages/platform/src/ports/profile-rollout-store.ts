@@ -81,10 +81,9 @@ export interface ProfileRolloutStore {
   /**
    * Puts in the items the insert-time write missed (design 2.3, the sweep).
    * Writes the outbox, so it is run only once the writer is open.
-   * With agents already behind their profile and neither a rollout nor a
-   * recorded fill, the one-time fill has not run: nothing is written (a
-   * rollout would close the fill for good) and `held` counts the agents left
-   * as they are.
+   * Agents behind their profile in a lineage that has no rollout of its own,
+   * before a recorded fill, belong to the one-time fill: nothing is written
+   * for them (a rollout would close the fill for good) and `held` counts them.
    */
   sweep(): Promise<{ rollouts: number; items: number; held?: number }>;
   inspect(input: {

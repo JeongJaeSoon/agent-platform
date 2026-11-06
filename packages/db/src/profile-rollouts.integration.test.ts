@@ -687,6 +687,41 @@ integration("profile rollouts on PostgreSQL (U3b reader)", () => {
       });
     });
 
+    test("a rollout of another lineage does not open this one: its behind agents stay held and the fill can still run", async () => {
+      const caller = await owner();
+      await lineage(caller);
+      const behind = await follower(caller);
+      await db.insert(installationProfiles).values({
+        id: "op_other_v1",
+        name: "other",
+        version: 1,
+        origin: "console",
+        definition: definitionOf(V1),
+        permissionMode: "default",
+        fingerprint: "fp-other-1",
+        repositoryIds: [],
+        createdBy: userOf(caller),
+      });
+      await db.insert(profileRollouts).values({
+        id: randomUUID(),
+        kind: "profile_update",
+        targetProfileId: "op_other_v1",
+        createdBy: userOf(caller),
+      });
+
+      expect(await rollouts().sweep()).toEqual({
+        rollouts: 0,
+        items: 0,
+        held: 1,
+      });
+      expect(await db.select().from(profileRolloutItems)).toEqual([]);
+
+      const filled = await rollouts().backfill({ dryRun: false });
+      if ("refused" in filled) throw new Error("fill refused");
+      expect(filled.pinned).toEqual([behind.agent.id]);
+      expect(await db.select().from(profileFill)).toHaveLength(1);
+    });
+
     test("with nobody behind, an empty outbox is nothing to hold back", async () => {
       const caller = await owner();
       await lineage(caller);

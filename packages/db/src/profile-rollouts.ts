@@ -233,6 +233,17 @@ async function behindLatest(tx: Database) {
   return { latest, behind };
 }
 
+/** Lineages the writer (or a sweep) has already written a rollout for. */
+async function lineagesWithRollouts(tx: Database) {
+  const found = await rows<{ lineage: string }>(
+    tx,
+    sql`SELECT DISTINCT ${LINEAGE("p")} AS lineage FROM profile_rollouts r
+      JOIN installation_profiles p ON p.id = r.target_profile_id
+      WHERE r.kind = 'profile_update'`,
+  );
+  return new Set(found.map((row) => row.lineage));
+}
+
 export function createPostgresProfileRolloutStore(
   db: Database,
 ): ProfileRolloutStore {
@@ -442,16 +453,20 @@ export function createPostgresProfileRolloutStore(
       return db.transaction(async (tx) => {
         // Profile writes take this lock, so no version lands mid-sweep.
         await lockWrites(tx);
-        const { latest, behind } = await behindLatest(tx);
-        if (behind.length > 0) {
-          const opened = await rows(
-            tx,
-            sql`SELECT 1 FROM profile_rollouts
-              UNION ALL SELECT 1 FROM profile_fill LIMIT 1`,
+        const { latest, behind: allBehind } = await behindLatest(tx);
+        // Before the one-time fill, a lineage is opened only by a rollout of
+        // its own: another lineage's rollout says nothing about this one.
+        let behind = allBehind;
+        if (
+          allBehind.length > 0 &&
+          (await rows(tx, sql`SELECT 1 FROM profile_fill`)).length === 0
+        ) {
+          const opened = await lineagesWithRollouts(tx);
+          behind = allBehind.filter((agent) =>
+            opened.has(agent.lineage as string),
           );
-          if (opened.length === 0)
-            return { rollouts: 0, items: 0, held: behind.length };
         }
+        const held = allBehind.length - behind.length;
         let rollouts = 0;
         let items = 0;
         // The head is the lineage's last behavior-changing rollout. When the
@@ -518,7 +533,7 @@ export function createPostgresProfileRolloutStore(
           );
           items += put.length;
         }
-        return { rollouts, items };
+        return held > 0 ? { rollouts, items, held } : { rollouts, items };
       });
     },
 
@@ -561,14 +576,14 @@ export function createPostgresProfileRolloutStore(
     }): Promise<BackfillReport | { refused: "rollouts_exist" }> {
       return db.transaction(async (tx) => {
         await lockWrites(tx);
-        if (!dryRun) {
-          const any = await rows(
-            tx,
-            sql`SELECT 1 FROM profile_rollouts LIMIT 1`,
-          );
-          if (any.length > 0) return { refused: "rollouts_exist" as const };
-        }
         const { behind } = await behindLatest(tx);
+        // A lineage that already has a rollout belongs to the sweep: pinning
+        // its agents here would race the items the writer put in.
+        if (!dryRun) {
+          const opened = await lineagesWithRollouts(tx);
+          if (behind.some((agent) => opened.has(agent.lineage as string)))
+            return { refused: "rollouts_exist" as const };
+        }
         const behindSorted = [...behind].sort((a, b) =>
           a.agent_id < b.agent_id ? -1 : a.agent_id > b.agent_id ? 1 : 0,
         );
