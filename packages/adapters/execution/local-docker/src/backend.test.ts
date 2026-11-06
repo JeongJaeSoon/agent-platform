@@ -1020,6 +1020,9 @@ describe("LocalDockerBackend.ensureExecution", () => {
       [
         `${ENV.home}=/home/worker`,
         `${ENV.workspaceDir}=/workspace`,
+        `${ENV.workspaceMountDir}=/workspace`,
+        `${ENV.workspaceQuotaMode}=enforced`,
+        `${ENV.workspaceQuotaBytes}=4294967296`,
         `${ENV.bootstrapNonce}=nonce-abc`,
         `${ENV.executionGeneration}=1`,
         `${ENV.executionId}=${intent.executionId}`,

@@ -268,6 +268,12 @@ export function createPushRequestService(deps: {
       if (written.outcome === "turn_not_running") {
         return { status: "turn_not_running" as const };
       }
+      if (written.outcome === "turn_target_taken") {
+        return {
+          status: "turn_target_taken" as const,
+          target_branch: written.targetBranch,
+        };
+      }
       return {
         status: "deferred" as const,
         intent: written.intent,

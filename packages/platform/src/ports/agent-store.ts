@@ -40,7 +40,14 @@ type Inactive = { outcome: "actor_inactive" };
 type Outranked = { outcome: "outranked" };
 
 /** Roles holding the right outright; anyone else must administer the agent. */
-type ManagerRoles = { managerRoles: readonly WorkspaceRole[] };
+type ManagerRoles = {
+  managerRoles: readonly WorkspaceRole[];
+  /**
+   * Also required of the person, whatever team right they hold: a rollout
+   * acts for a profile's author and needs them to still be an owner or admin.
+   */
+  requireRoles?: readonly WorkspaceRole[];
+};
 
 /**
  * An agent as the store reads it. `effective_behavior` needs the catalog, so
@@ -81,14 +88,21 @@ export type InsertReleaseResult =
   | Outranked;
 
 /** Why a release is made, kept on its receipts. */
-export type ReleaseReason = "card_saved" | "profile_changed" | "direct";
+export type ReleaseReason =
+  | "card_saved"
+  | "profile_changed"
+  | "profile_rollout"
+  | "direct";
 
 /**
  * Who asks for an activation. A `save` carries the revision of the save it
  * finishes and clears that save's draft. A `direct` activation is a person's
  * new intent: it takes a new `behavior_revision` and leaves the draft. The
  * model source follows 2.4: it stays `profile` only if the release runs the
- * default model of its profile. A rollout (U3b) passes neither.
+ * default model of its profile. A rollout changes neither the revision nor
+ * the draft; under the agent's lock it is `superseded` unless the agent still
+ * follows, still has the `behaviorRevision` it was judged on, and
+ * `targetProfileId` is still the newest of its profile (design 2.3).
  */
 export type ActivationIntent =
   | {
@@ -97,7 +111,20 @@ export type ActivationIntent =
       draftVersionId: string;
       modelSource: ModelSource;
     }
-  | { kind: "direct"; releaseRunsProfileDefault: boolean };
+  | {
+      kind: "rollout";
+      behaviorRevision: number;
+      targetProfileId: string;
+    }
+  | {
+      kind: "direct";
+      releaseRunsProfileDefault: boolean;
+      /**
+       * The release's profile runs differently from its lineage's newest
+       * (design 2.4): the agent stops following, in the same write.
+       */
+      pinsProfile?: boolean;
+    };
 
 export type ActivateResult =
   | {

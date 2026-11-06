@@ -2251,6 +2251,11 @@ export function workerEnvironmentFor(
     `${ENV.egressCredentialUrl}=${egressCredentialUrlOf(config)}`,
     `${ENV.home}=${config.homeDir}`,
     `${ENV.workspaceDir}=${config.workspaceDir}`,
+    `${ENV.workspaceMountDir}=${config.workspaceDir}`,
+    `${ENV.workspaceQuotaMode}=${config.workspaceQuota.mode}`,
+    ...(config.workspaceQuota.mode === "enforced"
+      ? [`${ENV.workspaceQuotaBytes}=${config.workspaceQuota.sizeBytes}`]
+      : []),
     `${ENV.httpProxy}=${config.egressProxyUrl}`,
     `${ENV.httpProxyLower}=${config.egressProxyUrl}`,
     `${ENV.httpsProxy}=${config.egressProxyUrl}`,
