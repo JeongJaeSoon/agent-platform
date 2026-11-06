@@ -968,6 +968,17 @@ const SNAPSHOT_ROUND_PAUSE_MS = [15_000, 30_000, 60_000];
 const SNAPSHOT_DENIALS_TO_BELIEVE = 2;
 
 /**
+ * How snapshot.debian.org answered, by HTTP status or failure kind ("timeout",
+ * "error", "not-json"). Printed after a check so a log tells the service
+ * shedding load (503, 504, 429) from this side failing to connect.
+ */
+export const snapshotResponses = new Map<string, number>();
+
+function tally(kind: string): void {
+  snapshotResponses.set(kind, (snapshotResponses.get(kind) ?? 0) + 1);
+}
+
+/**
  * Whether snapshot.debian.org holds a source package version, by its
  * machine-readable srcfiles listing: 404 or an empty listing says no, anything
  * else that is not a listing is no answer.
@@ -982,17 +993,73 @@ async function snapshotHolds(
     const response = await fetch(url, {
       signal: AbortSignal.timeout(timeoutMs),
     });
+    tally(String(response.status));
     if (response.status === 404) return "missing";
     if (response.ok) {
       const { result } = (await response.json()) as { result?: unknown };
       if (Array.isArray(result)) {
         return result.length > 0 ? "held" : "missing";
       }
+      tally("not-json");
     }
-  } catch {
+  } catch (error) {
+    tally(
+      error instanceof Error && error.name === "TimeoutError"
+        ? "timeout"
+        : "error",
+    );
     // No answer; the next round asks again.
   }
   return "unreachable";
+}
+
+const heldKey = (entry: { source: string; version: string }) =>
+  `${entry.source} ${entry.version}`;
+
+/** The "<source> <version>" lines of earlier attempts' held files, as a set. */
+export function parseHeld(text: string): Set<string> {
+  return new Set(
+    text
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => /^\S+ \S+$/.test(line)),
+  );
+}
+
+/**
+ * Asks only for what no earlier attempt of this run found held. The answers
+ * stay in the order of `wanted`, and a source carried over counts as held, so
+ * the verdict is the one a full check would give. `held` is what to hand the
+ * next attempt: the earlier set joined with what this one found.
+ */
+export async function snapshotAnswersWithPrior(
+  wanted: { source: string; version: string }[],
+  prior: Set<string>,
+  budgetMs: number,
+  holds?: typeof snapshotHolds,
+  pause?: (ms: number) => Promise<unknown>,
+): Promise<{ answers: SnapshotAnswer[]; held: Set<string> }> {
+  const answers = wanted.map(
+    (entry): SnapshotAnswer =>
+      prior.has(heldKey(entry)) ? "held" : "unreachable",
+  );
+  const asking = wanted.flatMap((_, index) =>
+    answers[index] === "held" ? [] : [index],
+  );
+  const asked = await snapshotAnswers(
+    asking.map((index) => wanted[index] as (typeof wanted)[number]),
+    budgetMs,
+    holds,
+    pause,
+  );
+  asking.forEach((index, position) => {
+    answers[index] = asked[position] as SnapshotAnswer;
+  });
+  const held = new Set(prior);
+  wanted.forEach((entry, index) => {
+    if (answers[index] === "held") held.add(heldKey(entry));
+  });
+  return { answers, held };
 }
 
 /**
@@ -1198,11 +1265,21 @@ async function main(argv: string[]): Promise<number> {
   // Exit 1 when snapshot.debian.org lacks a listed source, 3 when it did not
   // answer for one; image-sources.sh decides what either means for a publish.
   if (mode === "--snapshot-check") {
-    const [budget, ...files] = rest;
+    const [budget, ...args] = rest;
     const budgetSeconds = Number(budget);
+    // --prior <file>: answers earlier attempts of this run found held.
+    // --held-out <file>: where to write the held set for the next attempt.
+    const files: string[] = [];
+    let priorFile: string | undefined;
+    let heldOut: string | undefined;
+    for (let at = 0; at < args.length; at += 1) {
+      if (args[at] === "--prior") priorFile = args[++at];
+      else if (args[at] === "--held-out") heldOut = args[++at];
+      else files.push(args[at] as string);
+    }
     if (files.length === 0 || !(budgetSeconds > 0)) {
       console.error(
-        "usage: third-party-notices.ts --snapshot-check <budget seconds> <file>...",
+        "usage: third-party-notices.ts --snapshot-check <budget seconds> [--prior <file>] [--held-out <file>] <file>...",
       );
       return 2;
     }
@@ -1217,11 +1294,31 @@ async function main(argv: string[]): Promise<number> {
         wanted.set(`${entry.source} ${entry.version}`, entry);
       }
     }
-    const answers = await snapshotAnswers(
+    const prior = parseHeld(
+      priorFile && existsSync(priorFile) ? readFileSync(priorFile, "utf8") : "",
+    );
+    const carried = [...wanted.keys()].filter((key) => prior.has(key)).length;
+    if (carried > 0) {
+      console.log(
+        `${carried} of ${wanted.size} sources were found held by an earlier attempt`,
+      );
+    }
+    const { answers, held: heldSet } = await snapshotAnswersWithPrior(
       [...wanted.values()],
+      prior,
       budgetSeconds * 1000,
     );
+    // Written before the verdict: a failed attempt is the one that hands on.
+    if (heldOut) {
+      writeFileSync(heldOut, `${[...heldSet].sort().join("\n")}\n`);
+    }
     const held = answers.filter((answer) => answer === "held").length;
+    console.log(
+      `snapshot.debian.org responses: ${
+        [...snapshotResponses].map(([kind, n]) => `${kind}=${n}`).join(" ") ||
+        "none"
+      } (4 requests at a time, ${SNAPSHOT_REQUEST_MS / 1000}s timeout, rounds pause ${SNAPSHOT_ROUND_PAUSE_MS.map((ms) => ms / 1000).join("/")}s)`,
+    );
     console.log(
       `snapshot.debian.org holds ${held} of ${wanted.size} sources in ${files.length} lists`,
     );

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Whether snapshot.debian.org holds every source a publish ships:
-# `image-sources.sh <list dir> <result dir> <main|release>`.
+# `image-sources.sh <list dir> <result dir> <main|release> [<prior dir> <held out dir>]`.
 #
 # <list dir> holds <app>-<arch>.md, each image's /app/DEBIAN_SOURCES.md. The six
 # lists share nearly all their sources, so they are asked about once, here,
@@ -42,10 +42,28 @@ done
 
 answers="$(mktemp)"
 unreachable="$(mktemp)"
-trap 'rm -f "$answers" "$unreachable"' EXIT
+prior="$(mktemp)"
+trap 'rm -f "$answers" "$unreachable" "$prior"' EXIT
+
+# Earlier attempts of this run leave the sources they found held under
+# <prior dir>/<artifact>/held.txt. They are asked about no more, so a re-run
+# only ever has less to ask. The verdict stays the strict one: a source nobody
+# found held is still unanswered. This attempt's set goes to <held out dir>
+# even when the check fails, because the failed attempt is the one that hands on.
+prior_dir="${4:-}"
+held_out_dir="${5:-}"
+check_args=(--snapshot-check "$budget")
+if [ -n "$prior_dir" ] && [ -d "$prior_dir" ]; then
+  find "$prior_dir" -name held.txt -exec cat {} + >"$prior"
+  check_args+=(--prior "$prior")
+fi
+if [ -n "$held_out_dir" ]; then
+  mkdir -p "$held_out_dir"
+  check_args+=(--held-out "${held_out_dir}/held.txt")
+fi
 
 snapshot_check_copying_stderr_to() {
-  { bun scripts/third-party-notices.ts --snapshot-check "$budget" "${files[@]}" 2>&1 >&3 | tee "$1" >&2; } 3>&1
+  { bun scripts/third-party-notices.ts "${check_args[@]}" "${files[@]}" 2>&1 >&3 | tee "$1" >&2; } 3>&1
 }
 
 if snapshot_check_copying_stderr_to "$answers"; then
