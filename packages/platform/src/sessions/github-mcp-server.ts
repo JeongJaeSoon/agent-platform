@@ -434,7 +434,7 @@ export function createGitHubMcpServer(deps: {
             pull_request: "none",
             // The model reads this as the end of the job; say that the pull
             // request is still its call, in this turn, approval or not.
-            next: "To open the pull request without a later turn, call open_pull_request with this push_intent_id in this same turn, also when the push needs approval.",
+            next: "To open the pull request without a later turn, call open_pull_request with this push_intent_id in this same turn, without waiting for the push, also when the push needs approval.",
           });
         }
       }

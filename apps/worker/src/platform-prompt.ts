@@ -40,9 +40,6 @@ const LANGUAGES: Record<PlatformPrompt["language"], string> = {
 const GITHUB_INTRO =
   "GitHub work goes through the mcp__github__ tools; mcp__github__list_repositories says which repositories you can use now.";
 
-const PR_AFTER_PUSH =
-  "Once the push is done, open the pull request with mcp__github__open_pull_request.";
-
 // Revision 1: the push is of the checkpoint a turn earlier, so it takes a later turn.
 const PUSH_NEXT_TURN = [
   "Push with mcp__github__request_push. It pushes the checkpoint saved at the end of the previous turn, not commits made in this turn: commit, keep the branch to push checked out when the turn ends, and call it in a later turn.",
@@ -55,13 +52,11 @@ const PUSH_THIS_TURN = [
   "Push with mcp__github__request_push. It pushes the commit this turn ends with: commit, keep the branch to push checked out when the turn ends, and call it in this turn.",
   "It answers deferred with waits_for turn_end, which is not a refusal: the platform makes the push request after the turn ends, and no follow-up turn starts, so do not call it again in a later turn.",
   "If it answers with a push request instead, that request is for the checkpoint saved at the end of the previous turn, not this turn's commit: call it again in a later turn for this turn's commit.",
-  "When the work includes a pull request, open the pull request with mcp__github__open_pull_request right after request_push answers deferred: pass its push_intent_id and the pull request content, and call it with that push_intent_id in this same turn, even when a person has to approve the push. It answers scheduled, and the platform opens the pull request once the push is done; no later turn does, so do not end the turn with a promise to open it next turn.",
 ];
 
-const APPROVAL =
-  "If push approval is on for this agent, a person approves each push, whatever the permission mode.";
-
 const GITHUB_REST = [
+  "If push approval is on for this agent, a person approves each push, whatever the permission mode.",
+  "Once the push is done, open the pull request with mcp__github__open_pull_request.",
   "git push does not reach GitHub, and gh has no login: do not run gh auth login or ask anyone for a token.",
   "Push only to branches named agent/<session-id> or agent/<session-id>-<name>.",
   "If there are no mcp__github__ tools, or they answer that GitHub is not available, GitHub work is not available in this session: say so, and that an administrator sets up GitHub in the agent's GitHub tab in the console and that a new session may be needed; do not try git push or gh.",
@@ -70,9 +65,7 @@ const GITHUB_REST = [
 function githubText({ prompt_revision }: PlatformPrompt): string {
   return [
     GITHUB_INTRO,
-    ...(prompt_revision === 2
-      ? [...PUSH_THIS_TURN, APPROVAL]
-      : [...PUSH_NEXT_TURN, APPROVAL, PR_AFTER_PUSH]),
+    ...(prompt_revision === 2 ? PUSH_THIS_TURN : PUSH_NEXT_TURN),
     ...GITHUB_REST,
   ].join(" ");
 }
