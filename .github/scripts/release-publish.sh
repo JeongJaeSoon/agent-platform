@@ -60,7 +60,9 @@ entry="$(find_release)"
 if [ -z "$entry" ]; then
   flags=()
   case "$tag" in *-*) flags+=(--prerelease) ;; esac
-  gh release create "$tag" --draft --verify-tag --title "$tag" \
+  # gh puts --notes in front of the generated notes, so the manifest line comes
+  # first. Categories come from .github/release.yml.
+  gh release create "$tag" --draft --verify-tag --title "$tag" --generate-notes \
     --notes "The manifest ($asset) holds the image digests, the worker runtime and the chart version." \
     ${flags[@]+"${flags[@]}"}
   # The listing can lag behind the create by a moment.

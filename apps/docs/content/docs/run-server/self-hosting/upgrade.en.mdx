@@ -6,7 +6,7 @@ description: Move an installed Werft to a new published version and see which se
 Move an installed Werft to a new published version. For a first install, read [Kubernetes install](/run-server/self-hosting/kubernetes) or [Single-server install](/run-server/self-hosting/single-server).
 
 <Callout type="warn">
-There is no `v` tag yet. For now, upgrade to the chart `0.1.0-main-<12>` and the image tag `main-<12>` published on every merge to `main`. They are not a release. Once the first `v` tag exists, set `VERSION` to the tag without the `v` (`1.2.3` for `v1.2.3`); the commands stay the same. Before you upgrade, read the [changelog](https://github.com/JeongJaeSoon/werft/blob/main/CHANGELOG.md) in the repository for what operators must do by hand.
+The first release, `v0.1.0`, is published. To upgrade to the release, set `VERSION` to the tag without the `v` (`0.1.0` for `v0.1.0`); the commands stay the same. The checks below upgraded between `main` versions; an upgrade to a release version was not run. `0.1.0-main-<12>` and `main-<12>` are not a release. Before you upgrade, read the [changelog](https://github.com/JeongJaeSoon/werft/blob/main/CHANGELOG.md) in the repository for what operators must do by hand.
 </Callout>
 
 ## Kubernetes

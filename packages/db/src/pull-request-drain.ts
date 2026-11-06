@@ -37,7 +37,13 @@ async function endExhausted(db: Database): Promise<void> {
   const stale = await db
     .select({ id: pushRequests.id, sessionId: pushRequests.sessionId })
     .from(pushRequests)
-    .where(and(eq(pushRequests.state, "pushed"), exhausted))
+    .where(
+      and(
+        eq(pushRequests.state, "pushed"),
+        eq(pushRequests.flow, "actions"),
+        exhausted,
+      ),
+    )
     .limit(20);
   for (const { id, sessionId } of stale) {
     await db.transaction(async (tx) => {
@@ -104,6 +110,9 @@ export function createPostgresPullRequestDrain(
             .where(
               and(
                 eq(pushRequests.state, "pushed"),
+                // Only the actions flow has a drain; a legacy row left due
+                // or opening by an earlier build is the follow-up turn's.
+                eq(pushRequests.flow, "actions"),
                 due,
                 notExhausted,
                 passed.length === 0

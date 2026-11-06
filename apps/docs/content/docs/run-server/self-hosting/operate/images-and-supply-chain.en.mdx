@@ -66,18 +66,18 @@ docker pull "ghcr.io/jeongjaesoon/werft-worker@<digest read above>"
 
 This section is the procedure for maintainers who have permission to push tags to the repository. Operators who install do not add tags; they use the published images in [Single-server install](/run-server/self-hosting/single-server) or [Kubernetes install](/run-server/self-hosting/kubernetes).
 
-No `v*` tag has been added so far, so this path has never been run.
+This path first ran for `v0.1.0`. In [Images run 42163099605](https://github.com/JeongJaeSoon/werft/actions/runs/42163099605), `sources`, `publish` (6 jobs), `index`, `promote`, `chart`, `chart-publish` and `release` all succeeded, and the `release` environment approval was requested 4 times. No tag run has happened since the change that reduced the approval to one before `publish` ([JeongJaeSoon/werft#1275](https://github.com/JeongJaeSoon/werft/pull/1275)).
 
 1. Push a `vX.Y.Z` or `vX.Y.Z-<prerelease>` tag to a verified commit on `main`. If that commit is not an ancestor of `main`, the publishing jobs fail. Tags of any other form (`v1`, `v1.2.3+build`) publish only images and fail in the `chart` job.
 2. Watch the `publish` job get `release` environment approval, and `index`, `promote` and `chart-publish` then finish without approval. Approval is requested once, before `publish`. The later jobs run only after `publish` succeeds, so that one approval guards them all. `sources`, between `publish` and `index`, can take up to 30 minutes.
-3. When `chart-publish` finishes, the `release` job creates the tag's GitHub Release and attaches `release-manifest.json`. This job does not take approval of its own. The approval before `publish` has already passed, and only this job has `contents: write`. The Release is created as a draft, the manifest is uploaded and read back, and only then is the Release made public. Check the digests and the chart version with the commands in [Reading the release manifest](#reading-the-release-manifest).
+3. When `chart-publish` finishes, the `release` job creates the tag's GitHub Release and attaches `release-manifest.json`. This job does not take approval of its own. The approval before `publish` has already passed, and only this job has `contents: write`. The Release is created as a draft, the manifest is uploaded and read back, and only then is the Release made public. The body is the notes GitHub generates (grouped by `.github/release.yml`), with one line about the manifest in front. Security fixes and operator actions are not in the generated notes, so write them in the [changelog](https://github.com/JeongJaeSoon/werft/blob/main/CHANGELOG.md) before creating the tag. Check the digests and the chart version with the commands in [Reading the release manifest](#reading-the-release-manifest).
 4. Rerunning the same tag with "Re-run failed jobs" is safe. If the content is the same as the manifest already attached, it passes; if it differs, it fails and does not overwrite. If creating the Release or uploading was cut off partway, finish it the same way. If an image is rebuilt under the same tag and its digest changes, `promote` refuses it first.
 
 After a release, raise `version` in `Chart.yaml` to the next version. The `main` chart version is appended after this value, so this is what makes prereleases sort after the release just made.
 
 ### Reading the release manifest
 
-Each `v*` tag gets one GitHub Release with the file `release-manifest.json` attached. Operators do not look for runs or artifacts. They do not need a repository checkout either; `gh` and `jq` are enough. No `v*` tag has been added yet, so there is no Release. The `TAG` below is a tag after a Release exists.
+Each `v*` tag gets one GitHub Release with the file `release-manifest.json` attached. Operators do not look for runs or artifacts. They do not need a repository checkout either; `gh` and `jq` are enough. The first Release is `v0.1.0` (the asset is `release-manifest.json`, and the commit it records is `9e2098e5`). Put the tag of the Release you want to read in `TAG` below.
 
 ```bash
 TAG=v0.1.0   # the release tag to read

@@ -29,7 +29,7 @@ Werft サーバーを自分で設置し、チームで共有する方法です�
 イメージは `linux/amd64` と `linux/arm64` を含む index で、設置では digest で固定します。chart は3つのイメージの digest と worker runtime を含みます。パッケージはログインなしで取得できます。`<12>` は commit SHA の先頭12文字です。`main` のバージョン同士に順序の意味はないため、Images workflow で正常終了した実行の commit を選び、正確なバージョンを固定します。
 
 <Callout type="warn">
-`v` タグはまだありません。`main-<12>` はリリースではなく、対応するソースの保管を一部確認できないまま公開されることがあります。最初の `v` タグができると、設置ページのコマンドはタグの値だけが変わり、単一サーバーでは同じタグを checkout します。`v` タグの経路(承認、GitHub Release、`release-manifest.json`)は一度も実行されていません。公開イメージを取得できない場合は、リポジトリを checkout して[3つのイメージを自分でビルド](/run-server/self-hosting/single-server#イメージを自分でビルドするとき)します。
+最初のリリース `v0.1.0` が公開されました。`main-<12>` はリリースではなく、対応するソースの保管を一部確認できないまま公開されることがあります。リリースを設置するには、設置ページのコマンドのタグの値だけを `v0.1.0` に変え、単一サーバーでは同じタグを checkout します。`v` タグの経路(承認、GitHub Release、`release-manifest.json`)は `v0.1.0` で初めて実行され、[Images run 42163099605](https://github.com/JeongJaeSoon/werft/actions/runs/42163099605) は success で終わりました。下の確認結果は `v0.1.0` と同じ commit の `main-<12>` パッケージで行ったもので、`v0.1.0` のパッケージで設置手順を実行してはいません。公開イメージを取得できない場合は、リポジトリを checkout して[3つのイメージを自分でビルド](/run-server/self-hosting/single-server#イメージを自分でビルドするとき)します。
 </Callout>
 
 ## 実測の状態
@@ -38,14 +38,14 @@ Werft サーバーを自分で設置し、チームで共有する方法です�
 
 | 方法 | VERIFIED | NOT VERIFIED |
 | --- | --- | --- |
-| 単一サーバー | LocalStack の設置で手順1〜6と `key create`、`/readyz` 200。`/bootstrap` 画面で最初の owner を作った後のログイン API 200。`reset --yes` の後に再度 `deploy`。ボリュームを残した `stop` と `start`。`backup`、`restore-drill`、`reseed` がそれぞれ exit 0。`orb restart` の後に `start` で同じデータのまま `/readyz` 200 | `backup --stop`、再起動、`reseed` を続けて実行したこと。未回収の checkpoint がある再起動。S3 設置での `upgrade` と再起動。単一サーバーのアップグレード |
+| 単一サーバー | LocalStack の設置で手順1〜6と `key create`、`/readyz` 200。`/bootstrap` 画面で最初の owner を作った後のログイン API 200(画面はオーナーが自分で行い、カードは見ていません。ブラウザでのログインは行っていません)。`reset --yes` の後に再度 `deploy`。ボリュームを残した `stop` と `start`。`backup`、`restore-drill`、`reseed` がそれぞれ exit 0。`orb restart` の後に `start` で同じデータのまま `/readyz` 200 | `backup --stop`、再起動、`reseed` を続けて実行したこと。未回収の checkpoint がある再起動。S3 設置での `upgrade` と再起動。単一サーバーのアップグレード |
 | Kubernetes | kind で公開 chart の設置と `/readyz` 200。Secret の `BOOTSTRAP_TOKEN` で最初の owner を作成(誤ったトークンは 401、同じトークンの再使用は 409)、`key create`、key ありで `GET /v1/sessions` が 200、なしで 401(API のレプリカ数2)。アップグレード手順1〜4で `proceed`、承認できない `refused` の2つの場合、kind 既定の CNI での NetworkPolicy の隔離 | セッションと worker Pod の実行。影響を受けるセッションがある `refused`。kind 既定以外の CNI。worker の pin がない実際の古い chart からのアップグレード(pin なし・chart なしの分岐は状態を合成して確認) |
 
 バックアップの確認は、オブジェクト0個、checkpoint 0行のスタックで行いました。この状態では `restore-drill` に比較する対象がありませんでした。Kubernetes の DB Secret ブロックは、`read -rs` が端末を要求するため、値を標準入力で渡して実行しました。
 
 ## リリース manifest を読む
 
-リリース(`v*` タグ)ごとに GitHub Release ができ、`release-manifest.json` が付く。3 つのイメージの digest、worker runtime、chart バージョンがこの 1 ファイルにある。リポジトリを checkout せず、`gh` と `jq` で読む。以下は最初のリリースができた後のコマンドである。
+リリース(`v*` タグ)ごとに GitHub Release ができ、`release-manifest.json` が付く。3 つのイメージの digest、worker runtime、chart バージョンがこの 1 ファイルにある。リポジトリを checkout せず、`gh` と `jq` で読む。以下はリリースタグを入れて読むコマンドである。現在のリリースは `v0.1.0` である。
 
 ```bash
 TAG=v0.1.0   # the release tag to read

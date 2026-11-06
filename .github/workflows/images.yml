@@ -131,9 +131,9 @@ jobs:
 
       # Findings never fail the build: `supply-chain` judges them, so the
       # build's check stays about the build. A scan that cannot run (release
-      # download, database update) leaves `error` for that job as well.
+      # download, database update) fails the build: no verdict is not a pass.
+      # The `error` it leaves in the result file is what `supply-chain` reads.
       - name: Vulnerability scan
-        continue-on-error: true
         timeout-minutes: 10
         env:
           APP: ${{ matrix.app }}

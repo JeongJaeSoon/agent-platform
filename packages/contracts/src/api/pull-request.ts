@@ -297,6 +297,8 @@ export const PULL_REQUEST_REFUSAL_VALUES = [
   "superseded",
   // The push intent ended (failed or cancelled) before it became a request.
   "intent_ended",
+  // The branch's open pull request is on another commit than the pushed one.
+  "head_moved",
 ] as const;
 export const pullRequestRefusalSchema = z.enum(PULL_REQUEST_REFUSAL_VALUES);
 

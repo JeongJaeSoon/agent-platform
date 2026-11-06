@@ -1,0 +1,17 @@
+# Categories for the notes `gh release create --generate-notes` builds
+# (.github/scripts/release-publish.sh). GitHub sorts by PR label or author, never
+# by title prefix, so only labels that exist in the repository can be matched.
+# PRs without one land in the catch-all, where the title still shows its
+# conventional prefix.
+changelog:
+  categories:
+    - title: Features
+      labels: [enhancement]
+    - title: Fixes
+      labels: [bug]
+    - title: Docs
+      labels: [documentation]
+    - title: Dependencies
+      labels: [dependencies]
+    - title: Other changes
+      labels: ["*"]

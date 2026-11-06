@@ -66,18 +66,18 @@ docker pull "ghcr.io/jeongjaesoon/werft-worker@<digest read above>"
 
 この節は、リポジトリにタグをpushする権限のある管理者の手順です。インストールする運用者はタグを付けず、[単一サーバーの設置](/run-server/self-hosting/single-server)や[Kubernetesの設置](/run-server/self-hosting/kubernetes)で公開済みのイメージを使います。
 
-これまで`v*`タグを付けたことがないため、この経路は一度も実行されていません。
+この経路は`v0.1.0`で初めて実行されました。[Images run 42163099605](https://github.com/JeongJaeSoon/werft/actions/runs/42163099605)では、`sources`、`publish`(6件)、`index`、`promote`、`chart`、`chart-publish`、`release`がすべてsuccessで、`release` environmentの承認は4回でした。承認を`publish`の前の1回に減らした変更([JeongJaeSoon/werft#1275](https://github.com/JeongJaeSoon/werft/pull/1275))の後には、まだタグのrunがありません。
 
 1. `main`の検証済みcommitに、`vX.Y.Z`または`vX.Y.Z-<プレリリース>`タグをpushします。そのcommitが`main`の祖先でなければ、公開jobが失敗します。ほかの形のタグ(`v1`、`v1.2.3+build`)はイメージだけが出て、`chart` jobで失敗します。
 2. `publish` jobが`release` environmentの承認を受け、続く`index`・`promote`・`chart-publish`が承認なしで終わるかを確認します。承認は`publish`の前で1回だけ要求されます。後ろのjobは`publish`が成功してはじめて動くので、その承認がすべてを守ります。`publish`と`index`の間の`sources`は30分までかかることがあります。
-3. `chart-publish`が終わると、`release` jobがタグのGitHub Releaseを作り、`release-manifest.json`を添付します。このjobは別に承認を受けません。`publish`の前の承認がすでに済んでおり、`contents: write`はこのjobだけが持ちます。Releaseはdraftとして作ってmanifestを載せ、読み直して確認してから公開します。[リリースmanifestを読む](#リリースmanifestを読む)のコマンドで、digestとchartのバージョンを確認します。
+3. `chart-publish`が終わると、`release` jobがタグのGitHub Releaseを作り、`release-manifest.json`を添付します。このjobは別に承認を受けません。`publish`の前の承認がすでに済んでおり、`contents: write`はこのjobだけが持ちます。Releaseはdraftとして作ってmanifestを載せ、読み直して確認してから公開します。本文はGitHubが自動生成したノート(`.github/release.yml`で分類)で、先頭にmanifestの案内が1行付きます。セキュリティ修正と運用者がすることは自動ノートに含まれないので、タグを作る前に[変更履歴](https://github.com/JeongJaeSoon/werft/blob/main/CHANGELOG.md)に書きます。[リリースmanifestを読む](#リリースmanifestを読む)のコマンドで、digestとchartのバージョンを確認します。
 4. 同じタグを"Re-run failed jobs"で再実行しても安全です。すでに添付されたmanifestと内容が同じなら通り、違えば失敗して上書きしません。Releaseの作成やアップロードが途中で切れたら、同じ方法で残りを埋めます。イメージが同じタグで再ビルドされてdigestが変わる場合は、`promote`が先に拒否します。
 
 リリース後は、`Chart.yaml`の`version`を次のバージョンに上げます。`main`のchartバージョンはこの値の後ろに付くので、そうすることでプレリリースが直前に出したリリースより後ろに並びます。
 
 ### リリースmanifestを読む
 
-`v*`タグごとにGitHub Releaseが1つでき、ファイル`release-manifest.json`が添付されます。運用者はrunやartifactを探しません。リポジトリのcheckoutも不要で、`gh`と`jq`があれば足ります。まだ`v*`タグを付けたことがないため、Releaseはありません。下の`TAG`は、Releaseができた後のタグです。
+`v*`タグごとにGitHub Releaseが1つでき、ファイル`release-manifest.json`が添付されます。運用者はrunやartifactを探しません。リポジトリのcheckoutも不要で、`gh`と`jq`があれば足ります。最初のReleaseは`v0.1.0`です(assetは`release-manifest.json`、記録されたcommitは`9e2098e5`)。下の`TAG`には読みたいReleaseのタグを入れます。
 
 ```bash
 TAG=v0.1.0   # the release tag to read
