@@ -29,6 +29,7 @@ import { PASS_LOOP_ROLES } from "../apps/control-host/src/pass-loop/loop.ts";
 import { DEFAULT_MAX_BODY_BYTES_IN_FLIGHT } from "../apps/egress-proxy/src/credential.ts";
 import {
   GH_VERSION,
+  GIT_LFS_COMPRESS,
   GIT_LFS_GO,
   GIT_LFS_VERSION,
   GIT_LFS_X_NET,
@@ -259,6 +260,7 @@ describe("app Dockerfiles", () => {
     const source = basePins.worker.source;
     expect(source).toContain(`ARG GIT_LFS_VERSION=${GIT_LFS_VERSION}\n`);
     expect(source).toContain(`ARG GIT_LFS_X_NET=${GIT_LFS_X_NET}\n`);
+    expect(source).toContain(`ARG GIT_LFS_COMPRESS=${GIT_LFS_COMPRESS}\n`);
     expect(source).toContain(`ARG GIT_LFS_GO=${GIT_LFS_GO}\n`);
     expect(source).toMatch(
       /^ADD --checksum=sha256:[0-9a-f]{64} \\\n {2}https:\/\/github\.com\/git-lfs\/git-lfs\/releases\/download\/v\$\{GIT_LFS_VERSION\}\/git-lfs-v\$\{GIT_LFS_VERSION\}\.tar\.gz \\$/m,
