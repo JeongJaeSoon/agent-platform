@@ -4,10 +4,10 @@ name: Images
 # main push, smokes the worker's bundled Claude Code executable, and records
 # every digest as an artifact. A push to main and a v* tag push publish to
 # ghcr.io, and nothing else does. A main push publishes main-<12> tags with no
-# approval; a tag waits for the `release` environment, and its digests are what
-# the release manifest pins. Registry CD
+# approval; a tag waits for the `release` environment once, at `publish`, and
+# its digests are what the release manifest pins. Registry CD
 # beyond the push is D5. After the promotion the chart follows, with that run's
-# digests in its values, under the same two events and the same approval. A tag
+# digests in its values, under the same two events and the same single approval. A tag
 # then gets a GitHub Release carrying the manifest (`release`).
 #
 # Every build also checks what the image ships against THIRD_PARTY_NOTICES.md
@@ -235,7 +235,11 @@ jobs:
   # tag behind.
   # Two chains of jobs run the same steps. `publish`, `index` and `promote` are
   # the release: a `push` of a `v*` tag writes vX and sha-… under the `release`
-  # environment, where the repository adds required reviewers. The `-main` jobs
+  # environment, where the repository adds required reviewers. Only `publish`
+# names it: `index`, `promote` and `chart-publish` need `publish` to succeed, so
+# the one approval gates all of them and a second prompt would only repeat it.
+# The environment holds no secrets or variables, and no job here reads an OIDC
+# claim, so dropping it from the later jobs loses nothing. The `-main` jobs
   # write main-<12> on a push to main, reviewed by the merge itself, so no
   # environment. sha-<12> is not reused there: a build on another day has
   # another digest, and promote would refuse the tag.
@@ -399,7 +403,6 @@ jobs:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    environment: release
     permissions:
       contents: read
       packages: write
@@ -441,7 +444,6 @@ jobs:
       cancel-in-progress: false
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    environment: release
     permissions:
       contents: read
       packages: write
@@ -598,7 +600,6 @@ jobs:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    environment: release
     permissions:
       contents: read
       packages: write
