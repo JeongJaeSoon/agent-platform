@@ -110,7 +110,10 @@ jobs:
           push: false
           provenance: false
           cache-from: type=gha,scope=images-${{ matrix.app }}-${{ matrix.arch }}
-          cache-to: type=gha,scope=images-${{ matrix.app }}-${{ matrix.arch }},mode=max
+          # A pull request reads the cache and never writes it: its code is
+          # untrusted, and its ref-scoped entries only crowd the repository's
+          # cache quota. An empty value adds no --cache-to flag.
+          cache-to: ${{ github.event_name != 'pull_request' && format('type=gha,scope=images-{0}-{1},mode=max', matrix.app, matrix.arch) || '' }}
           build-args: |
             BUN_IMAGE=${{ env.BUN_IMAGE }}
             BUILDKIT_SYNTAX=${{ env.DOCKERFILE_FRONTEND_IMAGE }}
@@ -208,7 +211,11 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Installs nothing; npm-audit.ts imports only node: built-ins and
+      # `bun audit` reads bun.lock, not the install cache.
       - uses: ./.github/actions/bun-setup
+        with:
+          restore-cache: "false"
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: vulnerabilities-*
@@ -388,10 +395,26 @@ jobs:
           pattern: debian-sources-*
           path: debian-sources
           merge-multiple: true
+      # Re-run failed jobs starts this job over, so what an earlier attempt
+      # of this run already found held comes back as an artifact: the same run
+      # sees only its own commit's images, and the job name keeps `sources`
+      # and `sources-main` apart. Without one the check asks about everything.
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        if: github.run_attempt > 1
+        continue-on-error: true
+        with:
+          pattern: held-sources-${{ github.job }}-*
+          path: held-sources-prior
       - name: snapshot.debian.org holds what the images list
         env:
           SOURCES_MODE: ${{ github.ref == 'refs/heads/main' && 'main' || 'release' }}
-        run: .github/scripts/image-sources.sh debian-sources unverified-sources "$SOURCES_MODE"
+        run: .github/scripts/image-sources.sh debian-sources unverified-sources "$SOURCES_MODE" held-sources-prior held-sources
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: held-sources-${{ github.job }}-${{ github.run_attempt }}
+          path: held-sources/held.txt
+          if-no-files-found: ignore
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: unverified-sources

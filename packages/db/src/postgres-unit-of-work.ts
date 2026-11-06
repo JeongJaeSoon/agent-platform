@@ -27,6 +27,8 @@ import {
   type TurnDetail,
   type TurnSummary,
   turnStatusSchema,
+  type WorkspaceLimitMode,
+  workspaceLimitModeSchema,
 } from "@werft-ai/contracts";
 import type { StructuredLogger } from "@werft-ai/observability";
 import type {
@@ -57,6 +59,7 @@ import {
   eq,
   exists,
   gt,
+  gte,
   inArray,
   isNull,
   max,
@@ -137,6 +140,7 @@ import {
 } from "./session-event-archives.ts";
 import { recordStatus } from "./session-events.ts";
 import { sessionRelationIs, sessionVisibleTo } from "./session-shares.ts";
+import { readArchivedWorkspaceLimit } from "./workspace-limit.ts";
 
 export const CREATE_SESSION = "create_session";
 const APPEND_MESSAGE = "append_message";
@@ -1144,15 +1148,59 @@ export function createPostgresSessionReader(
           // the highest generation need not be the execution that claimed
           // last. The session names its current one; once
           // released, its last attempt does.
-          const [lastAttempt] =
-            row.executionId === null
-              ? await tx
-                  .select({ executionId: attempts.executionId })
-                  .from(attempts)
-                  .where(eq(attempts.sessionId, sessionId))
-                  .orderBy(desc(attempts.leaseEpoch))
-                  .limit(1)
-              : [];
+          const [lastAttempt] = await tx
+            .select({
+              id: attempts.id,
+              executionId: attempts.executionId,
+              startedAt: attempts.startedAt,
+            })
+            .from(attempts)
+            .where(eq(attempts.sessionId, sessionId))
+            .orderBy(desc(attempts.leaseEpoch))
+            .limit(1);
+          let workspaceLimitMode: WorkspaceLimitMode | undefined;
+          if (lastAttempt !== undefined) {
+            const [classification] = await tx
+              .select({ payload: events.payload })
+              .from(events)
+              .where(
+                and(
+                  eq(events.sessionId, sessionId),
+                  eq(events.attemptId, lastAttempt.id),
+                  eq(events.type, "system"),
+                  sql`${events.payload}->>'subtype' = 'workspace_limit_mode'`,
+                ),
+              )
+              .orderBy(desc(events.id))
+              .limit(1);
+            const parsed = workspaceLimitModeSchema.safeParse(
+              classification?.payload,
+            );
+            if (parsed.success) workspaceLimitMode = parsed.data;
+            else if (
+              classification === undefined &&
+              archiveCache !== undefined
+            ) {
+              const chunks = await tx
+                .select()
+                .from(sessionEventArchives)
+                .where(
+                  and(
+                    eq(sessionEventArchives.sessionId, sessionId),
+                    gte(
+                      sessionEventArchives.lastCreatedAt,
+                      lastAttempt.startedAt,
+                    ),
+                  ),
+                )
+                .orderBy(desc(sessionEventArchives.fromId));
+              workspaceLimitMode = await readArchivedWorkspaceLimit(
+                archiveCache,
+                chunks,
+                lastAttempt,
+              );
+            }
+          }
           const currentExecutionId =
             row.executionId ?? lastAttempt?.executionId ?? null;
           const [execution] = await tx
@@ -1201,6 +1249,9 @@ export function createPostgresSessionReader(
                   .limit(1);
           return {
             ...summary,
+            ...(workspaceLimitMode === undefined
+              ? {}
+              : { workspace_limit_mode: workspaceLimitMode }),
             execution: execution
               ? executionObservationSchema.parse({
                   ...execution,

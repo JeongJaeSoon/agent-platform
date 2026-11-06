@@ -1,6 +1,7 @@
 import type { WorkerLogger } from "./worker-host.ts";
 import {
   type WorkspaceLimitEvidence,
+  type WorkspaceLimitMode,
   workspaceLimitMode,
 } from "./workspace-limit-mode.ts";
 import {
@@ -27,7 +28,36 @@ export class WorkspaceObserver {
   private lastComplete: number;
   private errors = 0;
   private classified = false;
+  private classification: WorkspaceLimitMode | undefined;
+  private readonly classificationListeners = new Set<
+    (mode: WorkspaceLimitMode) => void
+  >();
   private lastUsage: WorkspaceMeasurement | undefined;
+  private flight: Promise<WorkspaceMeasurement | undefined> | undefined;
+  private readonly listeners = new Set<
+    (usage: WorkspaceMeasurement, mode: WorkspaceLimitMode) => void
+  >();
+
+  watch(
+    listener: (usage: WorkspaceMeasurement, mode: WorkspaceLimitMode) => void,
+  ): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  onClassified(listener: (mode: WorkspaceLimitMode) => void): void {
+    if (this.classification !== undefined) listener(this.classification);
+    else if (!this.stopped) this.classificationListeners.add(listener);
+  }
+
+  async measureNow(): Promise<WorkspaceMeasurement | undefined> {
+    await this.flight;
+    clearTimeout(this.timer);
+    this.timer = undefined;
+    return this.sample();
+  }
 
   constructor(
     private readonly options: WorkspaceObserverOptions,
@@ -65,11 +95,21 @@ export class WorkspaceObserver {
     clearTimeout(this.timer);
     clearTimeout(this.staleTimer);
     this.controller.abort();
+    this.classificationListeners.clear();
   }
 
-  private async sample(): Promise<void> {
+  private sample(): Promise<WorkspaceMeasurement | undefined> {
+    if (this.flight !== undefined) return this.flight;
+    this.flight = this.measureSample().finally(() => {
+      this.flight = undefined;
+    });
+    return this.flight;
+  }
+
+  private async measureSample(): Promise<WorkspaceMeasurement | undefined> {
     if (this.stopped || this.running) return;
     this.running = true;
+    const listeners = [...this.listeners];
     const started = this.now();
     try {
       const result = await this.measure(
@@ -78,6 +118,13 @@ export class WorkspaceObserver {
         this.controller.signal,
       );
       if (this.stopped) return;
+      const mode = workspaceLimitMode({
+        ...this.options.evidence,
+        ...(result.mount === undefined ? {} : { mount: result.mount }),
+        ...(result.filesystem === undefined
+          ? {}
+          : { filesystem: result.filesystem }),
+      });
       if (!this.classified) {
         const evidence = {
           ...this.options.evidence,
@@ -101,6 +148,9 @@ export class WorkspaceObserver {
           });
         }
         this.classified = true;
+        this.classification = mode;
+        for (const listener of this.classificationListeners) listener(mode);
+        this.classificationListeners.clear();
       }
       this.intervalMs = measurementInterval(result.durationMs);
       if (result.complete) {
@@ -145,6 +195,8 @@ export class WorkspaceObserver {
         value: this.now() - this.lastComplete >= this.maximumAgeMs ? 1 : 0,
       });
       if (!result.complete || result.errors > 0) this.warning(result.errors);
+      for (const listener of listeners) listener(result, mode);
+      return result;
     } catch {
       if (!this.stopped) {
         this.errors++;

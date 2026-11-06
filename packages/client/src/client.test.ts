@@ -130,6 +130,22 @@ describe("requests", () => {
     });
   });
 
+  test("an older client preserves an unfamiliar server error code", async () => {
+    for (const code of ["WORKSPACE_QUOTA_EXCEEDED", "FUTURE_SERVER_CODE"]) {
+      const api = recording(() =>
+        json(409, {
+          error: { code, message: "Free workspace storage before growing it" },
+        }),
+      );
+      const client = createApiClient({ baseUrl: BASE, fetch: api.fetch });
+      const error = await unwrap(client.GET("/v1/auth/me")).catch(
+        (error) => error,
+      );
+      expect(error).toBeInstanceOf(ApiError);
+      expect(error.code).toBe(code);
+    }
+  });
+
   test("it keeps the server's retry hints and details", async () => {
     const api = recording(() =>
       json(
