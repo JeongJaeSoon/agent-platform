@@ -74,7 +74,7 @@ Secret은 키마다 파일 하나인 디렉터리(`0700`, 파일 이름이 키)�
 | `EGRESS_AUTHORIZER_TOKEN` | 무작위 값. api와 egress proxy가 같은 값을 쓴다 |
 | `PLATFORM_SECRET_KEY` | `openssl rand -hex 32`의 64자 hex. 저장한 자격 증명을 봉인한다. 없으면 Pod가 뜨지 않는다 |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | object store key. IRSA로 서명하려면 두 키를 빼고 values에 `secrets.objectStoreKeys: false`와 `serviceAccounts.api.annotations`를 둔다 |
-| `ANTHROPIC_API_KEY` | 세션이 쓸 Anthropic key. api에만 간다 |
+| `ANTHROPIC_API_KEY` | 선택. 세션이 쓸 Anthropic key의 기본 경로는 설치 뒤 콘솔의 **설정 > 워크스페이스 설정 > 모델 연결 > 연결 추가**다. 이 키는 환경 변수로 주는 대안이고, 두면 api에만 간다. 두지 않으면 helm에 `--set-json 'secrets.catalogEnv=[]'`를 준다. chart 기본값은 이 키를 api에 넘기므로 Secret에 없으면 Pod가 뜨지 않는다 |
 
 ```bash
 kubectl create namespace werft
@@ -170,13 +170,14 @@ openssl rand -hex 32 | tr -d '\n' > "$SECRETS/EGRESS_AUTHORIZER_TOKEN"
 openssl rand -hex 32 | tr -d '\n' > "$SECRETS/PLATFORM_SECRET_KEY"
 printf test > "$SECRETS/AWS_ACCESS_KEY_ID"
 printf test > "$SECRETS/AWS_SECRET_ACCESS_KEY"
-printf unused > "$SECRETS/ANTHROPIC_API_KEY"
 kubectl -n werft create secret generic werft --from-file="$SECRETS"
 unset KIND_DB_PASSWORD
 rm -r "${SECRETS:?}"
 helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
-  --namespace werft -f deploy/kind/values.yaml --timeout 10m
+  --namespace werft -f deploy/kind/values.yaml --set-json 'secrets.catalogEnv=[]' --timeout 10m
 ```
+
+Secret에 `ANTHROPIC_API_KEY`를 만들지 않으므로 helm에 `secrets.catalogEnv=[]`를 준다. 모델 key는 설치한 뒤 콘솔의 모델 연결 화면에서 넣는다.
 
 이어서 4단계의 rollout 확인과 5단계의 확인을 그대로 한다. 끝나면 `kind delete cluster --name werft-try`로 클러스터를 지운다.
 

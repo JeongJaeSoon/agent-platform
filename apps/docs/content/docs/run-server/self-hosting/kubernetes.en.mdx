@@ -74,7 +74,7 @@ Build the Secret from a directory with one file per key (`0700`, the file name i
 | `EGRESS_AUTHORIZER_TOKEN` | A random value. The API and the egress proxy use the same one |
 | `PLATFORM_SECRET_KEY` | 64 hex characters from `openssl rand -hex 32`. It seals stored credentials. Pods do not start without it |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | Object store keys. To sign with IRSA instead, leave both out and set `secrets.objectStoreKeys: false` and `serviceAccounts.api.annotations` in your values |
-| `ANTHROPIC_API_KEY` | The Anthropic key sessions use. It goes only to the API |
+| `ANTHROPIC_API_KEY` | Optional. The default way to give sessions an Anthropic key is the console after install, under **Settings > Workspace settings > Model connections > Add connection**. This key is the alternative, passed as an environment variable; if present it goes only to the API. To leave it out, pass `--set-json 'secrets.catalogEnv=[]'` to helm. The chart default hands this key to the API, so without it in the Secret the Pod does not start |
 
 ```bash
 kubectl create namespace werft
@@ -170,13 +170,14 @@ openssl rand -hex 32 | tr -d '\n' > "$SECRETS/EGRESS_AUTHORIZER_TOKEN"
 openssl rand -hex 32 | tr -d '\n' > "$SECRETS/PLATFORM_SECRET_KEY"
 printf test > "$SECRETS/AWS_ACCESS_KEY_ID"
 printf test > "$SECRETS/AWS_SECRET_ACCESS_KEY"
-printf unused > "$SECRETS/ANTHROPIC_API_KEY"
 kubectl -n werft create secret generic werft --from-file="$SECRETS"
 unset KIND_DB_PASSWORD
 rm -r "${SECRETS:?}"
 helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
-  --namespace werft -f deploy/kind/values.yaml --timeout 10m
+  --namespace werft -f deploy/kind/values.yaml --set-json 'secrets.catalogEnv=[]' --timeout 10m
 ```
+
+The Secret holds no `ANTHROPIC_API_KEY`, so pass `secrets.catalogEnv=[]` to helm. Enter the model key after install, on the console's model connections screen.
 
 Then run the rollout checks of step 4 and the checks of step 5 as written. When you are done, delete the cluster with `kind delete cluster --name werft-try`.
 
