@@ -29,7 +29,7 @@ The install uses published packages, not ones you build yourself. A merge to `ma
 Each image is an index of `linux/amd64` and `linux/arm64`, and the install pins it by digest. The chart carries the three image digests and the worker runtime. The packages need no login. `<12>` is the first 12 characters of the commit SHA. `main` versions have no order among themselves, so select the commit of a successful Images workflow run and pin its exact version.
 
 <Callout type="warn">
-There is no `v` tag yet. `main-<12>` is not a release, and it can be published without every corresponding source archive being confirmed. Once the first `v` tag exists, only the tag value in the install pages' commands changes, and the single-server install checks out the same tag. The `v` tag path (approval, GitHub Release, `release-manifest.json`) has not run even once. If you cannot pull the published images, check out the repository and [build the three images yourself](/run-server/self-hosting/single-server#when-you-build-the-images-yourself).
+The first release, `v0.1.0`, is published. `main-<12>` is not a release, and it can be published without every corresponding source archive being confirmed. To install the release, change only the tag value in the install pages' commands to `v0.1.0`; the single-server install checks out the same tag. The `v` tag path (approval, GitHub Release, `release-manifest.json`) first ran for `v0.1.0`, and [Images run 42163099605](https://github.com/JeongJaeSoon/werft/actions/runs/42163099605) ended in success. The results below were checked with `main-<12>` packages of the same commit as `v0.1.0`; the install procedure was not followed with the `v0.1.0` packages. If you cannot pull the published images, check out the repository and [build the three images yourself](/run-server/self-hosting/single-server#when-you-build-the-images-yourself).
 </Callout>
 
 ## Verification status
@@ -45,7 +45,7 @@ The backup checks ran on a stack with 0 objects and 0 checkpoint rows. In that s
 
 ## Read the release manifest
 
-Every release (`v*` tag) gets a GitHub Release with `release-manifest.json` attached. The three image digests, the worker runtime and the chart version are in that one file. Read it with `gh` and `jq`; no repository checkout is needed. The commands below apply once the first release exists.
+Every release (`v*` tag) gets a GitHub Release with `release-manifest.json` attached. The three image digests, the worker runtime and the chart version are in that one file. Read it with `gh` and `jq`; no repository checkout is needed. The commands below take a release tag; the current release is `v0.1.0`.
 
 ```bash
 TAG=v0.1.0   # the release tag to read

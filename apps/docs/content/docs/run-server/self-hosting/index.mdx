@@ -29,7 +29,7 @@ Werft 서버를 직접 설치해 팀이 함께 쓰는 방법이다. 혼자 시�
 이미지는 `linux/amd64`와 `linux/arm64`를 담은 index이고, 설치에는 digest로 고정한다. chart는 세 이미지의 digest와 worker runtime을 담는다. 패키지는 로그인 없이 받는다. `<12>`는 commit SHA의 앞 12자이고, `main` 버전끼리는 순서에 뜻이 없으므로 Images workflow에서 초록색으로 끝난 run의 commit을 골라 정확히 적는다.
 
 <Callout type="warn">
-첫 `v` 태그가 아직 없다. `main-<12>`는 릴리스가 아니고 대응 소스 보관을 일부 확인하지 못한 채 나갈 수 있다. 첫 `v` 태그가 생기면 설치 페이지의 명령은 태그 값만 바뀌고, 단일 서버는 같은 태그를 checkout한다. `v` 태그 경로(승인, GitHub Release, `release-manifest.json`)는 아직 한 번도 실행되지 않았다. 게시된 이미지를 받을 수 없으면 저장소를 checkout해 [세 이미지를 직접 빌드](/run-server/self-hosting/single-server#이미지를-직접-빌드할-때)한다.
+첫 릴리스 `v0.1.0`이 게시됐다. `main-<12>`는 릴리스가 아니고 대응 소스 보관을 일부 확인하지 못한 채 나갈 수 있다. 릴리스를 설치하려면 설치 페이지의 명령에서 태그 값만 `v0.1.0`으로 바꾸고, 단일 서버는 같은 태그를 checkout한다. `v` 태그 경로(승인, GitHub Release, `release-manifest.json`)는 `v0.1.0`에서 처음 실행됐고 [Images run 42163099605](https://github.com/JeongJaeSoon/werft/actions/runs/42163099605)가 success로 끝났다. 아래 확인 결과는 `v0.1.0`과 같은 commit의 `main-<12>` 패키지로 한 것이고, `v0.1.0` 태그 패키지로 설치 절차를 따라 해 본 것은 아니다. 게시된 이미지를 받을 수 없으면 저장소를 checkout해 [세 이미지를 직접 빌드](/run-server/self-hosting/single-server#이미지를-직접-빌드할-때)한다.
 </Callout>
 
 ## 실측 상태
@@ -45,7 +45,7 @@ LocalStack 설치의 백업 확인은 object 0개, checkpoint 0행인 스택에�
 
 ## 릴리스 manifest 읽기
 
-릴리스(`v*` 태그)마다 GitHub Release가 생기고 `release-manifest.json`이 붙는다. 세 이미지 digest, worker runtime, chart 버전이 파일 하나에 있다. 저장소 checkout 없이 `gh`와 `jq`로 읽는다. 아래는 첫 릴리스가 생긴 뒤의 명령이다.
+릴리스(`v*` 태그)마다 GitHub Release가 생기고 `release-manifest.json`이 붙는다. 세 이미지 digest, worker runtime, chart 버전이 파일 하나에 있다. 저장소 checkout 없이 `gh`와 `jq`로 읽는다. 아래는 릴리스 태그를 넣어 읽는 명령이다. 현재 릴리스는 `v0.1.0`이다.
 
 ```bash
 TAG=v0.1.0   # the release tag to read

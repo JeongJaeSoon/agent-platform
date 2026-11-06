@@ -66,7 +66,7 @@ docker pull "ghcr.io/jeongjaesoon/werft-worker@<digest read above>"
 
 This section is the procedure for maintainers who have permission to push tags to the repository. Operators who install do not add tags; they use the published images in [Single-server install](/run-server/self-hosting/single-server) or [Kubernetes install](/run-server/self-hosting/kubernetes).
 
-No `v*` tag has been added so far, so this path has never been run.
+This path first ran for `v0.1.0`. In [Images run 42163099605](https://github.com/JeongJaeSoon/werft/actions/runs/42163099605), `sources`, `publish` (6 jobs), `index`, `promote`, `chart`, `chart-publish` and `release` all succeeded, and the `release` environment approval was requested 4 times. No tag run has happened since the change that reduced the approval to one before `publish` ([JeongJaeSoon/werft#1275](https://github.com/JeongJaeSoon/werft/pull/1275)).
 
 1. Push a `vX.Y.Z` or `vX.Y.Z-<prerelease>` tag to a verified commit on `main`. If that commit is not an ancestor of `main`, the publishing jobs fail. Tags of any other form (`v1`, `v1.2.3+build`) publish only images and fail in the `chart` job.
 2. Watch the `publish` job get `release` environment approval, and `index`, `promote` and `chart-publish` then finish without approval. Approval is requested once, before `publish`. The later jobs run only after `publish` succeeds, so that one approval guards them all. `sources`, between `publish` and `index`, can take up to 30 minutes.
@@ -77,7 +77,7 @@ After a release, raise `version` in `Chart.yaml` to the next version. The `main`
 
 ### Reading the release manifest
 
-Each `v*` tag gets one GitHub Release with the file `release-manifest.json` attached. Operators do not look for runs or artifacts. They do not need a repository checkout either; `gh` and `jq` are enough. No `v*` tag has been added yet, so there is no Release. The `TAG` below is a tag after a Release exists.
+Each `v*` tag gets one GitHub Release with the file `release-manifest.json` attached. Operators do not look for runs or artifacts. They do not need a repository checkout either; `gh` and `jq` are enough. The first Release is `v0.1.0` (the asset is `release-manifest.json`, and the commit it records is `9e2098e5`). Put the tag of the Release you want to read in `TAG` below.
 
 ```bash
 TAG=v0.1.0   # the release tag to read

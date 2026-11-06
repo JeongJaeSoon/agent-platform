@@ -6,11 +6,11 @@ description: 公開イメージで Linux サーバー1台に Werft を設置す�
 Linux サーバー1台に Docker Compose で Werft を設置します。イメージはビルドせず、公開されたものを digest で固定して取得します。このページは、`/readyz` が 200 を返すところまでの手順を書いています。Kubernetes に設置する場合は [Kubernetes の設置](/run-server/self-hosting/kubernetes) を読んでください。
 
 <Callout type="warn">
-この手順は、OrbStack の Ubuntu(arm64)マシンで公開イメージを使い、手順1〜6と手順7の `key create` まで実行して確認しました。手順7の `/bootstrap` 画面での最初の owner の作成は確認していません。実際のモデル呼び出しは確認しました。コンソールで作成した GitHub App を使う `claude-coding` プロファイルのセッションで、turn 1 が `completed` で終わりました。`reset` は、セッションがない設置でコンテナを `-v` なしで止めた後に一度実行し、exit 0 と postgres の volume の削除を確認しました。内容が違う場合は、リポジトリの `scripts/test-ops.sh` と `infra/` のファイルが基準です。
+この手順は、OrbStack の Ubuntu(arm64)マシンで公開イメージを使い、手順1〜6と手順7の `key create` まで実行して確認しました。v0.1.0 を付けた commit(`9e2098e5`)では、手順3〜7を公開された `main-<12>` イメージで改めて実行しました。`/readyz` と docs は 200、bootstrap リクエストは 201、キーを付けたリクエストは 200、付けないリクエストは 401 でした。この実行は手順7の `/bootstrap` リクエストまでです。それ以前の実行では、オーナーが `/bootstrap` 画面で最初の owner を自分で作成し(検証カードは画面を見ていません)、ログイン API(`POST /v1/auth/login`)は 200 でした。ブラウザの `/login` 画面でのログインは行っていません。実際のモデル呼び出しは確認しました。コンソールで作成した GitHub App を使う `claude-coding` プロファイルのセッションで、turn 1 が `completed` で終わりました。`reset` は、セッションがない設置でコンテナを `-v` なしで止めた後に一度実行し、exit 0 と postgres の volume の削除を確認しました。内容が違う場合は、リポジトリの `scripts/test-ops.sh` と `infra/` のファイルが基準です。
 </Callout>
 
 <Callout type="warn">
-`v` タグはまだありません。今は `main` にマージされるたびに公開される `main-<12>` タグを使います。これはリリースではなく、タグが指すイメージは digest で固定して使います。最初の `v` タグができたら、下の `TAG` を `v<バージョン>` に変え、手順2で同じタグを checkout します。ほかのコマンドは同じです。
+最初のリリース `v0.1.0` が公開されました(GitHub Release と `v0.1.0` のイメージタグ)。リリースを設置するには、下の `TAG` を `v0.1.0` に変え、手順2で同じタグを checkout します。ほかのコマンドは同じです。ただし上の確認は `v0.1.0` と同じ commit の `main-<12>` イメージで行ったもので、`v0.1.0` タグのイメージでこの手順を実行してはいません。`main-<12>` はリリースではなく、タグが指すイメージは digest で固定して使います。
 </Callout>
 
 ## 配備の判断
@@ -66,7 +66,7 @@ unset API_IMAGE WORKER_IMAGE EGRESS_PROXY_IMAGE
 
 ## 2. checkout を取得する
 
-イメージと同じ commit を checkout します。`<12>` は上の `TAG` の12文字です。最初の `v` タグ以降は `git checkout v<バージョン>` です。
+イメージと同じ commit を checkout します。`<12>` は上の `TAG` の12文字です。リリースを設置するときは `git checkout v0.1.0` のようにリリースタグを使います。
 
 ```bash
 git clone https://github.com/JeongJaeSoon/werft.git
@@ -182,7 +182,7 @@ ssh -N -L 3000:127.0.0.1:3000 <user>@<server>
 
 ## 7. 最初の owner と API key
 
-ブラウザで `http://127.0.0.1:3000/bootstrap` を開き、env ファイルの `BOOTSTRAP_TOKEN`、owner の情報、workspace 名を入力します。env ファイルに入れていない場合は、API コンテナのログから `BOOTSTRAP_TOKEN` で始まる行を探し、その値を使います。このログを読める人は最初の owner ができるまで bootstrap できるので、閲覧権限を運用者に限ります。同じトークンをもう一度送ると `409 BOOTSTRAP_DONE` になります。続けて `/login` でログインします。この画面で owner を作ることは確認していません。
+ブラウザで `http://127.0.0.1:3000/bootstrap` を開き、env ファイルの `BOOTSTRAP_TOKEN`、owner の情報、workspace 名を入力します。env ファイルに入れていない場合は、API コンテナのログから `BOOTSTRAP_TOKEN` で始まる行を探し、その値を使います。このログを読める人は最初の owner ができるまで bootstrap できるので、閲覧権限を運用者に限ります。同じトークンをもう一度送ると `409 BOOTSTRAP_DONE` になります。続けて `/login` でログインします。この画面での owner の作成はオーナーが自分で行い、検証カードは画面を見ていません。ブラウザのログイン画面は確認していません。
 
 利用者ごとに owner と API key を別々に発行します。平文の key は一度しか出力されないので、変数に受けて直接渡します。
 

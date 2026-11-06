@@ -29,7 +29,7 @@ Werft サーバーを自分で設置し、チームで共有する方法です�
 イメージは `linux/amd64` と `linux/arm64` を含む index で、設置では digest で固定します。chart は3つのイメージの digest と worker runtime を含みます。パッケージはログインなしで取得できます。`<12>` は commit SHA の先頭12文字です。`main` のバージョン同士に順序の意味はないため、Images workflow で正常終了した実行の commit を選び、正確なバージョンを固定します。
 
 <Callout type="warn">
-`v` タグはまだありません。`main-<12>` はリリースではなく、対応するソースの保管を一部確認できないまま公開されることがあります。最初の `v` タグができると、設置ページのコマンドはタグの値だけが変わり、単一サーバーでは同じタグを checkout します。`v` タグの経路(承認、GitHub Release、`release-manifest.json`)は一度も実行されていません。公開イメージを取得できない場合は、リポジトリを checkout して[3つのイメージを自分でビルド](/run-server/self-hosting/single-server#イメージを自分でビルドするとき)します。
+最初のリリース `v0.1.0` が公開されました。`main-<12>` はリリースではなく、対応するソースの保管を一部確認できないまま公開されることがあります。リリースを設置するには、設置ページのコマンドのタグの値だけを `v0.1.0` に変え、単一サーバーでは同じタグを checkout します。`v` タグの経路(承認、GitHub Release、`release-manifest.json`)は `v0.1.0` で初めて実行され、[Images run 42163099605](https://github.com/JeongJaeSoon/werft/actions/runs/42163099605) は success で終わりました。下の確認結果は `v0.1.0` と同じ commit の `main-<12>` パッケージで行ったもので、`v0.1.0` のパッケージで設置手順を実行してはいません。公開イメージを取得できない場合は、リポジトリを checkout して[3つのイメージを自分でビルド](/run-server/self-hosting/single-server#イメージを自分でビルドするとき)します。
 </Callout>
 
 ## 実測の状態
@@ -45,7 +45,7 @@ Werft サーバーを自分で設置し、チームで共有する方法です�
 
 ## リリース manifest を読む
 
-リリース(`v*` タグ)ごとに GitHub Release ができ、`release-manifest.json` が付く。3 つのイメージの digest、worker runtime、chart バージョンがこの 1 ファイルにある。リポジトリを checkout せず、`gh` と `jq` で読む。以下は最初のリリースができた後のコマンドである。
+リリース(`v*` タグ)ごとに GitHub Release ができ、`release-manifest.json` が付く。3 つのイメージの digest、worker runtime、chart バージョンがこの 1 ファイルにある。リポジトリを checkout せず、`gh` と `jq` で読む。以下はリリースタグを入れて読むコマンドである。現在のリリースは `v0.1.0` である。
 
 ```bash
 TAG=v0.1.0   # the release tag to read
