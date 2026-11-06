@@ -881,6 +881,7 @@ describe("tools/call", () => {
             repository_id: "sample-app",
             target_branch: `agent/${SESSION}`,
             pull_request: "none",
+            next: "To open the pull request without a later turn, call open_pull_request with this push_intent_id in this same turn, without waiting for the push, also when the push needs approval.",
           },
         },
       });
