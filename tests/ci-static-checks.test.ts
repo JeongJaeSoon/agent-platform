@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 type Step = {
@@ -32,6 +32,30 @@ function verdict(job: string, env: Record<string, string>, stepId?: string) {
     env: { ...Bun.env, ...env },
   }).exitCode;
 }
+
+test("a job that skips the bun cache restore installs nothing and saves nothing", () => {
+  const dir = join(import.meta.dir, "../.github/workflows");
+  let skipping = 0;
+  for (const file of readdirSync(dir).filter((f) => f.endsWith(".yml"))) {
+    const parsed = Bun.YAML.parse(readFileSync(join(dir, file), "utf8")) as {
+      jobs: Record<string, Job>;
+    };
+    for (const [name, job] of Object.entries(parsed.jobs)) {
+      const setup = job.steps?.find(
+        (step) => step.uses === "./.github/actions/bun-setup",
+      );
+      if (setup?.with?.["restore-cache"] !== "false") continue;
+      skipping += 1;
+      expect(setup.with?.["save-cache"], `${file} ${name}`).toBeUndefined();
+      expect(
+        job.steps.filter((step) => step.run?.includes("bun install")),
+        `${file} ${name}`,
+      ).toEqual([]);
+    }
+  }
+  // forbidden-terms, helm-chart, supply-chain
+  expect(skipping).toBe(3);
+});
 
 test("static checks keep one cache writer and report independent failures", () => {
   const parts = workflow.jobs["check-part"];

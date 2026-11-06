@@ -27,7 +27,10 @@ jobs:
         with:
           fetch-depth: 0 # the commit range
           persist-credentials: false
+      # Installs nothing and imports only node: built-ins: no cache to restore.
       - uses: ./.github/actions/bun-setup
+        with:
+          restore-cache: "false"
       # The script prints counts only. The list is a secret and this log is public.
       - run: bun .github/scripts/forbidden-terms.ts
         env:

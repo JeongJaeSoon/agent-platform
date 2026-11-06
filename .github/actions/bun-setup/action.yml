@@ -14,10 +14,23 @@ inputs:
       One job per scope writes its cache; the rest restore it, so that parallel
       jobs never race on the same key.
     default: "false"
+  restore-cache:
+    description: >-
+      `"false"` skips the cache restore, for a job that installs nothing and
+      whose scripts import only node: built-ins and files of this repository
+      (Bun fetches any other import into this cache). It also skips the save,
+      so it cannot be combined with `save-cache: "true"`.
+    default: "true"
 
 runs:
   using: composite
   steps:
+    - if: inputs.restore-cache == 'false' && inputs.save-cache == 'true'
+      shell: bash
+      run: |
+        echo "::error::restore-cache: false skips the cache step, so save-cache: true would save nothing"
+        exit 1
+
     - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
       with:
         bun-version: 1.3.14
@@ -39,14 +52,14 @@ runs:
           echo "restore=bun-root-${{ runner.os }}-${{ runner.arch }}-1.3.14-" >>"$GITHUB_OUTPUT"
         fi
 
-    - if: inputs.save-cache == 'true'
+    - if: inputs.restore-cache != 'false' && inputs.save-cache == 'true'
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ~/.bun/install/cache
         key: ${{ steps.key.outputs.cache }}
         restore-keys: ${{ steps.key.outputs.restore }}
 
-    - if: inputs.save-cache != 'true'
+    - if: inputs.restore-cache != 'false' && inputs.save-cache != 'true'
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ~/.bun/install/cache
