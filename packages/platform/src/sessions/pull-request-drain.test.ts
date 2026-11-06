@@ -245,6 +245,23 @@ describe("opening a pull request for a pushed request", () => {
     expect(calls.some((call) => call.startsWith("create "))).toBe(false);
   });
 
+  test("a lease used up on the last attempt ends as failed, not uncertain: nothing was created", async () => {
+    const { service, calls } = harness({
+      files: { [TEMPLATE_PATH]: "## Summary\n" },
+      readDelayMs: 60,
+    });
+    const outcome = await service.openForPushRequest(
+      job({ attempt: PULL_REQUEST_MAX_ATTEMPTS }),
+      { deadline: Date.now() + 30 },
+    );
+    expect(outcome).toEqual({
+      kind: "stop",
+      stage: "failed",
+      error: "lease_expired",
+    });
+    expect(calls.some((call) => call.startsWith("create "))).toBe(false);
+  });
+
   test("adopts the branch's open pull request when it is at the pushed commit, and moves its tail", async () => {
     const { service, calls, tails } = harness({ existing: [listed()] });
     const outcome = await service.openForPushRequest(job(), {

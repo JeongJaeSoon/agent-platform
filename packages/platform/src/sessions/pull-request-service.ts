@@ -788,9 +788,13 @@ export function createPullRequestService(deps: {
         tail,
         settings,
       });
-      // Too little lease left to create and still record it.
+      // Too little lease left to create and still record it. Nothing has been
+      // created yet, so the last attempt ends `failed`: a retry would be
+      // claimed past the limit and stop `uncertain` on a guess.
       if (Date.now() >= options.deadline) {
-        return { kind: "retry", error: "lease_expired", delayMs: 0 };
+        return job.attempt >= PULL_REQUEST_MAX_ATTEMPTS
+          ? stop("failed", "lease_expired")
+          : { kind: "retry", error: "lease_expired", delayMs: 0 };
       }
       let made: Awaited<ReturnType<typeof forge.createPullRequest>>;
       try {
