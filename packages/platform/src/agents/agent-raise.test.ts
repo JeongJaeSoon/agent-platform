@@ -232,4 +232,21 @@ describe("raising an agent to the latest profile while a rollback lands", () => 
     });
     expect(activations).toHaveLength(0);
   });
+
+  // Re-activating the running release moves only the behavior revision; a
+  // revision-only swap moves only the activation one. Each is refused alone.
+  test.each([
+    ["only the activation revision", { activation: 4, behavior: 5 }],
+    ["only the behavior revision", { activation: 3, behavior: 6 }],
+  ])("a change to %s is refused too", async (_name, revisions) => {
+    const { activations, raise } = raiseOver([
+      seen,
+      recordOn(releaseOn("old"), revisions),
+    ]);
+    expect((await raise()).release).toMatchObject({
+      status: "failed",
+      reason: "revision_conflict",
+    });
+    expect(activations).toHaveLength(0);
+  });
 });
