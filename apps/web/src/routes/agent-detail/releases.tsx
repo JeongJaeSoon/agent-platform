@@ -112,10 +112,11 @@ export function Releases({
   ].sort((a, b) => b.at.localeCompare(a.at));
   const cards = new Map(detail.versions.map((v) => [v.id, v.card]));
   const at = (iso: string) => <RelativeTime value={iso} locale={locale} />;
-  const preview =
-    confirming && profiles.data
-      ? rollbackPreview(detail, confirming, profiles.data.items)
-      : null;
+  // Without the profile list the preview still shows what the detail alone
+  // settles, so a slow or failed list never hides the notice.
+  const preview = confirming
+    ? rollbackPreview(detail, confirming, profiles.data?.items ?? [])
+    : null;
 
   return (
     <Section
@@ -348,6 +349,11 @@ function RollbackConsequence({
       ) : null}
       {preview?.modelBecomesFixed ? (
         <span data-slot="rollback-model">{t("agent.rollback.modelFixed")}</span>
+      ) : null}
+      {preview?.modelMayBecomeFixed ? (
+        <span data-slot="rollback-model">
+          {t("agent.rollback.modelMayFix")}
+        </span>
       ) : null}
       <span>{t("agent.rollback.settingsKept")}</span>
       <span>{t("agent.rollback.mayRefuse")}</span>

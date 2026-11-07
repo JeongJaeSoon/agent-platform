@@ -108,7 +108,7 @@ export const agentsKo = {
     "전에 적어 둔 금지 도구입니다. 지우기 전에는 체크할 수 없고 쓰지 않습니다.",
   "agentCard.forbiddenClear": "금지 도구 지우기",
   "agent.created":
-    "에이전트를 만들었습니다(버전 1). 세션에서 쓰려면 릴리스 탭에서 버전과 프로필을 골라 릴리스를 만들고 활성화하세요.",
+    "에이전트를 만들었습니다(버전 1). 세션에서 쓰려면 상세 설정에서 프로필을 골라 저장하세요. 저장하면 첫 릴리스가 만들어집니다.",
   "agent.noActive": "없음",
   "agent.releaseLabel": "릴리스 {release} · {profile}",
   "agent.versionLabel": "버전 {version}",
@@ -225,6 +225,8 @@ export const agentsKo = {
   "agent.rollback.tracking.undetermined":
     "켜져 있습니다. 이 릴리스의 프로필이 최신 판과 실행 방식이 다르면 꺼질 수 있습니다",
   "agent.rollback.modelFixed": "실행 모델: 직접 고르기로 바뀜.",
+  "agent.rollback.modelMayFix":
+    "실행 모델: 프로필 목록을 읽지 못해 직접 고르기로 바뀌는지 알 수 없음.",
   "agent.rollback.settingsKept": "저장소와 GitHub 설정은 지금 그대로입니다.",
   "agent.rollback.mayRefuse":
     "차단된 프로필이거나, 프로필 내용이 달라졌거나, 자격 증명이 연결되지 않았으면 거절되고 지금 설정이 유지됩니다.",
@@ -320,7 +322,7 @@ export const agentsKo = {
   "agent.panel.none": "없음",
   "agent.card.releasedAt": "릴리스 {at}",
   "agent.overview.notActive":
-    "아직 켜지지 않았습니다. 릴리스 탭에서 릴리스를 만들고 활성화하면 새 세션이 이 에이전트를 씁니다.",
+    "아직 켜지지 않았습니다. 상세 설정에서 프로필을 골라 저장하면 첫 릴리스가 만들어지고 새 세션이 이 에이전트를 씁니다.",
   "agent.overview.newerVersion":
     "최신 버전 {latest}은(는) 아직 쓰이지 않습니다. 새 세션은 버전 {active}(으)로 시작합니다.",
   "agent.overview.upToDate": "새 세션은 최신 버전으로 시작합니다.",
@@ -579,7 +581,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
     "Blocked earlier. Until cleared they cannot be checked and stay unused.",
   "agentCard.forbiddenClear": "Clear blocked tools",
   "agent.created":
-    "Agent created as version 1. To use it in sessions, choose a version and a profile on the Release tab, then create and activate a release.",
+    "Agent created as version 1. To use it in sessions, choose a profile in Settings and save. Saving makes the first release.",
   "agent.noActive": "None",
   "agent.releaseLabel": "Release {release} · {profile}",
   "agent.versionLabel": "Version {version}",
@@ -699,6 +701,8 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.rollback.tracking.undetermined":
     "it is on now, and it may turn off if this release's profile runs differently from the newest version",
   "agent.rollback.modelFixed": "Run model: changes to chosen by hand.",
+  "agent.rollback.modelMayFix":
+    "Run model: the profile list could not be read, so whether it changes to chosen by hand is unknown.",
   "agent.rollback.settingsKept":
     "Repository and GitHub settings stay as they are now.",
   "agent.rollback.mayRefuse":
@@ -795,7 +799,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.panel.none": "None",
   "agent.card.releasedAt": "Released {at}",
   "agent.overview.notActive":
-    "Not turned on yet. Create a release on the Release tab and activate it, and new sessions will use this agent.",
+    "Not turned on yet. Choose a profile in Settings and save, and the first release is made and new sessions will use this agent.",
   "agent.overview.newerVersion":
     "Version {latest}, the latest, is not in use yet. New sessions start on version {active}.",
   "agent.overview.upToDate": "New sessions start on the latest version.",
@@ -1048,7 +1052,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
     "以前に設定した禁止ツールです。消すまではチェックできず、使いません。",
   "agentCard.forbiddenClear": "禁止ツールを消す",
   "agent.created":
-    "エージェントを作成しました（バージョン 1）。セッションで使うには、「リリース」タブでバージョンとプロファイルを選んでリリースを作成し、有効化してください。",
+    "エージェントを作成しました（バージョン 1）。セッションで使うには、「詳細設定」でプロファイルを選んで保存してください。保存すると最初のリリースが作成されます。",
   "agent.noActive": "なし",
   "agent.releaseLabel": "リリース {release} · {profile}",
   "agent.versionLabel": "バージョン {version}",
@@ -1169,6 +1173,8 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.rollback.tracking.undetermined":
     "現在はオンです。このリリースのプロファイルが最新版と実行方式が異なる場合は、オフになることがあります",
   "agent.rollback.modelFixed": "実行モデル: 直接指定に変わります。",
+  "agent.rollback.modelMayFix":
+    "実行モデル: プロファイル一覧を読み込めなかったため、直接指定に変わるかは不明です。",
   "agent.rollback.settingsKept": "リポジトリと GitHub の設定は現在のままです。",
   "agent.rollback.mayRefuse":
     "ブロックされたプロファイル、内容が変わったプロファイル、資格情報が未接続の場合は拒否され、現在の設定が維持されます。",
@@ -1261,7 +1267,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.tabs.admins": "管理者",
   "agent.tabs.toRelease": "「リリース」タブへ移動",
   "agent.overview.notActive":
-    "まだ有効になっていません。「リリース」タブでリリースを作成して有効化すると、新しいセッションでこのエージェントが使われます。",
+    "まだ有効になっていません。「詳細設定」でプロファイルを選んで保存すると、最初のリリースが作成され、新しいセッションでこのエージェントが使われます。",
   "agent.overview.newerVersion":
     "最新のバージョン {latest} はまだ使われていません。新しいセッションはバージョン {active} で開始します。",
   "agent.overview.upToDate": "新しいセッションは最新バージョンで開始します。",

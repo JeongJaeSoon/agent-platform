@@ -89,8 +89,27 @@ describe("rollbackPreview", () => {
     expect(preview).toEqual({
       tracking: "undetermined",
       modelBecomesFixed: false,
+      modelMayBecomeFixed: false,
       profile: null,
     });
+  });
+
+  test("프로필 목록이 비어도 상세만으로 정해지는 안내는 남고, 모르는 것은 모른다고 한다", () => {
+    const pinned = rollbackPreview(
+      { profile_tracking: "pinned", model_source: "profile" },
+      release("ws_strict_v1"),
+      [],
+    );
+    expect(pinned.tracking).toBe("keepOff");
+    expect(pinned.modelMayBecomeFixed).toBe(true);
+    expect(pinned.modelBecomesFixed).toBe(false);
+    const following = rollbackPreview(
+      { profile_tracking: "follow", model_source: "fixed" },
+      release("ws_strict_v1"),
+      [],
+    );
+    expect(following.tracking).toBe("undetermined");
+    expect(following.modelMayBecomeFixed).toBe(false);
   });
 
   test("프로필 기본 모델을 따르던 에이전트가 다른 모델의 릴리스로 가면 직접 고르기로 바뀐다", () => {

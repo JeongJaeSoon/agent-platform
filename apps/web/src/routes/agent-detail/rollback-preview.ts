@@ -81,6 +81,8 @@ export function rolledBackText(
 export interface RollbackPreview {
   readonly tracking: TrackingChange | "undetermined";
   readonly modelBecomesFixed: boolean;
+  /** The agent follows the profile's model but the target's profile is unknown. */
+  readonly modelMayBecomeFixed: boolean;
   readonly profile: string | null;
 }
 
@@ -107,6 +109,8 @@ export function rollbackPreview(
       profile !== undefined &&
       typeof model === "string" &&
       model !== profile.model,
+    modelMayBecomeFixed:
+      detail.model_source === "profile" && profile === undefined,
     profile: profile ? profileName(profile) : null,
   };
 }

@@ -2503,17 +2503,18 @@ describe("릴리스 되돌리기", () => {
     expect(dialog.getByText("실행 모델: 직접 고르기로 바뀜.")).toBeDefined();
   });
 
-  test("프로필 목록을 못 읽으면 확정하지 못한 값은 보이지 않고 되돌리기는 막지 않는다", async () => {
-    const server = agentServer();
+  const unreadable = {
+    "GET /v1/profiles": () =>
+      apiError(503, "BACKEND_UNAVAILABLE", "The catalog cannot be read"),
+  };
+
+  test("프로필 목록을 못 읽어도 상세로 정해지는 안내는 남고 되돌리기는 막지 않는다", async () => {
+    const server = agentServer({ tracking: "pinned", modelSource: "profile" });
     await releasedTwice(server);
-    renderAt(RELEASE_TAB, {
-      ...meOk,
-      ...server.routes,
-      "GET /v1/profiles": () =>
-        apiError(503, "BACKEND_UNAVAILABLE", "The catalog cannot be read"),
-    });
+    renderAt(RELEASE_TAB, { ...meOk, ...server.routes, ...unreadable });
     const dialog = await openConfirm(await setupUser());
-    expect(dialog.queryByText(/따라가기/)).toBeNull();
+    expect(dialog.getByText(/꺼짐 유지/)).toBeDefined();
+    expect(dialog.getByText(/알 수 없음/)).toBeDefined();
     expect(
       dialog.getByText("저장소와 GitHub 설정은 지금 그대로입니다."),
     ).toBeDefined();
@@ -2521,6 +2522,16 @@ describe("릴리스 되돌리기", () => {
       (dialog.getByRole("button", { name: "되돌리기" }) as HTMLButtonElement)
         .disabled,
     ).toBe(false);
+  });
+
+  test("프로필 목록을 못 읽으면 따르는 에이전트의 값은 확정하지 않는다", async () => {
+    const server = agentServer();
+    await releasedTwice(server);
+    renderAt(RELEASE_TAB, { ...meOk, ...server.routes, ...unreadable });
+    const dialog = await openConfirm(await setupUser());
+    expect(dialog.queryByText(/켜짐 유지/)).toBeNull();
+    expect(dialog.queryByText(/꺼짐 유지/)).toBeNull();
+    expect(dialog.queryByText(/알 수 없음/)).toBeNull();
   });
 
   test("결과 줄은 되돌린 뒤 서버에서 다시 읽은 값을 보인다: 꺼짐으로 바뀐 경우", async () => {
