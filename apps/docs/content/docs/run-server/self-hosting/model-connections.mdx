@@ -28,7 +28,7 @@ owner 로그인, 사용할 모델의 key 또는 사설 모델 endpoint, 세션�
 
 ### 2. 환경 변수 대안
 
-키를 DB가 아니라 서버의 env 파일에 두고 싶다면 `/etc/werft/test-ops.env`의 `ANTHROPIC_API_KEY`를 채우고, 3단계의 설정 문서에 연결과 프로필을 환경 변수 이름으로 적는다. 문서에는 값이 아니라 이름만 적으므로 비밀이 없다. `connections`와 `profiles`를 아래처럼 채우고 저장소 항목에 `"profiles": ["claude-coding"]`을 더한 뒤 4단계의 digest를 다시 구한다.
+키를 DB가 아니라 서버의 env 파일에 두고 싶다면 `/etc/werft/test-ops.env`의 `ANTHROPIC_API_KEY`를 채우고, [단일 서버 2단계의 설정 문서](/run-server/self-hosting/single-server#2-비밀과-설정-문서)에 연결과 프로필을 환경 변수 이름으로 적는다. 문서에는 값이 아니라 이름만 적으므로 비밀이 없다. `connections`와 `profiles`를 아래처럼 채우고 저장소 항목에 `"profiles": ["claude-coding"]`을 더한 뒤 [단일 서버 3단계](/run-server/self-hosting/single-server#3-release-입력-생성)에서 settings digest와 release 입력을 다시 생성한다. 이미 설치했다면 [Compose 업그레이드](/run-server/self-hosting/upgrade-compose)로 적용한다.
 
 ```json
 {
@@ -69,7 +69,7 @@ docker exec "$API_CONTAINER" bun run apps/control-host/src/api/settings.ts expor
 docker exec -i "$API_CONTAINER" bun run apps/control-host/src/api/settings.ts import --document - --dry-run < settings.json
 ```
 
-API_CONTAINER는 이 설치의 status와 project label로 확인한다. Kubernetes에서는 `bun run settings:k8s export`와 `bun run settings:k8s import --document - --dry-run`으로 바꾼다. dry-run의 추가 항목과 오류를 검토한 뒤 같은 명령에서 `--dry-run`을 빼고 가져온다. 기존 DB 행을 파일 내용으로 무조건 덮어쓰는 도구가 아니다. 자격 증명은 문서에 값 대신 환경 변수 이름을 적는다.
+API_CONTAINER는 이 설치의 status와 project label로 확인한다. Kubernetes에서 아래 package script는 설치 버전의 저장소 checkout과 호스트 Bun·kubectl을 필요로 한다. `bun run settings:k8s export`와 `bun run settings:k8s import --document - --dry-run`으로 바꾼다. dry-run의 추가 항목과 오류를 검토한 뒤 같은 명령에서 `--dry-run`을 빼고 가져온다. 기존 DB 행을 파일 내용으로 무조건 덮어쓰는 도구가 아니다. 자격 증명은 문서에 값 대신 환경 변수 이름을 적는다.
 
 ### 4. 과금 없는 사설 모델
 

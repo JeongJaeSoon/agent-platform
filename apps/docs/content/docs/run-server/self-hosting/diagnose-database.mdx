@@ -19,7 +19,7 @@ PostgreSQL 운영자 연결 권한과 로그 조회 권한이 필요하다. [DB 
 
 ### 1. 실제 연결과 timeout
 
-역할마다 열린 연결 수는 DB에서 본다. compose는 `docker compose -f infra/compose.yml exec postgres psql -U postgres -d sessions`로 들어가고, Helm은 운영자의 DB 클라이언트로 들어간다.
+역할마다 열린 연결 수는 DB에서 본다. Compose는 status와 project label로 고른 DB 컨테이너에서 `docker exec -it <this-installation-postgres-container-id> psql -U <configured-user> -d <configured-database>`로 들어가고, Helm은 운영자의 DB 클라이언트로 들어간다.
 
 ```sql
 SELECT application_name, state, count(*)
@@ -31,7 +31,8 @@ SELECT application_name, state, count(*)
 세션 설정은 그 연결에만 걸리므로 운영자 `psql`의 `SHOW`는 서버 기본값을 보인다. 플랫폼 연결의 값은 api 컨테이너(Helm은 api Pod) 안에서 같은 풀로 읽는다.
 
 ```bash
-docker compose -f infra/compose.yml exec -T -w /app/apps/control-host api bun -e '
+API_CONTAINER='<this-installation-api-container-id>'
+docker exec -w /app/apps/control-host "$API_CONTAINER" bun -e '
 import { createLogger } from "@werft-ai/observability";
 import { createApiPool } from "./src/api/pool.ts";
 const pool = createApiPool(process["env"]["DATABASE_URL"], createLogger());
@@ -44,13 +45,13 @@ await pool.end();'
 # {"statement_timeout":"10s","idle_in_transaction":"30s","application_name":"werft:api"}
 ```
 
-Helm은 `docker compose … exec -T -w /app/apps/control-host api` 대신 `kubectl -n werft exec deploy/werft-api -- sh -c 'cd /app/apps/control-host && bun -e …'`로 같은 스크립트를 돌린다. release 이름이 `werft`가 아니면 namespace와 deployment 이름을 그 설치의 것으로 바꾼다.
+API_CONTAINER는 이번 설치의 status와 project label로 확인한다. Helm은 `docker exec -w /app/apps/control-host "$API_CONTAINER"` 대신 `kubectl -n werft exec deploy/werft-api -- sh -c 'cd /app/apps/control-host && bun -e …'`로 같은 스크립트를 돌린다. release 이름이 `werft`가 아니면 namespace와 deployment 이름을 그 설치의 것으로 바꾼다.
 
 api의 pool 대기 시간이 길면 실제 연결 수와 예산을 비교한다. 운영자 psql에서 SHOW한 값은 플랫폼 연결 설정을 증명하지 않는다.
 
 ### 2. 느린 문장과 잠금
 
-### compose
+#### Compose
 
 `infra/compose.core.yml`의 postgres가 다음을 켜고 뜬다.
 
@@ -59,7 +60,8 @@ api의 pool 대기 시간이 길면 실제 연결 수와 예산을 비교한다.
 - `shared_preload_libraries=pg_stat_statements`: 문장별 누적 통계를 모은다. 보려면 처음 한 번 `CREATE EXTENSION IF NOT EXISTS pg_stat_statements;`를 실행한다.
 
 ```bash
-docker compose -f infra/compose.yml logs postgres | grep -E 'duration:|still waiting'
+DB_CONTAINER='<this-installation-postgres-container-id>'
+docker logs "$DB_CONTAINER" 2>&1 | grep -E 'duration:|still waiting'
 ```
 
 ```sql
@@ -70,7 +72,7 @@ SELECT calls, round(mean_exec_time::numeric, 1) AS mean_ms,
 
 이 설정을 바꾸면 postgres 컨테이너가 다시 만들어진다. 데이터는 `postgres-data` volume에 남는다.
 
-### Helm (운영자 DB)
+#### Helm (운영자 DB)
 
 chart는 DB를 만들지 않으므로 서버 설정도 바꾸지 않는다. 운영자가 DB 파라미터에 다음을 건다. RDS·Aurora는 parameter group에서 바꾸고, `shared_preload_libraries`는 인스턴스를 다시 시작해야 적용된다.
 

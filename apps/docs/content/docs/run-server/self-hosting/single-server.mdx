@@ -9,7 +9,7 @@ outcome: "영속 S3를 쓰는 서버의 ready 응답을 확인한다"
 
 ## 무엇을 하게 되나
 
-Linux 한 대에 게시 이미지를 digest로 고정해 설치하고 `/readyz`와 `/docs` 응답을 확인한다. 영속 S3를 사용한다. 고가용성이 필요하면 [Kubernetes](/run-server/self-hosting/kubernetes)를 선택한다.
+Linux 한 대에 게시 이미지를 digest로 고정해 설치하고 `/readyz`와 `/docs` 응답을 확인한다. 영속 AWS S3를 사용한다. 이 Compose 경로는 사용자 endpoint를 받지 않는다. 다른 S3 호환 endpoint가 필요하면 [Kubernetes 설치](/run-server/self-hosting/kubernetes)를 따른다. 고가용성이 필요하면 [Kubernetes](/run-server/self-hosting/kubernetes)를 선택한다.
 
 ## 준비물
 
@@ -80,7 +80,7 @@ sudo install -d -m 700 -o "$USER" /var/lib/werft/test-ops
 | `EXECUTION_INSTALLATION_ID` | 다른 설치와 겹치지 않는 id. 배포 뒤 변경하지 않는다 |
 | `PLATFORM_SETTINGS_DOCUMENT` | `/etc/werft/settings.json` |
 | `EXECUTION_WORKSPACE_QUOTA` | `on` |
-| `AWS_REGION`, `S3_BUCKET` | 준비한 bucket의 리전과 이름 |
+| `AWS_REGION`, `S3_BUCKET` | 준비한 AWS bucket의 리전과 이름. 사용자 endpoint는 지원하지 않음 |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | bucket 최소 권한의 API 자격 증명 |
 | `EGRESS_CREDENTIAL_ALLOWLIST` | provider·Git host와 `<bucket>.s3.<region>.amazonaws.com:443`. 점이 든 bucket 이름은 `s3.<region>.amazonaws.com:443` |
 | `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` | 빈 값. `localstack:4566`을 제거한다 |
@@ -154,6 +154,16 @@ ready 본문과 200, docs 200, 각 서비스 healthy를 확인한다. PostgreSQL
 
 ## 자주 막히는 곳
 
+첫 `deploy`가 실패하면 시작된 컨테이너는 남아 있고 `current.json`이 없어 `stop`을 쓸 수 없다. 실패 로그에서 quota·네트워크·Secret 등 원인을 확인하고, 이번 설치의 project 이름을 확인한 뒤 다음처럼 내린다. `-v`는 붙이지 않는다.
+
+```bash
+PROJECT='<this-installation-project>'
+printf '%s\n' '{"services":{"x":{"image":"alpine:3"}},"networks":{"default":{}}}' \
+  | docker compose --project-name "$PROJECT" -f - down --remove-orphans
+```
+
+원인을 고친 뒤 같은 release 파일과 같은 환경으로 `deploy`를 다시 실행한다. 이미 성공한 설치를 다시 시작할 때는 `start`를 쓴다.
+
 quota 오류는 [XFS 준비](/run-server/self-hosting/prepare-xfs), bucket 보호·권한 오류는 [bucket 준비](/run-server/self-hosting/prepare-checkpoint-bucket), env 권한·settings digest 오류는 [설정 계약](/run-server/self-hosting/reference/configuration)을 확인한다. 첫 deploy가 실패해도 정상 배포의 상태 파일이 있다고 가정하지 않는다.
 
 ## 되돌리기
@@ -194,31 +204,31 @@ quota 오류는 [XFS 준비](/run-server/self-hosting/prepare-xfs), bucket 보�
 <a id="5-설치하기" />
 <a id="6-확인하기" />
 
-[운영용 단일 서버 설치](/run-server/self-hosting/single-server)
+[운영용 단일 서버 설치](/run-server/self-hosting/single-server#무엇을-하게-되나)
 
 <a id="disk-setup-xfs-prjquota" />
 <a id="ディスクの準備-xfs-prjquota" />
 <a id="디스크-준비-xfs-prjquota" />
 
-[XFS 디스크 준비](/run-server/self-hosting/prepare-xfs)
+[XFS 디스크 준비](/run-server/self-hosting/prepare-xfs#무엇을-하게-되나)
 
 <a id="install-without-a-checkout-the-release-bundle" />
 <a id="checkout-なしでインストールする-リリースバンドル" />
 <a id="checkout-없이-설치하기-릴리스-번들" />
 
-[배포 패키지 계약](/run-server/self-hosting/reference/packages)
+[배포 패키지 계약](/run-server/self-hosting/reference/packages#계약)
 
 <a id="when-you-build-the-images-yourself" />
 <a id="イメージを自分でビルドするとき" />
 <a id="이미지를-직접-빌드할-때" />
 
-[사용자 registry 이미지 빌드](/run-server/self-hosting/build-images)
+[사용자 registry 이미지 빌드](/run-server/self-hosting/build-images#무엇을-하게-되나)
 
 <a id="7-first-owner-and-api-key" />
 <a id="7-最初の-owner-と-api-key" />
 <a id="7-첫-owner와-api-key" />
 
-[첫 owner와 사용자 key 발급](/run-server/self-hosting/users-and-keys)
+[첫 owner와 사용자 key 발급](/run-server/self-hosting/users-and-keys#무엇을-하게-되나)
 
 <a id="8-enter-the-model-key" />
 <a id="alternative-put-the-model-key-in-an-environment-variable" />
@@ -227,7 +237,7 @@ quota 오류는 [XFS 준비](/run-server/self-hosting/prepare-xfs), bucket 보�
 <a id="8-모델-키-넣기" />
 <a id="대안-모델-키를-환경-변수로-넣기" />
 
-[모델 연결과 프로필 구성](/run-server/self-hosting/model-connections)
+[모델 연결과 프로필 구성](/run-server/self-hosting/model-connections#무엇을-하게-되나)
 
 <a id="take-it-down" />
 <a id="operations" />
@@ -245,24 +255,24 @@ quota 오류는 [XFS 준비](/run-server/self-hosting/prepare-xfs), bucket 보�
 <a id="첫날-운영" />
 <a id="다음-단계" />
 
-[Compose 중지·재시작·제거](/run-server/self-hosting/stop-compose)
+[Compose 중지·재시작·제거](/run-server/self-hosting/stop-compose#무엇을-하게-되나)
 
 <a id="access-path" />
 <a id="アクセス経路" />
 <a id="접근-경로" />
 
-[사용자 접속 경로 구성](/run-server/self-hosting/access)
+[사용자 접속 경로 구성](/run-server/self-hosting/access#무엇을-하게-되나)
 
 <a id="dedicated-s3-bucket" />
 <a id="専用の-s3-bucket" />
 <a id="전용-s3-bucket" />
 
-[checkpoint bucket 준비](/run-server/self-hosting/prepare-checkpoint-bucket)
+[checkpoint bucket 준비](/run-server/self-hosting/prepare-checkpoint-bucket#무엇을-하게-되나)
 
 <a id="backup-and-restore" />
 <a id="バックアップと復元" />
 <a id="백업과-복원" />
 
-[백업과 복원 훈련](/run-server/self-hosting/backup-and-restore)
+[백업과 복원 훈련](/run-server/self-hosting/backup-and-restore#무엇을-하게-되나)
 
 </details>

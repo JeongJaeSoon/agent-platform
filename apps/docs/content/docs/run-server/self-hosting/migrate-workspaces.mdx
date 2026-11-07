@@ -26,11 +26,11 @@ label 없는 legacy volume 또는 다른 byte quota의 workspace를 원본을 �
 
 ## 단계
 
-```sh
-# run with the same environment variables as the scheduler (DATABASE_URL, EXECUTION_*, DOCKER_HOST)
-bun run --cwd apps/control-host migrate-workspace <session-id> [<session-id>...]
-# with compose (apps profile)
-docker compose -f infra/compose.yml --profile apps run --rm scheduler \
+이번 설치의 status와 project label로 실제 scheduler 컨테이너를 고른다. 이 컨테이너는 설치 DB·Docker socket·quota env를 이미 받는다. 개발용 기본 Compose project를 새로 띄우지 않는다.
+
+```bash
+SCHEDULER_CONTAINER='<this-installation-scheduler-container-id>'
+docker exec "$SCHEDULER_CONTAINER" \
   bun run apps/control-host/src/scheduler/migrate-workspace.ts <session-id>
 ```
 

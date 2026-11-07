@@ -22,20 +22,19 @@ outcome: "원인과 외부 효과를 확인한 뒤 복구 결정을 적용한다
 reconciler 대상만 먼저 보려면 dry-run을 직접 1회 실행한다. compose의 반복 reconciler에는 dry-run 환경 변수가 전달되지 않는다.
 
 ```bash
-DATABASE_URL=postgres://postgres:dev@127.0.0.1:5432/sessions \
-RECONCILER_DRY_RUN=true \
-  bun run --cwd apps/control-host reconciler
+RECONCILER_CONTAINER='<this-installation-reconciler-container-id>'
+docker exec -e RECONCILER_DRY_RUN=true "$RECONCILER_CONTAINER" \
+  bun run apps/control-host/src/main.ts reconciler --once
 
-DATABASE_URL=postgres://postgres:dev@127.0.0.1:5432/sessions \
-RECONCILER_DRY_RUN=false \
-  bun run --cwd apps/control-host reconciler
+docker exec -e RECONCILER_DRY_RUN=false "$RECONCILER_CONTAINER" \
+  bun run apps/control-host/src/main.ts reconciler --once
 ```
 
-두 번째 명령은 DB를 실제로 바꾸므로 첫 명령 결과를 검토한 뒤에만 실행한다.
+컨테이너는 이번 설치의 status와 project label로 확인한다. 컨테이너의 실제 설치 env를 사용하며 개발용 DB 주소를 넣지 않는다. 두 번째 명령은 DB를 실제로 바꾸므로 첫 명령 결과를 검토한 뒤에만 실행한다.
 
 ### 2. checkpoint 복원과 시작 실패
 
-### checkpoint 복원이 계속 실패하는 세션
+#### checkpoint 복원이 계속 실패하는 세션
 
 복원을 넘겨받은 worker가 ready를 보고하기 전에 끝나면 scheduler는 곧바로 다시 띄우지 않는다. 이런 종료가 두 번째까지는 30초, 60초를 기다린다. 세 번째에는 세션이 `recovery_required`로 멈추고 새 generation을 만들지 않는다. 기다리는 동안이나 멈춘 뒤의 세션 상세 attention은 `RESTORE_FAILED`다.
 - `reason`: 마지막 worker가 남긴 오류다. release 없이 죽었으면 `execution_gone`이다.
@@ -61,7 +60,7 @@ curl -X POST "$API/v1/sessions/$SESSION/recovery-decisions" \
 - checkpoint를 포기해도 되면 `start_fresh`로 이어간다. checkpoint 없이 새 engine session이 시작된다.
 - 세션을 끝내려면 `close`를 쓴다.
 
-### 시작 단계에서 계속 죽는 세션
+#### 시작 단계에서 계속 죽는 세션
 
 checkpoint가 없는 세션도 같은 규칙을 따른다. worker가 claim 뒤 입력을 한 번도 청하지 않고 끝나면 실패 1회다. workspace 준비(git clone·fetch)나 엔진 기동에서 죽은 경우다. 두 번째까지는 30초, 60초를 기다리고, 세 번째에는 `recovery_required`로 멈춘다. attention은 `STARTUP_FAILED`이고 `reason`·`failures`·`retry_at`은 위와 같다. 이벤트 스트림에는 실패마다 system `startup_failed`가 남는다.
 - 흔한 원인은 저장소 URL·branch가 사라졌거나 저장소 자격 증명이 거부된 경우, 그리고 worker의 object store·proxy 설정 오류다. worker 로그의 `worker.stopping kind=failed`, `worker.failed`에서 확인한다.
@@ -72,7 +71,7 @@ checkpoint가 없는 세션도 같은 규칙을 따른다. worker가 claim 뒤 �
 
 ### 3. interrupt 뒤 결과 불명
 
-### interrupt 뒤 결과를 알 수 없는 turn
+#### interrupt 뒤 결과를 알 수 없는 turn
 
 interrupt한 turn이 `interrupted`로 끝나려면 engine이 멈췄다는 응답과 그 turn까지 덮는 checkpoint가 함께 있어야 한다. 둘 중 하나라도 없으면 transcript에 무엇이 남았는지 아무도 말할 수 없다. 그래서 turn은 `outcome_unknown`이 되고, turn 조회(`GET /v1/sessions/{id}/turns/{turn_id}`)의 `terminal_reason`이 원인을 말한다.
 - `interrupt_checkpoint_unavailable`: engine은 멈췄지만 checkpoint를 커밋하지 못했다. worker는 drain으로 내려간다.

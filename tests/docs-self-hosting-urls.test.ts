@@ -6,6 +6,7 @@ import remarkGfm from "remark-gfm";
 import remarkMdx from "remark-mdx";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
+import guideTargets from "./fixtures/self-hosting-guide-targets.json";
 import pages from "./fixtures/self-hosting-pages.json";
 import baseline from "./fixtures/self-hosting-public-urls.json";
 
@@ -30,7 +31,15 @@ function readPage(path: string, locale: string) {
   return readFileSync(source, "utf8");
 }
 
-const inspected = new Map<string, { ids: string[]; links: string[] }>();
+const inspected = new Map<
+  string,
+  {
+    ids: string[];
+    links: string[];
+    nativeIds: string[];
+    guides: Record<string, string>;
+  }
+>();
 
 function inspect(text: string) {
   const cached = inspected.get(text);
@@ -45,18 +54,32 @@ function inspect(text: string) {
   ) as Node;
   const ids: string[] = [];
   const links: string[] = [];
+  const nativeIds: string[] = [];
+  const guides: Record<string, string> = {};
+  let pending: string[] = [];
   function walk(node: Node) {
     const id = node.data?.hProperties?.id;
-    if (id) ids.push(id);
+    if (id) {
+      ids.push(id);
+      nativeIds.push(id);
+      pending = [];
+    }
     if (node.name === "a") {
       const id = node.attributes?.find((a) => a.name === "id")?.value;
-      if (id) ids.push(id);
+      if (id) {
+        ids.push(id);
+        pending.push(id);
+      }
     }
-    if (node.type === "link" && node.url) links.push(node.url);
+    if (node.type === "link" && node.url) {
+      links.push(node.url);
+      for (const anchor of pending) guides[anchor] = node.url;
+      pending = [];
+    }
     for (const child of node.children ?? []) walk(child);
   }
   walk(tree);
-  const result = { ids, links };
+  const result = { ids, links, nativeIds, guides };
   inspected.set(text, result);
   return result;
 }
@@ -82,14 +105,70 @@ function targetExists(href: string, current: string, locale: string) {
   }
 }
 
+function previousRouteProblems(
+  text: string,
+  old: (typeof baseline.pages)[number],
+) {
+  const { ids, nativeIds, guides } = inspect(text);
+  const routes = (
+    guideTargets as Record<string, Record<string, string | null>>
+  )[old.page || "index"];
+  return old.fragments.filter((id) => {
+    if (!ids.includes(id)) return true;
+    if (held.test(old.page)) return false;
+    const expected = routes?.[id];
+    if (expected === null) return !nativeIds.includes(id);
+    return (
+      !expected ||
+      guides[id] !== expected ||
+      !targetExists(expected, `${prefix}/${old.page || "index"}`, old.locale)
+    );
+  });
+}
+
 // This fixture predates the rewrite. It is deliberately not regenerated from
 // the new pages: doing so would make deleted public fragments invisible.
 describe("self-hosting public URL contract", () => {
+  test("the baseline contains all previous pages and fragments", () => {
+    expect(baseline.pages).toHaveLength(45);
+    expect(
+      baseline.pages.reduce((count, page) => count + page.fragments.length, 0),
+    ).toBe(435);
+  });
+
+  test("deleting an actual guide link breaks its previous routes", () => {
+    const old = baseline.pages.find(
+      (page) => page.locale === "ko" && page.page === "operate/metrics",
+    );
+    expect(old).toBeDefined();
+    if (!old) return;
+    const text = readPage(`${prefix}/operate/metrics`, "ko");
+    const mutated = text.replace(/\[Kubernetes 지표 수집\]\([^\n)]+\)/, "");
+    expect(mutated).not.toBe(text);
+    expect(previousRouteProblems(mutated, old)).not.toEqual([]);
+  });
+
+  test("sending an actual guide to the wrong existing page breaks its previous routes", () => {
+    const old = baseline.pages.find(
+      (page) => page.locale === "ko" && page.page === "operate/metrics",
+    );
+    expect(old).toBeDefined();
+    if (!old) return;
+    const text = readPage(`${prefix}/operate/metrics`, "ko");
+    const mutated = text.replace(
+      /\[Kubernetes 지표 수집\]\([^\n)]+\)/,
+      "[지표 수집](/run-server/self-hosting/reference/storage#계약)",
+    );
+    expect(mutated).not.toBe(text);
+    expect(previousRouteProblems(mutated, old)).not.toEqual([]);
+  });
   for (const old of baseline.pages) {
     const path = `${prefix}${old.page ? `/${old.page}` : "/index"}`;
     test(`${old.locale}/${old.page}: previous public fragments survive`, () => {
       const { ids } = inspect(readPage(path, old.locale));
-      expect(old.fragments.filter((id) => !ids.includes(id))).toEqual([]);
+      expect(previousRouteProblems(readPage(path, old.locale), old)).toEqual(
+        [],
+      );
       expect(new Set(ids).size).toBe(ids.length);
     });
   }

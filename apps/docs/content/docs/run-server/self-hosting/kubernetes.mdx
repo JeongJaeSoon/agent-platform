@@ -21,6 +21,8 @@ outcome: "게시 chart로 운영 서버를 설치한다"
 | S3 호환 object store | bucket 하나. 기본 보호 모드 `locked`는 versioning, Object Lock, 기본 암호화 SSE-S3(`AES256`)가 켜진 bucket을 요구한다. 아니면 api가 기동을 거부한다 |
 | 외부 | `ghcr.io`에서 chart와 이미지를 받을 수 있다. 패키지는 로그인 없이 받는다 |
 
+chart와 패키지의 선택 방법은 [배포 패키지 계약](/run-server/self-hosting/reference/packages)을 따른다. AWS 이외 endpoint는 `config.aws.endpointUrl`와 credential allowlist를 함께 맞추고 보호 계약을 확인한다. 실제 AWS 설치는 실행 확인하지 않았다.
+
 chart는 PostgreSQL, object store, Secret 값을 만들지 않는다. worker Pod도 만들지 않는다. scheduler가 세션마다 만든다. 게시 이미지는 `linux/amd64`와 `linux/arm64`를 담은 index이므로 노드가 자기 아키텍처를 받는다.
 
 [checkpoint bucket](/run-server/self-hosting/prepare-checkpoint-bucket)과 [workspace 저장소 계약](/run-server/self-hosting/reference/storage)을 먼저 확인한다. 설치 id는 backend가 받는 **32자 이하 소문자 DNS label**이어야 한다. chart가 더 넓게 허용해도 이 제약을 따른다. 원격 bootstrap 전 [접속 경로](/run-server/self-hosting/access)를 준비한다.
@@ -47,14 +49,15 @@ Secret은 키마다 파일 하나인 디렉터리(`0700`, 파일 이름이 키)�
 | `EGRESS_AUTHORIZER_TOKEN` | 무작위 값. api와 egress proxy가 같은 값을 쓴다 |
 | `PLATFORM_SECRET_KEY` | `openssl rand -hex 32`의 64자 hex. 저장한 자격 증명을 봉인한다. 없으면 Pod가 뜨지 않는다 |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | object store key. IRSA로 서명하려면 두 키를 빼고 values에 `secrets.objectStoreKeys: false`와 `serviceAccounts.api.annotations`를 둔다 |
-| `ANTHROPIC_API_KEY` | 선택. 세션이 쓸 Anthropic key의 기본 경로는 설치 뒤 콘솔의 **설정 > 워크스페이스 설정 > 모델 연결 > 연결 추가**다. 이 키는 환경 변수로 주는 대안이고, 두면 api에만 간다. 두지 않으면 helm에 `--set-json 'secrets.catalogEnv=[]'`를 준다. chart 기본값은 이 키를 api에 넘기므로 Secret에 없으면 Pod가 뜨지 않는다 |
+| `BOOTSTRAP_TOKEN` | 기본 API replica 2개에 같은 32–256자 토큰을 공급해야 한다. Secret에 만들고 아래 values의 `secrets.catalogEnv`에 포함한다 |
+| `ANTHROPIC_API_KEY` | 선택. 세션이 쓸 Anthropic key의 기본 경로는 설치 뒤 콘솔의 **설정 > 워크스페이스 설정 > 모델 연결 > 연결 추가**다. 이 키는 환경 변수로 주는 대안이고, 두면 api에만 간다. 두지 않으면 아래 values의 `secrets.catalogEnv`에서 이 이름만 뺀다. `BOOTSTRAP_TOKEN`은 남긴다. chart 기본값은 이 키를 api에 넘기므로 Secret에 없으면 Pod가 뜨지 않는다 |
 
 ```bash
 kubectl create namespace werft
 kubectl -n werft create secret generic werft --from-file=<secret-dir>
 ```
 
-Secret 디렉터리는 0700, 파일은 운영자만 읽을 수 있게 둔다. replica가 둘 이상이면 같은 `BOOTSTRAP_TOKEN`(32–256자)을 Secret에 추가하고 `secrets.catalogEnv`에 포함한다. 모델 키를 콘솔로 넣을 때는 목록을 `["BOOTSTRAP_TOKEN"]`으로, 환경 변수도 쓸 때는 필요한 이름을 함께 적는다. 목록의 모든 키가 Secret에 있어야 한다.
+Secret 디렉터리는 0700, 파일은 운영자만 읽을 수 있게 둔다. 기본 API replica는 2개다. replica가 둘 이상이면 같은 `BOOTSTRAP_TOKEN`(32–256자)을 Secret에 추가하고 `secrets.catalogEnv`에 포함한다. 모델 키를 콘솔로 넣을 때는 목록을 `["BOOTSTRAP_TOKEN"]`으로, 환경 변수도 쓸 때는 필요한 이름을 함께 적는다. 목록의 모든 키가 Secret에 있어야 한다.
 
 ### 3. 설치별 values
 
@@ -73,7 +76,7 @@ config:
 
 `credentialAllowlist`는 기본값을 통째로 바꾼다. 기본 목록(provider와 패키지 registry)을 그대로 두고 저장소 호스트(`github.com:443`, 다른 Git 호스트를 쓰면 그 호스트도)와 bucket 호스트를 뒤에 더한다.
 
-`config.aws.region`의 기본값은 `ap-northeast-1`이다. 다른 리전의 bucket이면 바꾼다. 연결, 저장소, MCP 서버, 상한은 values에 없다. 설치한 뒤 웹 콘솔에서 더하거나 `bun run settings:k8s import`로 가져온다. 기본값과 설명은 `helm show values`에 있다.
+`config.aws.region`의 기본값은 `ap-northeast-1`이다. 다른 리전의 bucket이면 바꾼다. 연결, 저장소, MCP 서버, 상한은 values에 없다. 설치한 뒤 웹 콘솔에서 더한다. `bun run settings:k8s import`를 쓰는 대안은 설치 버전의 저장소 checkout과 호스트 Bun·kubectl이 필요하다. 기본값과 설명은 `helm show values`에 있다.
 
 다른 설치와 겹치지 않는 `installationId`를 같은 파일에 둔다. `images.*`의 digest는 게시 chart의 값을 유지한다. DB·S3·Secret·CNI가 준비됐는지 확인한 뒤 진행한다.
 
@@ -163,30 +166,30 @@ NetworkPolicy를 강제하지 않는 CNI에는 worker 격리가 없다. Secret �
 <a id="5-확인하기" />
 <a id="다음-단계" />
 
-[Kubernetes 설치](/run-server/self-hosting/kubernetes)
+[Kubernetes 설치](/run-server/self-hosting/kubernetes#무엇을-하게-되나)
 
 <a id="workspace-storage-and-its-limits" />
 <a id="workspace-のストレージと上限" />
 <a id="workspace-저장소와-상한" />
 
-[저장소와 상한](/run-server/self-hosting/reference/storage)
+[저장소와 상한](/run-server/self-hosting/reference/storage#계약)
 
 <a id="6-first-owner-and-api-key" />
 <a id="6-最初の-owner-と-api-key" />
 <a id="6-첫-owner와-api-key" />
 
-[첫 owner와 사용자 key 발급](/run-server/self-hosting/users-and-keys)
+[첫 owner와 사용자 key 발급](/run-server/self-hosting/users-and-keys#무엇을-하게-되나)
 
 <a id="try-it-on-kind-first" />
 <a id="まず-kind-で試す" />
 <a id="kind에서-먼저-해-보기" />
 
-[kind에서 시험 설치](/run-server/self-hosting/try-kind)
+[kind에서 시험 설치](/run-server/self-hosting/try-kind#무엇을-하게-되나)
 
 <a id="upgrade-and-remove" />
 <a id="アップグレードと削除" />
 <a id="업그레이드와-제거" />
 
-[Kubernetes 중지·제거](/run-server/self-hosting/remove-kubernetes)
+[Kubernetes 중지·제거](/run-server/self-hosting/remove-kubernetes#무엇을-하게-되나)
 
 </details>

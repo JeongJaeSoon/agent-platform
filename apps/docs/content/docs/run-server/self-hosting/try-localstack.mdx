@@ -109,6 +109,18 @@ quota 검사와 서비스 health가 성공해야 한다. 모델 key는 설치 �
 
 ## 자주 막히는 곳
 
+첫 `deploy`가 실패하면 시작된 컨테이너는 남아 있고 `current.json`이 없어 `stop`을 쓸 수 없다. 실패 로그에서 quota·네트워크·Secret 등 원인을 확인하고, 이번 설치의 project 이름을 확인한 뒤 다음처럼 내린다. `-v`는 붙이지 않는다.
+
+```bash
+PROJECT='<this-installation-project>'
+printf '%s\n' '{"services":{"x":{"image":"alpine:3"}},"networks":{"default":{}}}' \
+  | docker compose --project-name "$PROJECT" -f - down --remove-orphans
+```
+
+원인을 고친 뒤 같은 release 파일과 같은 환경으로 `deploy`를 다시 실행한다. 이미 성공한 설치를 다시 시작할 때는 `start`를 쓴다.
+
+처음 restart policy가 바뀌는 업그레이드에서 LocalStack 컨테이너를 재생성하면 객체를 잃을 수 있다. `status`가 미수거 checkpoint 0개임을 확인하지 못하면 업그레이드를 미룬다. API 기동 실패와 `pending.json`이 겹치면 `reseed`도 거부되며, `reset`은 모든 데이터를 버린다. `backup --stop`은 이 차단을 해제하지 않는다.
+
 LocalStack은 컨테이너가 재생성되면 메모리의 object를 잃는다. DB에 미수거 checkpoint가 남아 bucket이 비면 API가 기동을 거부한다. 자동 재시작과 수동 start의 조건은 [Compose 수명주기](/run-server/self-hosting/stop-compose)를 따른다.
 
 계획 재시작은 미리 백업하고 writer를 중지한다.
@@ -124,7 +136,7 @@ scripts/test-ops.sh reseed /var/lib/werft/test-ops/backups/backup-<timestamp>
 
 ## 되돌리기
 
-[Compose 중지·제거](/run-server/self-hosting/stop-compose)를 따른다. 이번 project만 `docker compose -p <project> down`으로 내리고 volume을 보존한다. checkpoint가 없는 시험이라는 이유로 운영 bucket이나 다른 설치를 정리하지 않는다. reset은 삭제 범위를 확인한 별도 선택이다.
+[Compose 중지·제거](/run-server/self-hosting/stop-compose)를 따른다. 성공한 설치는 `scripts/test-ops.sh stop`으로 이번 project를 내리고 volume을 보존한다. 첫 deploy 실패는 위의 명시 project와 stdin compose model을 쓰는 정리 절차를 따른다. checkpoint가 없는 시험이라는 이유로 운영 bucket이나 다른 설치를 정리하지 않는다. reset은 삭제 범위를 확인한 별도 선택이다.
 
 ## 다음에 읽을 곳
 

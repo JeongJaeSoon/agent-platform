@@ -13,7 +13,7 @@ Compose 설치의 DB와 checkpoint object를 백업하고 별도 project·새 �
 
 ## 준비물
 
-정상 설치, 최근 release와 비밀키의 별도 보관, 충분한 백업 공간, writer를 중지할 유지보수 시간이 필요하다. 백업에는 DB 전체와 API key hash가 있으므로 접근 권한 0700과 전송·보관 암호화를 적용한다. 운영 bucket에 복원하지 않는다.
+정상 설치, 최근 release와 비밀키의 별도 보관, 충분한 백업 공간, writer를 중지할 유지보수 시간이 필요하다. 백업에는 DB 전체와 API key hash가 있으므로 접근 권한 0700과 전송·보관 암호화를 적용한다. 운영 bucket에 복원하지 않는다. `backup`·`reseed`·`restore-drill`은 릴리스 번들에서 거부하므로 설치 commit의 checkout에서 실행한다.
 
 ## 단계
 
@@ -33,10 +33,10 @@ S3는 매번 새 빈 훈련 bucket을 준비한다. 원본 bucket, object versio
 
 ```bash
 # Restore a backup into a throwaway project and a new, empty bucket, then verify it
-scripts/test-ops.sh restore-drill /var/lib/werft/test-ops/backups/backup-<timestamp> --bucket <drill-bucket>
+scripts/test-ops.sh restore-drill /var/lib/werft/test-ops/backups/backup-<timestamp> --bucket <drill-bucket> --port-base 25432
 ```
 
-LocalStack 시험에서는 `--bucket`을 주지 않는다. 훈련은 postgres와 object store를 복원하고 모든 checkpoint pointer를 version 단위로 대조한다. API는 띄우지 않는다. 월 1회와 업그레이드 뒤 첫 백업마다 수행한다.
+`--port-base`는 훈련 서비스의 별도 시작 포트이며 다른 설치와 겹치지 않게 고른다. LocalStack 시험에서는 `--bucket`을 주지 않는다. 훈련은 postgres와 object store를 복원하고 모든 checkpoint pointer를 version 단위로 대조한다. API는 띄우지 않는다. 월 1회와 업그레이드 뒤 첫 백업마다 수행한다.
 
 ### 3. checkpoint GC
 
@@ -60,7 +60,7 @@ API_CONTAINER를 이 설치의 status와 project label로 확인한다. 출력�
 
 ## 되돌리기
 
-훈련 도구는 종료 시 이번 훈련 project를 정리한다. 조사용 `--keep`을 썼다면 확인 뒤 그 project만 down하고 volume은 별도 보존 정책으로 처리한다. bucket 정리는 운영 bucket과 구분하여 각 version의 hold와 데이터를 확인한 뒤 수행한다. 운영 백업본은 시험을 위해 지우지 않는다.
+훈련 도구는 종료 시 이번 훈련 project를 정리한다. 조사용 `--keep`을 썼다면 확인 뒤 그 project만 down하고 volume은 별도 보존 정책으로 처리한다. 훈련 bucket은 운영 bucket과 구분하여 재사용할 데이터가 없음을 확인한 뒤, 각 object version의 legal hold 해제 → version과 delete marker 삭제 → 빈 bucket 삭제 순서로 정리한다. retention이 남으면 우회하지 않고 만료를 기다린다. 운영 백업본은 시험을 위해 지우지 않는다.
 
 ## 다음에 읽을 곳
 

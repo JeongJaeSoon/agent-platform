@@ -32,7 +32,7 @@ networkPolicy:
 
 `ingressFrom: []`는 9464를 모든 source에 열므로 실제 수집기 namespace selector로 좁힌다. 설치한 정확한 chart 버전과 설치별 values로 Helm upgrade를 적용한다. 다른 chart로 올릴 때는 [Kubernetes 업그레이드](/run-server/self-hosting/upgrade-kubernetes)를 따른다.
 
-chart 리소스는 `<fullname>-metrics`다. release 이름에 werft가 있으면 fullname은 release 이름이고, 아니면 `<release>-werft`다. fullnameOverride를 쓰면 그 값을 따른다. 예를 들어 release가 team이면 `team-werft-metrics`이며 team-metrics가 아니다.
+chart 리소스는 `<fullname>-metrics`다. release 이름에 werft가 있으면 fullname은 release 이름이고, 아니면 `<release>-werft`다. 예를 들어 release가 team이면 `team-werft-metrics`이며 team-metrics가 아니다.
 
 ### 2. 수집기 연결
 

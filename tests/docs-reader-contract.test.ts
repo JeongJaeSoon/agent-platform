@@ -13,6 +13,8 @@ const root = join(
 const held = /\/(session-data-flow|monitoring-datadog)(\.(en|ja))?\.mdx$/;
 const internal =
   /검증 카드|검사자(?:가|는|의|\s)|카드는 보지 못|\b94S-\d+\b|\b(?:NOW|LATER|DROP)\s*[:：]|\b(?:NOT VERIFIED|VERIFIED)\b|\brun_[a-f0-9]{8,}\b|\btask_[a-f0-9]{8,}\b/u;
+const measurementDiary =
+  /\d{4}-\d{2}-\d{2}[^.。\n]*(?:측정|실측|조사|확인했|확인\))/u;
 
 interface Node {
   type: string;
@@ -32,7 +34,11 @@ function violations(text: string): string[] {
     if (node.type === "code") return;
     if (node.type === "delete" || node.name === "del")
       found.push("deleted prose");
-    if (node.value && internal.test(node.value)) found.push(node.value);
+    if (
+      node.value &&
+      (internal.test(node.value) || measurementDiary.test(node.value))
+    )
+      found.push(node.value);
     for (const child of node.children ?? []) visit(child);
   }
   visit(tree);
@@ -62,6 +68,12 @@ describe("self-hosting reader contract", () => {
     expect(
       violations("`.quota-verified` 파일과 a verified commit은 정상 문맥이다."),
     ).toEqual([]);
+    expect(
+      violations("인증서 만료일은 2026-12-01이다. 준비 상태를 확인한다."),
+    ).toEqual([]);
+    expect(
+      violations("2026-11-01 합성 데이터 실측 결과다.").length,
+    ).toBeGreaterThan(0);
   });
 
   test("inline code does not hide internal history", () => {

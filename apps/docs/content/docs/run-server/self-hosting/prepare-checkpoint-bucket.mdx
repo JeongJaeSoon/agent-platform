@@ -48,7 +48,7 @@ Object Lock을 켜면 versioning도 켜진다.
 - object version을 만료시키는 lifecycle rule을 두지 않는다. 조직 정책이 있으면 이 bucket을 제외한다.
 - 복원 훈련은 같은 자격 증명으로 훈련용 bucket에 쓴다. 훈련 bucket 이름을 `<bucket>-drill-*`로 정하고 같은 권한을 그 이름에 준다. 훈련 bucket은 운영자가 자기 권한으로 만든다.
 
-자격 증명은 API와 maintenance 컨테이너에만 간다. worker는 egress proxy를 지나며, 그 요청은 API가 세션 범위로 서명한다. 5단계의 `TEST_OPS_OBJECT_STORE=s3 preflight`가 업로드, legal hold, version 읽기, hold 해제, scratch version 삭제 왕복을 통과해야 설치할 수 있다.
+자격 증명은 API와 maintenance 컨테이너에만 간다. worker는 egress proxy를 지나며, 그 요청은 API가 세션 범위로 서명한다. [단일 서버 4단계](/run-server/self-hosting/single-server#4-s3를-명시해-검사설치)의 `TEST_OPS_OBJECT_STORE=s3 preflight`가 업로드, legal hold, version 읽기, hold 해제, scratch version 삭제 왕복을 통과해야 설치할 수 있다.
 
 API용 권한은 bucket의 `s3:ListBucket`, `s3:ListBucketVersions`, `s3:GetBucketVersioning`, `s3:GetBucketObjectLockConfiguration`, `s3:GetEncryptionConfiguration`과 객체의 `s3:PutObject`, `s3:GetObject`, `s3:GetObjectVersion`, `s3:GetObjectLegalHold`, `s3:PutObjectLegalHold`, `s3:DeleteObjectVersion`이다. 리소스 ARN은 이 설치 bucket과 허용된 훈련 bucket 범위로 제한한다. `s3:DeleteObject`는 GC에 필요하지 않다.
 

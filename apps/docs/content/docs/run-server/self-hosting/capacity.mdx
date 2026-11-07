@@ -17,17 +17,15 @@ outcome: "복원 여유를 계산하고 지원되는 자원 크기를 바꾼다"
 
 ## 단계
 
-### 복원 비용과 안전 여유
+### 1. 복원 비용과 안전 여유
 
-## worker 메모리와 transcript 크기 (실측)
+기준: **compaction이 없는 transcript를 resume할 때의 최악 peak이 worker 메모리 한도의 절반 이하**여야 한다. 나머지 절반은 첫 turn의 작업, 측정하지 않은 transcript 모양, 엔진 버전 차이에 쓰는 여유다.
 
-기준(2026-10-21에 정함): **compaction이 없는 transcript를 resume할 때의 최악 peak이 worker 메모리 한도의 절반 이하**여야 한다. 나머지 절반은 첫 turn의 작업, 측정하지 않은 transcript 모양, 엔진 버전 차이에 쓰는 여유다.
-
-### 측정 방법
+#### 측정 방법
 
 전용 compose 스택(fake model, cgroup v2)에서 쟀다. source worker가 합성 transcript를 mirror에 넣고 checkpoint한 뒤 pause한다. 이어서 새 worker가 그 checkpoint를 복원하고 첫 resume turn을 돈다. 그동안 0.5초마다 worker 컨테이너의 cgroup(`memory.peak`, anon, file, shmem, swap, oom_kill)과 프로세스별 VmHWM을 기록했다. `memory.peak`에는 회수 가능한 page cache(file)도 들어간다. 그래도 기준에는 포함했다. worker 이미지는 claude-agent-sdk 0.3.270, Claude Code CLI 2.1.270이다.
 
-### 4608MiB 한도 (현재 기본값)
+#### 4608MiB 한도 (현재 기본값)
 
 | transcript | compaction | 첫 resume turn | memory.peak MiB (한도 대비) | anon | file | swap | OOM | worker(bun) VmHWM | CLI VmHWM |
 |---|---|---|---|---|---|---|---|---|---|
@@ -35,7 +33,7 @@ outcome: "복원 여유를 계산하고 지원되는 자원 크기를 바꾼다"
 | 511MiB | 있음 | 성공 | 1338 (29%) | 533 | 716 | 0 | 0 | 588 | 237 |
 | 64MiB | 없음 | 성공 | 726 (16%) | 558 | 75 | 0 | 0 | 504 | 329 |
 
-### 6144MiB 한도 (비교 측정)
+#### 6144MiB 한도 (비교 측정)
 
 | transcript | compaction | 첫 resume turn | memory.peak MiB (한도 대비) | anon | file | swap | worker(bun) VmHWM | CLI VmHWM |
 |---|---|---|---|---|---|---|---|---|
@@ -46,15 +44,15 @@ outcome: "복원 여유를 계산하고 지원되는 자원 크기를 바꾼다"
 | 64.9MiB | 없음 | 성공 | 839 (14%) | 508 | 279 | 0 | 437 | 326 |
 | 150.2MiB | 없음 | 성공 | 828 (13%) | 501 | 151 | 0 | 487 | 492 |
 
-### 읽는 법
+#### 읽는 법
 
 - worker(bun)는 transcript 크기와 상관없이 440–720MiB를 쓴다. restore가 part 단위로 스트리밍하기 때문이다.
 - 크기에 비례하는 몫은 엔진(CLI)이다. compaction이 없으면 엔진은 대략 **210 + 1.85 × T MiB**를 쓴다(T는 transcript MiB). 511MiB에서 공식은 1155MiB이고, 실측은 1129MiB였다. compaction이 있으면 엔진 몫은 크기와 상관없이 약 235MiB다.
 - 전체 peak는 page cache를 더해 150–800MiB 구간에서 transcript 1MiB당 약 3MiB씩 는다(150.2MiB에서 828MiB, 600MiB에서 2178MiB, 800MiB에서 2785MiB). 아래 표의 256·400MiB 값은 이 직선으로 보간한 **추정**이다.
 
-## 512MiB / 4608MiB를 고른 이유
+### 2. transcript 상한과 메모리 선택
 
-후보 상한마다 필요한 메모리와 노드당 세션 수를 비교했다. 메모리는 2 × peak를 512MiB 단위로 올린 값이다. 세션 수는 allocatable 30GiB(30720MiB) 노드 기준이다. 분포는 2026-10-21에 개발 장비 두 대에서 잰 실제 transcript 12개다. 한 대의 상위 10개는 400.1, 217.2, 113.4, 102.0, 96.3, 86.0, 85.2, 78.8, 70.4, 68.5MiB이고, 다른 한 대의 상위 2개는 591.8, 150MiB다. 상위 값만 모은 표본이라 전체 분포를 대표하지는 않는다.
+후보 상한마다 필요한 메모리와 노드당 세션 수를 비교했다. 메모리는 2 × peak를 512MiB 단위로 올린 값이다. 세션 수는 allocatable 30GiB(30720MiB) 노드 기준이다. 표본은 개발 장비 두 대의 transcript 12개다. 한 대의 상위 10개는 400.1, 217.2, 113.4, 102.0, 96.3, 86.0, 85.2, 78.8, 70.4, 68.5MiB이고, 다른 한 대의 상위 2개는 591.8, 150MiB다. 상위 값만 모은 표본이라 전체 분포를 대표하지는 않는다.
 
 | 상한 | compaction 없는 peak | 절반 기준 메모리 | 노드당 세션 | 분포 중 상한 안 | 80% 경고 |
 |---|---|---|---|---|---|
@@ -66,12 +64,9 @@ outcome: "복원 여유를 계산하고 지원되는 자원 크기를 바꾼다"
 
 - 512MiB는 관측한 12개 중 11개를 담는다. 둘째로 큰 400.1MiB 세션도 경고에 걸리지 않는다. 넘는 것은 591.8MiB 하나다. 이런 세션은 409.6MiB에서 경고를 받고 새 세션으로 옮긴다.
 - 400MiB면 400.1MiB 세션의 checkpoint가 바로 거절된다. 256MiB면 217MiB 세션도 경고 구간에 들어간다.
-- 공개된 다른 시스템도 활성 기록은 작게 묶는다. Temporal은 event history가 50MB에 닿으면 실행을 끝낸다([defaults](https://docs.temporal.io/self-hosted-guide/defaults)). Inngest는 run state를 32MiB로 묶는다([usage limits](https://www.inngest.com/docs/usage-limits/inngest)). Claude Code의 선택형 `CLAUDE_CODE_TRANSCRIPT_LOCAL_GC`는 compaction 뒤 파일이 5MB를 넘으면 그 이전을 지운다([env vars](https://code.claude.com/docs/en/env-vars)). 수백 MiB를 통째로 복원하는 사례는 찾지 못했다(2026-10-21 조사).
 - 메모리는 4096MiB가 아니라 4608MiB다. 512MiB의 실측 peak 1970MiB는 4096MiB의 절반(2048)에 78MiB밖에 남지 않는다. 4608MiB면 여유가 334MiB다.
 
-## 노드당 동시 세션 수
-
-### 동시 세션 수
+### 3. 노드당 동시 세션 수
 
 ```text
 sessions per node = floor((node allocatable memory - sum of other Pod requests on the node) / worker.memoryMb)
@@ -89,7 +84,7 @@ CPU도 같은 식으로 센다(`worker.cpus`, 기본 1). 보통은 메모리가 
 
 local Docker 실행 기반에서는 한 머신의 메모리를 `EXECUTION_SLOT_LIMIT`(기본 10)개 worker가 나눠 쓴다. 한도는 cgroup 상한이지 예약이 아니라서 동시에 다 차지 않으면 넘쳐도 돈다. 그래도 slot 수 × 4608MiB가 머신 메모리를 크게 넘으면 OOM이 난다.
 
-### 지원되는 변경 선택
+#### 지원되는 변경 선택
 
 | 방법 | 하는 일 | 얻는 것 | 대가 |
 |---|---|---|---|
@@ -102,7 +97,7 @@ local Docker 실행 기반에서는 한 머신의 메모리를 `EXECUTION_SLOT_L
 
 메모리 값은 다음 launch부터 적용되고 실행 중 worker는 교체되지 않는다. 상한을 바꾸는 직접 빌드는 API와 worker의 같은 릴리스가 필요하므로 [업그레이드 게이트](/run-server/self-hosting/upgrade-compose#실행-전-게이트)를 따른다.
 
-### provider 비용을 읽는 법
+### 4. provider 비용을 읽는 법
 
 - 세션 비용은 credential route가 센다. proxy는 2xx `/v1/messages` 응답(JSON과 SSE 모두)에서 usage를 읽는다. 응답이 끝나거나 끊기면 authorizer listener의 `POST /usage`로 보고한다. `count_tokens`와 오류 응답은 세지 않는다.
   - 응답이 usage를 다 말하지 않으면 많게 추정한다. `message_stop` 전에 끊긴 stream은 전달한 content 한 글자를 token 하나로 쳐서 output에 넣고, 전달한 web search 결과 블록 하나를 검색 한 번으로 친다. usage를 읽지 못한 JSON 응답(끊김, 8 MiB 초과, JSON 아님)은 요청으로 센다. 요청 1 byte를 input token 하나로, `max_tokens`를 output 전부로 본다. 이런 호출은 proxy가 `Provider usage estimated` 경고를 남기고 ledger에 `estimated=true`로 적힌다.
@@ -124,7 +119,7 @@ local Docker 실행 기반에서는 한 머신의 메모리를 `EXECUTION_SLOT_L
 
 ## 확인
 
-변경 전후 동일한 checkpoint를 새 worker에서 복원해 turn 완료·memory.peak·OOM·디스크·inode·queue wait를 비교한다. 표의 숫자는 기재한 SDK·CLI·합성 transcript 조건에서만 관측됐으며 운영 환경·새 runtime의 실측을 대신하지 않는다. 원래 quota·runtime·용량 숫자는 유지한다.
+변경 전후 동일한 checkpoint를 새 worker에서 복원해 turn 완료·memory.peak·OOM·디스크·inode·queue wait를 비교한다. 표의 숫자는 기재한 SDK·CLI·합성 transcript 조건에서만 관측됐으며 운영 환경·새 runtime의 실측을 대신하지 않는다.
 
 ## 자주 막히는 곳
 

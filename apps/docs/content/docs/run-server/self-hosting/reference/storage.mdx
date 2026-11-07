@@ -31,18 +31,14 @@ kubectl -n werft exec <worker-pod> -- df -h /workspace
 kubectl -n werft exec <worker-pod> -- df -i /workspace
 ```
 
-`kubectl get storageclass`에서 쓸 StorageClass의 provisioner가 용량을 강제하는 볼륨(예: EBS gp3는 요청한 크기가 곧 블록 장치 크기다)을 만드는지 확인한다. PVC의 `REQUEST`는 Werft가 요청한 값이고 `CAPACITY`는 프로비저너가 만든 크기다. `df -h`의 총량은 파일시스템 오버헤드 때문에 이 값과 다를 수 있으므로 일치 여부로 판정하지 않는다. 확인할 것은 `CAPACITY`가 `REQUEST` 이상인지와, 같은 StorageClass로 만든 시험 PVC에 `REQUEST`보다 많이 썼을 때 `ENOSPC`가 나는지다. `df -i`로 inode 총량을 본다. 이 명령들은 클러스터에서 실행해 보지 않았다(실제 환경에서 실행 확인하지 않음). 값은 코드(`specs.ts`, `config.ts`)와 chart에서 읽었다.
+`kubectl get storageclass`에서 쓸 StorageClass의 provisioner가 용량을 강제하는 볼륨(예: EBS gp3는 요청한 크기가 곧 블록 장치 크기다)을 만드는지 확인한다. PVC의 `REQUEST`는 Werft가 요청한 값이고 `CAPACITY`는 프로비저너가 만든 크기다. `df -h`의 총량은 파일시스템 오버헤드 때문에 이 값과 다를 수 있으므로 일치 여부로 판정하지 않는다. 확인할 것은 `CAPACITY`가 `REQUEST` 이상인지와, 같은 StorageClass로 만든 시험 PVC에 `REQUEST`보다 많이 썼을 때 `ENOSPC`가 나는지다. `df -i`로 inode 총량을 본다. 이 Kubernetes 명령과 용량 강제·AZ 재연결은 실행 확인하지 않았다. 값은 코드(`specs.ts`, `config.ts`)와 chart를 기준으로 한다.
 
 - **PVC는 필수다.** worker Pod가 쓰는 workspace 볼륨은 PVC뿐이고(`specs.ts`), emptyDir나 hostPath로 바꾸는 설정은 없다. 세션의 PVC는 Pod와 따로 살아서, Pod가 교체돼도 같은 이름의 PVC에 다시 붙는다. scheduler가 세션마다 Pod와 PVC를 만든다.
 - **StorageClass가 크기를 하드로 강제하는지는 Werft가 보지 않는다.** 코드는 `requests.storage`를 요청하고 그 값을 `werft.workspace-size` annotation에 적어 설정과 비교할 뿐, `status.capacity`나 사용량을 읽지 않는다. 강제 여부는 CSI 드라이버와 파일시스템마다 다르므로 설치 전에 인프라 쪽에 확인한다.
-
-
-- kind의 기본 StorageClass(local-path 계열)는 PVC 크기를 강제하지 않는 것으로 알려져 있다. 이 저장소에서 측정하지 않았다(실제 환경에서 실행 확인하지 않음). kind에서 `Bound`가 됐다고 상한이 선 것은 아니다.
+- kind의 기본 StorageClass(local-path 계열)는 PVC 크기를 강제하지 않는 것으로 알려져 있다. kind에서 `Bound`가 됐다고 상한이 선 것은 아니다.
 - **알려진 한계.** inode 상한이 없고, 용량 상한은 StorageClass에 맡겨져 있다. 상한을 강제하지 않는 StorageClass를 골라도 chart는 거부하지 않는다. 이 한계를 막을 코드 변경은 이 페이지의 범위 밖이다.
 
-## transcript와 결과물
-
-EBS 같은 zonal PVC는 AZ에 묶인다. 노드를 교체하거나 Kubernetes를 올린 뒤 worker가 같은 AZ의 사용 가능한 노드에서 PVC에 다시 붙는지 설치 환경에서 확인한다. 이 EKS 재연결은 로컬 kind 시험으로 확인되지 않는다.
+EBS 같은 zonal PVC는 AZ에 묶인다. 노드를 교체하거나 Kubernetes를 올린 뒤 worker가 같은 AZ의 사용 가능한 노드에서 PVC에 다시 붙는지 설치 환경에서 확인한다.
 
 Kubernetes의 `worker.workspace.quotaMb`를 바꾸면 기존 PVC의 `werft.workspace-size` annotation과 달라 그 세션의 launch가 거절된다. 진행 중인 세션이 없을 때 새 세션용 값을 바꾼다. 크기를 바꾸겠다고 기존 PVC를 지우지 않는다.
 
