@@ -5,7 +5,8 @@
     "title": "설치 방식 고르기",
     "type": "설명",
     "audience": "최초 설치 담당자",
-    "outcome": "운영 환경에 맞는 설치 경로를 고른다"
+    "outcome": "운영 환경에 맞는 설치 경로를 고른다",
+    "codeBlocks": "none"
   },
   {
     "id": "P02",
@@ -13,7 +14,8 @@
     "title": "운영용 단일 서버 설치",
     "type": "설치",
     "audience": "Linux 설치 담당자",
-    "outcome": "영속 S3를 쓰는 서버의 ready 응답을 확인한다"
+    "outcome": "영속 S3를 쓰는 서버의 ready 응답을 확인한다",
+    "codeBlocks": "some"
   },
   {
     "id": "P03",
@@ -21,7 +23,8 @@
     "title": "Kubernetes 설치",
     "type": "설치",
     "audience": "클러스터 설치 담당자",
-    "outcome": "게시 chart로 운영 서버를 설치한다"
+    "outcome": "게시 chart로 운영 서버를 설치한다",
+    "codeBlocks": "some"
   },
   {
     "id": "P04",
@@ -29,7 +32,8 @@
     "title": "kind에서 시험 설치",
     "type": "설치",
     "audience": "로컬 시험 담당자",
-    "outcome": "시험 chart를 설치하고 정리한다"
+    "outcome": "시험 chart를 설치하고 정리한다",
+    "codeBlocks": "some"
   },
   {
     "id": "P05",
@@ -37,7 +41,8 @@
     "title": "LocalStack으로 시험 설치",
     "type": "설치",
     "audience": "로컬 시험 담당자",
-    "outcome": "비영속 시험 서버를 설치하고 정리한다"
+    "outcome": "비영속 시험 서버를 설치하고 정리한다",
+    "codeBlocks": "some"
   },
   {
     "id": "P06",
@@ -45,7 +50,8 @@
     "title": "XFS 디스크 준비",
     "type": "작업",
     "audience": "Linux 스토리지 담당자",
-    "outcome": "원본을 보존하며 quota 가능한 Docker 디스크를 준비한다"
+    "outcome": "원본을 보존하며 quota 가능한 Docker 디스크를 준비한다",
+    "codeBlocks": "some"
   },
   {
     "id": "P07",
@@ -53,7 +59,8 @@
     "title": "checkpoint bucket 준비",
     "type": "작업",
     "audience": "저장소 담당자",
-    "outcome": "보호 계약에 맞는 bucket과 최소 권한을 준비한다"
+    "outcome": "보호 계약에 맞는 bucket과 최소 권한을 준비한다",
+    "codeBlocks": "some"
   },
   {
     "id": "P08",
@@ -61,7 +68,8 @@
     "title": "사용자 접속 경로 구성",
     "type": "작업",
     "audience": "네트워크 운영자",
-    "outcome": "콘솔과 SSE가 안전한 경로로 닿는지 확인한다"
+    "outcome": "콘솔과 SSE가 안전한 경로로 닿는지 확인한다",
+    "codeBlocks": "some"
   },
   {
     "id": "P09",
@@ -69,7 +77,8 @@
     "title": "첫 owner와 사용자 key 발급",
     "type": "작업",
     "audience": "설치 관리자",
-    "outcome": "사용자별 인증 수단과 실행 권한을 발급한다"
+    "outcome": "사용자별 인증 수단과 실행 권한을 발급한다",
+    "codeBlocks": "some"
   },
   {
     "id": "P10",
@@ -77,7 +86,8 @@
     "title": "모델 연결과 프로필 구성",
     "type": "작업",
     "audience": "워크스페이스 관리자",
-    "outcome": "세션이 사용할 연결과 프로필을 설정한다"
+    "outcome": "세션이 사용할 연결과 프로필을 설정한다",
+    "codeBlocks": "some"
   },
   {
     "id": "P11",
@@ -85,7 +95,8 @@
     "title": "단일 서버 업그레이드",
     "type": "작업",
     "audience": "Compose 운영자",
-    "outcome": "호환성과 백업을 확인하고 새 release를 적용한다"
+    "outcome": "호환성과 백업을 확인하고 새 release를 적용한다",
+    "codeBlocks": "some"
   },
   {
     "id": "P12",
@@ -93,7 +104,8 @@
     "title": "Kubernetes 업그레이드",
     "type": "작업",
     "audience": "클러스터 운영자",
-    "outcome": "지원 창과 worker pin을 보존하며 chart를 교체한다"
+    "outcome": "지원 창과 worker pin을 보존하며 chart를 교체한다",
+    "codeBlocks": "some"
   },
   {
     "id": "P13",
@@ -101,7 +113,8 @@
     "title": "백업과 복원 훈련",
     "type": "작업",
     "audience": "Compose 데이터 운영자",
-    "outcome": "별도 대상에서 백업본의 데이터와 포인터를 대조한다"
+    "outcome": "별도 대상에서 백업본의 데이터와 포인터를 대조한다",
+    "codeBlocks": "some"
   },
   {
     "id": "P14",
@@ -109,7 +122,8 @@
     "title": "Compose 중지·재시작·제거",
     "type": "작업",
     "audience": "Compose 운영자",
-    "outcome": "보존 범위를 확인하고 설치 수명주기를 관리한다"
+    "outcome": "보존 범위를 확인하고 설치 수명주기를 관리한다",
+    "codeBlocks": "some"
   },
   {
     "id": "P14",
@@ -117,7 +131,8 @@
     "title": "Kubernetes 중지·제거",
     "type": "작업",
     "audience": "클러스터 운영자",
-    "outcome": "남는 리소스와 데이터 범위를 확인하고 chart를 제거한다"
+    "outcome": "남는 리소스와 데이터 범위를 확인하고 chart를 제거한다",
+    "codeBlocks": "some"
   },
   {
     "id": "P15",
@@ -125,7 +140,8 @@
     "title": "용량 계획·변경",
     "type": "작업",
     "audience": "용량 운영자",
-    "outcome": "복원 여유를 계산하고 지원되는 자원 크기를 바꾼다"
+    "outcome": "복원 여유를 계산하고 지원되는 자원 크기를 바꾼다",
+    "codeBlocks": "some"
   },
   {
     "id": "P16",
@@ -133,7 +149,8 @@
     "title": "DB 지연 진단",
     "type": "작업",
     "audience": "DB 운영자",
-    "outcome": "연결 포화와 느린 문장과 잠금 대기를 구분한다"
+    "outcome": "연결 포화와 느린 문장과 잠금 대기를 구분한다",
+    "codeBlocks": "some"
   },
   {
     "id": "P17",
@@ -141,7 +158,8 @@
     "title": "Kubernetes 지표 수집",
     "type": "작업",
     "audience": "감시 운영자",
-    "outcome": "지표를 켜고 수집기의 scrape 성공을 확인한다"
+    "outcome": "지표를 켜고 수집기의 scrape 성공을 확인한다",
+    "codeBlocks": "some"
   },
   {
     "id": "P18",
@@ -149,7 +167,8 @@
     "title": "멈춘 세션 복구",
     "type": "작업",
     "audience": "장애 대응 운영자",
-    "outcome": "원인과 외부 효과를 확인한 뒤 복구 결정을 적용한다"
+    "outcome": "원인과 외부 효과를 확인한 뒤 복구 결정을 적용한다",
+    "codeBlocks": "some"
   },
   {
     "id": "P19",
@@ -157,7 +176,8 @@
     "title": "기존 workspace 이전",
     "type": "작업",
     "audience": "Docker 운영자",
-    "outcome": "원본을 보존하며 legacy workspace를 현재 quota로 옮긴다"
+    "outcome": "원본을 보존하며 legacy workspace를 현재 quota로 옮긴다",
+    "codeBlocks": "some"
   },
   {
     "id": "P20",
@@ -165,7 +185,8 @@
     "title": "worker 주소 풀 확장",
     "type": "작업",
     "audience": "Docker 네트워크 운영자",
-    "outcome": "다른 설치와 충돌하지 않게 주소 풀을 변경한다"
+    "outcome": "다른 설치와 충돌하지 않게 주소 풀을 변경한다",
+    "codeBlocks": "some"
   },
   {
     "id": "P21",
@@ -173,7 +194,8 @@
     "title": "사용자 registry 이미지 빌드",
     "type": "작업",
     "audience": "배포 이미지 제작자",
-    "outcome": "자기 registry의 digest로 배포 입력을 만든다"
+    "outcome": "자기 registry의 digest로 배포 입력을 만든다",
+    "codeBlocks": "some"
   },
   {
     "id": "P23",
@@ -181,7 +203,8 @@
     "title": "설정·키·포트",
     "type": "레퍼런스",
     "audience": "설치 운영자",
-    "outcome": "입력 형식과 범위와 반영 시점을 찾는다"
+    "outcome": "입력 형식과 범위와 반영 시점을 찾는다",
+    "codeBlocks": "some"
   },
   {
     "id": "P24",
@@ -189,7 +212,8 @@
     "title": "저장소와 상한",
     "type": "레퍼런스",
     "audience": "스토리지 운영자",
-    "outcome": "저장소별 보장과 데이터 보존 조건을 확인한다"
+    "outcome": "저장소별 보장과 데이터 보존 조건을 확인한다",
+    "codeBlocks": "some"
   },
   {
     "id": "P25",
@@ -197,7 +221,8 @@
     "title": "플랫폼 지표 계약",
     "type": "레퍼런스",
     "audience": "감시 규칙 작성자",
-    "outcome": "지표 이름과 라벨과 집계 기준을 확인한다"
+    "outcome": "지표 이름과 라벨과 집계 기준을 확인한다",
+    "codeBlocks": "none"
   },
   {
     "id": "P26",
@@ -205,7 +230,8 @@
     "title": "DB 연결 계약",
     "type": "레퍼런스",
     "audience": "DB 운영자",
-    "outcome": "역할별 연결 예산과 timeout을 확인한다"
+    "outcome": "역할별 연결 예산과 timeout을 확인한다",
+    "codeBlocks": "none"
   },
   {
     "id": "P27",
@@ -213,7 +239,8 @@
     "title": "배포 패키지 계약",
     "type": "레퍼런스",
     "audience": "설치 담당자",
-    "outcome": "이미지와 chart와 manifest의 필드 의미를 확인한다"
+    "outcome": "이미지와 chart와 manifest의 필드 의미를 확인한다",
+    "codeBlocks": "some"
   },
   {
     "id": "P28",
@@ -221,7 +248,8 @@
     "title": "실행 기반과 격리",
     "type": "설명",
     "audience": "보안 운영자",
-    "outcome": "backend별 신뢰 경계와 실패 시 동작을 이해한다"
+    "outcome": "backend별 신뢰 경계와 실패 시 동작을 이해한다",
+    "codeBlocks": "none"
   },
   {
     "id": "P30",
@@ -229,6 +257,7 @@
     "title": "업그레이드 호환성",
     "type": "설명",
     "audience": "배포 운영자",
-    "outcome": "checkpoint와 runtime과 schema 지원 창을 이해한다"
+    "outcome": "checkpoint와 runtime과 schema 지원 창을 이해한다",
+    "codeBlocks": "none"
   }
 ]

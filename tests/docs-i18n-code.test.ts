@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import destinations from "./fixtures/self-hosting-language-status.json";
+import approvedPages from "./fixtures/self-hosting-pages.json";
 
 const docsRoot = join(import.meta.dir, "..", "apps/docs/content/docs");
 
@@ -38,7 +39,13 @@ function fencedBlocks(text: string): string[] {
 
 function pageBlocks(name: string, locale?: string): string[] {
   const file = locale ? `${name}.${locale}.mdx` : `${name}.mdx`;
-  const source = existsSync(join(docsRoot, file)) ? file : `${name}.mdx`;
+  const fallback = Object.values(destinations).some(
+    (entry) =>
+      entry.paths.includes(name) &&
+      locale !== undefined &&
+      entry.locales[locale as "en" | "ja"] === "fallback",
+  );
+  const source = fallback ? `${name}.mdx` : file;
   return fencedBlocks(readFileSync(join(docsRoot, source), "utf8"));
 }
 
@@ -49,6 +56,15 @@ describe("translated pages keep the Korean code blocks", () => {
     ...SELF_HOSTING,
   ]) {
     const source = pageBlocks(page);
+
+    test(`${page}: the Korean source keeps its expected code presence`, () => {
+      const expected =
+        approvedPages.find(
+          (entry) => `run-server/self-hosting/${entry.path}` === page,
+        )?.codeBlocks ?? "some";
+      if (expected === "none") expect(source).toEqual([]);
+      else expect(source.length).toBeGreaterThan(0);
+    });
 
     for (const locale of ["en", "ja"]) {
       test(`${page}.${locale} matches ${page}`, () => {
