@@ -4938,6 +4938,20 @@ export const settingsGeneration = pgTable(
   (table) => [check("settings_generation_single_check", sql`${table.id} = 1`)],
 );
 
+// One row once the one-time profile fill has run for real. The sweep holds
+// back while neither this row nor any rollout exists, so an install that
+// deploys the writer before the fill is not rolled out over the fill's head.
+export const profileFill = pgTable(
+  "profile_fill",
+  {
+    id: integer().primaryKey().default(1),
+    completedAt: timestamp("completed_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [check("profile_fill_single_check", sql`${table.id} = 1`)],
+);
+
 // The commit attribution each claim of a session asked for (author, the
 // starter's co-author, the Agent-Session value), one row per distinct bundle.
 // A push passes a commit that matches any bundle of its session, so a GitHub

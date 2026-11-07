@@ -9,6 +9,7 @@ import {
 import type { AuthorizationPolicy, Caller } from "../musterrolle/policy.ts";
 import { NOT_FOUND } from "../musterrolle/service-errors.ts";
 import type { InstallationProfileRecord } from "../ports/installation-profile-store.ts";
+import type { ProfileRolloutStore } from "../ports/profile-rollout-store.ts";
 import type { TeamActor } from "../ports/team-store.ts";
 import type { WorkspaceProfileStore } from "../ports/workspace-profile-store.ts";
 import {
@@ -303,6 +304,8 @@ export function createWorkspaceProfileService(deps: {
   authorization: AuthorizationPolicy;
   store: WorkspaceProfileStore;
   catalog: SessionCatalogView & { workspace_profiles: WorkspaceProfiles };
+  /** Adds each profile version's rollout in the caller's workspace to a list. */
+  rollouts?: Pick<ProfileRolloutStore, "summaries">;
   newId?: () => string;
 }) {
   const { authorization, store, catalog } = deps;
@@ -345,7 +348,33 @@ export function createWorkspaceProfileService(deps: {
   return {
     async list(caller: Caller): Promise<ListProfilesResponse> {
       await reread();
-      return listCatalogProfiles(catalog, caller.actor?.workspaceId ?? null);
+      const listed = listCatalogProfiles(
+        catalog,
+        caller.actor?.workspaceId ?? null,
+      );
+      const workspaceId = caller.actor?.workspaceId;
+      if (deps.rollouts === undefined || !workspaceId) return listed;
+      const rollouts = await deps.rollouts.summaries(workspaceId);
+      // Who was refused names agents the caller may not otherwise see.
+      const names = await manager(caller).then(
+        () => true,
+        (error: unknown) => {
+          if (error instanceof SessionServiceError) return false;
+          throw error;
+        },
+      );
+      return {
+        items: listed.items.map((item) => {
+          const found = rollouts.get(item.id);
+          const rollout =
+            found !== undefined && !names
+              ? { ...found, failed_agents: [] }
+              : found;
+          return rollout !== undefined && item.installation !== undefined
+            ? { ...item, installation: { ...item.installation, rollout } }
+            : item;
+        }),
+      };
     },
 
     async create(

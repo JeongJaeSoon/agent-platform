@@ -117,6 +117,16 @@ export type ActivationIntent =
       targetProfileId: string;
     }
   | {
+      /**
+       * A person's "bring it to the newest": judged as a rollout is, but the
+       * agent need not follow yet; it follows in the same write, the draft is
+       * left as it is and the agent's refused rollout items are closed.
+       */
+      kind: "raise";
+      behaviorRevision: number;
+      targetProfileId: string;
+    }
+  | {
       kind: "direct";
       releaseRunsProfileDefault: boolean;
       /**
@@ -243,6 +253,21 @@ export interface AgentStore {
     draftVersionId: string;
     failure: string;
   }): Promise<boolean>;
+  /**
+   * The agent follows its profile again without a release (it already runs
+   * the newest version). Under the agent's lock, as a save is.
+   */
+  followProfile(
+    input: {
+      principal: Principal;
+      workspaceId: string;
+      agentId: string;
+      /** The activation revision the newest-version judgment was made on. */
+      expectedActivationRevision: number;
+    } & ManagerRoles,
+  ): Promise<
+    { outcome: "updated" | "superseded" | "not_found" } | Inactive | Outranked
+  >;
   /**
    * Inserts the release, a `release_created` event and a receipt in one
    * transaction, or returns the row already stored under that id.

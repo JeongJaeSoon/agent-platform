@@ -223,6 +223,7 @@ function setup(
   const ceilings = createInstallationProfileService({
     authorization,
     store: made.installation,
+    rollouts: { retryFailed: async () => false },
     catalog,
     connections: () => catalog.workspace_profiles.connections,
     allowUnattended: false,
