@@ -1,3 +1,5 @@
+import type { ProfileRollout } from "@werft-ai/contracts";
+
 /** One agent's turn in a profile rollout (design 2.3). */
 export type RolloutItemRef = {
   rolloutId: string;
@@ -66,10 +68,25 @@ export interface ProfileRolloutStore {
   /** A failed item back to pending: the one way a person resumes it. */
   retry(item: RolloutItemRef): Promise<boolean>;
   /**
+   * The same for one agent's failed items of a profile version, found by the
+   * profile and the workspace the agent is in. False: none was failed.
+   */
+  retryFailed(input: {
+    workspaceId: string;
+    targetProfileId: string;
+    agentId: string;
+  }): Promise<boolean>;
+  /** Each profile version's rollout in one workspace, for the screens. */
+  summaries(workspaceId: string): Promise<Map<string, ProfileRollout>>;
+  /**
    * Puts in the items the insert-time write missed (design 2.3, the sweep).
    * Writes the outbox, so it is run only once the writer is open.
+   * Agents behind their profile in a lineage that has no rollout of its own,
+   * before a recorded fill, belong to the one-time fill: nothing is written
+   * for them (a rollout there would keep the fill from pinning them) and `held`
+   * counts them.
    */
-  sweep(): Promise<{ rollouts: number; items: number }>;
+  sweep(): Promise<{ rollouts: number; items: number; held?: number }>;
   inspect(input: {
     agentId: string;
     targetProfileId: string;
@@ -77,7 +94,8 @@ export interface ProfileRolloutStore {
   }): Promise<RolloutInspection>;
   /**
    * The one-time fill of `profile_tracking` and `model_source` before the
-   * outbox is written. A real run is refused once any rollout exists.
+   * outbox is written. Lineages that already have a rollout are the sweep's
+   * and are left alone; a real run is refused when only those are behind.
    */
   backfill(input: {
     dryRun: boolean;

@@ -579,6 +579,88 @@ describe("프로필 상세", () => {
   });
 });
 
+describe("프로필 상세의 새 버전 적용 현황", () => {
+  const AGENT = "5a6b7c8d-9e0f-4a1b-8c2d-3e4f5a6b7c8d";
+  const rolled = (over: Partial<ProfileSummary["installation"]> = {}) =>
+    ceiling(
+      "wide",
+      2,
+      {},
+      {
+        rollout: {
+          total: 3,
+          applied: 1,
+          pending: 1,
+          failed: 1,
+          failed_agents: [
+            {
+              agent_id: AGENT,
+              name: "재무 분석가",
+              reason: "credential_unbound",
+            },
+          ],
+          fixed_model_agents: 2,
+        },
+        ...over,
+      },
+    );
+
+  test("an owner reads how many took the version, who was refused, and retries one", async () => {
+    const { api } = renderAt("/profiles/op_wide_v2", {
+      ...catalog([CODING, ceiling("wide", 1), rolled()]),
+      "POST /v1/installation-profiles/op_wide_v2/rollout/retry": () =>
+        json(200, { retried: true }),
+    });
+    const user = await setupUser();
+    const region = await screen.findByRole("region", {
+      name: "새 버전 적용 현황",
+    });
+    expect(within(region).getByText("3개 중 1개 적용")).toBeDefined();
+    expect(
+      within(region).getByText("1개는 적용을 기다리는 중입니다."),
+    ).toBeDefined();
+    expect(
+      within(region).getByText(
+        "고른 모델을 쓰는 에이전트 2개는 기본 모델이 바뀌어도 그대로 유지됩니다.",
+      ),
+    ).toBeDefined();
+    expect(
+      cells(
+        within(region).getByRole("table", { name: "적용하지 못한 에이전트" }),
+      ),
+    ).toEqual([["재무 분석가", "credential_unbound", "다시 시도"]]);
+    await user.click(
+      within(region).getByRole("button", { name: "재무 분석가 다시 시도" }),
+    );
+    await screen.findByText("다시 적용하도록 올렸습니다: 재무 분석가");
+    const retry = api.calls.find((call) => call.method === "POST");
+    expect(retry?.path).toBe(
+      "/v1/installation-profiles/op_wide_v2/rollout/retry",
+    );
+    expect(retry?.body).toEqual({ agent_id: AGENT });
+  });
+
+  test("an admin reads the numbers but is offered no retry", async () => {
+    renderAt(
+      "/profiles/op_wide_v2",
+      catalog([CODING, ceiling("wide", 1), rolled()], me(undefined, "admin")),
+    );
+    const region = await screen.findByRole("region", {
+      name: "새 버전 적용 현황",
+    });
+    expect(within(region).getByText("3개 중 1개 적용")).toBeDefined();
+    expect(within(region).queryAllByRole("button")).toHaveLength(0);
+  });
+
+  test("a version nobody was put in for shows no section", async () => {
+    renderAt("/profiles/op_wide_v2", catalog([CODING, ceiling("wide", 2)]));
+    await screen.findByRole("heading", { level: 1, name: "wide" });
+    expect(
+      screen.queryByRole("region", { name: "새 버전 적용 현황" }),
+    ).toBeNull();
+  });
+});
+
 describe("프로필 상세의 도구", () => {
   const NEWER: InstallationProfileOptionsResponse = {
     ...OPTIONS,

@@ -489,6 +489,77 @@ describe("the service", () => {
     expect(listed.items.map((p) => p.id)).toEqual(["coding"]);
   });
 
+  test("the rollout of a version names its refused agents only to an owner or an admin", async () => {
+    const summary = {
+      total: 2,
+      applied: 1,
+      pending: 0,
+      failed: 1,
+      failed_agents: [
+        {
+          agent_id: "019a0000-0000-7000-8000-0000000000d1",
+          name: "재무 분석가",
+          reason: "credential_unbound",
+        },
+      ],
+      fixed_model_agents: 0,
+    };
+    const seeded = catalogWith([]);
+    const profiles = createWorkspaceProfileService({
+      authorization: createAuthorizationPolicy({
+        agents: { agentOf: async () => null, isAdmin: async () => false },
+        decisions: { record: async () => {} },
+      }),
+      store: {
+        listAll: async () => [],
+        create: async () => ({ outcome: "not_found" }) as never,
+        retire: async () => ({ outcome: "not_found" }),
+      },
+      catalog: {
+        ...seeded,
+        installation: new Map([
+          [
+            "coding",
+            {
+              id: "coding",
+              origin: "catalog",
+              state: "usable",
+              repository_ids: ["app"],
+              // Only what listing a ceiling reads from the stored row.
+              record: {
+                display_name: null,
+                name: "coding",
+                version: 1,
+                origin: "catalog",
+                previous_id: null,
+                created_by: null,
+                created_at: new Date("2026-10-01T00:00:00Z"),
+                retired_by: null,
+                retired_at: null,
+                blocked_by: null,
+                blocked_at: null,
+                github_app_repositories: "listed",
+              } as never,
+            },
+          ],
+        ]),
+        workspace_profiles: seeded.workspace_profiles as NonNullable<
+          SessionCatalog["workspace_profiles"]
+        >,
+      },
+      rollouts: { summaries: async () => new Map([["coding", summary]]) },
+    });
+    const rolloutOf = async (who: keyof typeof USERS) =>
+      (await profiles.list(caller(who))).items.find((p) => p.id === "coding")
+        ?.installation?.rollout;
+    expect(await rolloutOf("owner")).toEqual(summary);
+    expect(await rolloutOf("admin")).toEqual(summary);
+    expect(await rolloutOf("member")).toEqual({
+      ...summary,
+      failed_agents: [],
+    });
+  });
+
   test("a member is refused before anything is written", async () => {
     const { profiles, writes } = service();
     expect(

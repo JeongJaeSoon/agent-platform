@@ -180,6 +180,7 @@ function scripted(script: Script) {
       return true;
     },
     hasGitHubSettings: async () => script.hasRow ?? false,
+    followProfile: async () => ({ outcome: "updated" as const }),
     insertRelease: async (input) => {
       calls.insert.push(input);
       const outcome = inserts.shift() ?? "created";

@@ -113,6 +113,7 @@ import {
   receiptAcceptedResponseSchema,
   rejudgeSessionResponseSchema,
   rerunWorkflowResponseSchema,
+  retryProfileRolloutResponseSchema,
   reviewAchievementResponseSchema,
   revokeAgentIdentityResponseSchema,
   revokeApiKeyResponseSchema,
@@ -386,6 +387,8 @@ export const responseSchemas = {
   "POST /v1/installation-profiles": installationProfileChangeResponseSchema,
   "POST /v1/installation-profiles/{profile_id}/retire":
     installationProfileChangeResponseSchema,
+  "POST /v1/installation-profiles/{profile_id}/rollout/retry":
+    retryProfileRolloutResponseSchema,
   "POST /v1/installation-profiles/{profile_id}/block":
     installationProfileChangeResponseSchema,
   "POST /v1/installation-profiles/{profile_id}/unblock":

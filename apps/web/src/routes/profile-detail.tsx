@@ -454,6 +454,7 @@ export function ProfileDetailScreen() {
       </Section>
       <History profile={profile} versions={lineOf(profile, items)} />
       {ceiling ? <Narrowings ceiling={profile} items={items} /> : null}
+      {ceiling ? <Rollout profile={profile} operates={operates} /> : null}
       <AgentsOn profile={profile} />
       {canRetire || canBlock ? (
         <DangerZone
@@ -975,6 +976,144 @@ function Narrowings({
           })}
         </GridTable>
       )}
+    </Section>
+  );
+}
+
+function Rollout({
+  profile,
+  operates,
+}: {
+  readonly profile: ProfileSummary;
+  readonly operates: boolean;
+}) {
+  const { t } = useI18n();
+  const { client } = useWerft();
+  const queryClient = useQueryClient();
+  const role = useRole();
+  const [notice, setNotice] = useState<string | null>(null);
+  const rollout = profile.installation?.rollout;
+
+  const retry = useMutation<
+    { retried: boolean },
+    ApiError,
+    { readonly agent_id: string; readonly name: string }
+  >({
+    mutationFn: ({ agent_id }) =>
+      unwrap(
+        client.POST("/v1/installation-profiles/{profile_id}/rollout/retry", {
+          params: { path: { profile_id: profile.id } },
+          body: { agent_id },
+        }),
+      ),
+    onMutate: () => setNotice(null),
+    onSuccess: async ({ retried }, { name }) => {
+      setNotice(
+        t(
+          retried ? "profiles.rollout.retried" : "profiles.rollout.notRetried",
+          {
+            name,
+          },
+        ),
+      );
+      await queryClient.invalidateQueries({
+        queryKey: queryKeysOf(client).profiles,
+      });
+    },
+    onError: (failure) =>
+      setNotice(refusalText(t, failure, "workspace.manage", role)),
+  });
+
+  if (!rollout || rollout.total === 0) return null;
+  return (
+    <Section
+      title={t("profiles.rollout.title")}
+      className="[&>div:first-child]:mb-4"
+      description={t("profiles.rollout.description")}
+    >
+      <div className="flex flex-col gap-3">
+        <Text weight="medium">
+          {t("profiles.rollout.progress", {
+            total: rollout.total,
+            applied: rollout.applied,
+          })}
+        </Text>
+        {rollout.pending === 0 ? null : (
+          <Text variant="meta">
+            {t("profiles.rollout.pending", { count: rollout.pending })}
+          </Text>
+        )}
+        {rollout.fixed_model_agents === 0 ? null : (
+          <Text variant="meta">
+            {t("profiles.rollout.fixedModel", {
+              count: rollout.fixed_model_agents,
+            })}
+          </Text>
+        )}
+        <Notice>{notice ?? undefined}</Notice>
+        {rollout.failed_agents.length === 0 ? null : (
+          <GridTable
+            className="[--werft-row-padding-x:0px]"
+            aria-label={t("profiles.rollout.failedAgents")}
+            columns="minmax(0,1fr) minmax(0,1fr) auto"
+          >
+            <GridTableHeader>
+              <GridTableColumnHeader>
+                {t("profiles.rollout.agent")}
+              </GridTableColumnHeader>
+              <GridTableColumnHeader>
+                {t("profiles.rollout.reason")}
+              </GridTableColumnHeader>
+              <GridTableColumnHeader>
+                <span className="sr-only">{t("profiles.rollout.retry")}</span>
+              </GridTableColumnHeader>
+            </GridTableHeader>
+            {rollout.failed_agents.map((failed) => (
+              <GridTableRow key={failed.agent_id}>
+                <GridTableCell>
+                  <Link
+                    className="font-medium underline-offset-4 hover:underline [overflow-wrap:anywhere]"
+                    to="/agents/$id"
+                    params={{ id: failed.agent_id }}
+                  >
+                    {failed.name}
+                  </Link>
+                </GridTableCell>
+                <GridTableCell>
+                  <Text
+                    as="span"
+                    variant="meta"
+                    className="[overflow-wrap:anywhere]"
+                  >
+                    {failed.reason}
+                  </Text>
+                </GridTableCell>
+                <GridTableCell>
+                  {operates ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={retry.isPending}
+                      aria-label={t("profiles.rollout.retryFor", {
+                        name: failed.name,
+                      })}
+                      onClick={() =>
+                        retry.mutate({
+                          agent_id: failed.agent_id,
+                          name: failed.name,
+                        })
+                      }
+                    >
+                      {t("profiles.rollout.retry")}
+                    </Button>
+                  ) : null}
+                </GridTableCell>
+              </GridTableRow>
+            ))}
+          </GridTable>
+        )}
+      </div>
     </Section>
   );
 }

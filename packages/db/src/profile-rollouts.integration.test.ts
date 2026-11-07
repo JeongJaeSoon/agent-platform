@@ -27,6 +27,7 @@ import { Pool } from "pg";
 import { createPostgresAgentStore } from "./agents.ts";
 import { createPostgresCredentialBindingStore } from "./credential-bindings.ts";
 import { createDatabaseIdentityReader } from "./identity-reader.ts";
+import { createPostgresInstallationProfileStore } from "./installation-profiles.ts";
 import { createPostgresProfileRolloutStore } from "./profile-rollouts.ts";
 import * as schema from "./schema.ts";
 import {
@@ -36,6 +37,7 @@ import {
   installationProfiles,
   memberships,
   memberTeams,
+  profileFill,
   profileRolloutItems,
   profileRollouts,
   users,
@@ -607,9 +609,192 @@ integration("profile rollouts on PostgreSQL (U3b reader)", () => {
   });
 
   describe("the sweep", () => {
+    /** A rollout of the first version, no items: the writer has been open before. */
+    async function writerOpened(caller: Caller) {
+      await db.insert(profileRollouts).values({
+        id: randomUUID(),
+        kind: "profile_update",
+        targetProfileId: "op_ops_v1",
+        createdBy: userOf(caller),
+      });
+    }
+
+    test("holds back, writing nothing, while no rollout was ever written and agents are behind; the fill then runs and the sweep finds nothing", async () => {
+      const caller = await owner();
+      await lineage(caller);
+      const behind = await follower(caller);
+
+      expect(await rollouts().sweep()).toEqual({
+        rollouts: 0,
+        items: 0,
+        held: 1,
+      });
+      expect(await db.select().from(profileRollouts)).toEqual([]);
+      expect(await db.select().from(profileRolloutItems)).toEqual([]);
+
+      const filled = await rollouts().backfill({ dryRun: false });
+      expect("refused" in filled).toBe(false);
+      expect((await agentRow(behind.agent.id))?.profileTracking).toBe("pinned");
+      expect(await rollouts().sweep()).toEqual({ rollouts: 0, items: 0 });
+    });
+
+    test("after a real fill, an agent created later on an old version is swept, not held; a dry run does not count as the fill", async () => {
+      const caller = await owner();
+      await lineage(caller);
+      await follower(caller);
+
+      await rollouts().backfill({ dryRun: true });
+      expect(await db.select().from(profileFill)).toEqual([]);
+      expect(await rollouts().sweep()).toMatchObject({ held: 1 });
+
+      await rollouts().backfill({ dryRun: false });
+      expect(await db.select().from(profileFill)).toHaveLength(1);
+
+      const late = await follower(caller);
+      const swept = await rollouts().sweep();
+      expect(swept).toMatchObject({ rollouts: 1, items: 1 });
+      expect("held" in swept).toBe(false);
+      expect(
+        await db
+          .select()
+          .from(profileRolloutItems)
+          .where(eq(profileRolloutItems.agentId, late.agent.id)),
+      ).toHaveLength(1);
+      // The fill is one-time: once recorded, a run reports and writes nothing,
+      // so an agent that came after it is never pinned by a repeat.
+      const another = await follower(caller);
+      expect(await rollouts().backfill({ dryRun: false })).toEqual({
+        dryRun: false,
+        pinned: [],
+        modelFollowsProfile: [],
+      });
+      expect((await agentRow(another.agent.id))?.profileTracking).toBe(
+        "follow",
+      );
+    });
+
+    test("an install filled by the earlier code has no marker: its agents are held until the fill is run once more, which records it and a repeat reports nothing", async () => {
+      const caller = await owner();
+      await lineage(caller);
+      const filledBefore = await follower(caller);
+      await db
+        .update(agents)
+        .set({ profileTracking: "pinned" })
+        .where(eq(agents.id, filledBefore.agent.id));
+      await follower(caller);
+
+      expect(await rollouts().sweep()).toMatchObject({ held: 1 });
+      const again = await rollouts().backfill({ dryRun: false });
+      if ("refused" in again) throw new Error("refused");
+      expect(again.pinned).toHaveLength(1);
+      expect(await db.select().from(profileFill)).toHaveLength(1);
+      expect(await rollouts().backfill({ dryRun: false })).toMatchObject({
+        pinned: [],
+      });
+    });
+
+    test("a rollout of another lineage does not open this one: its behind agents stay held and the fill can still run", async () => {
+      const caller = await owner();
+      await lineage(caller);
+      const behind = await follower(caller);
+      await db.insert(installationProfiles).values({
+        id: "op_other_v1",
+        name: "other",
+        version: 1,
+        origin: "console",
+        definition: definitionOf(V1),
+        permissionMode: "default",
+        fingerprint: "fp-other-1",
+        repositoryIds: [],
+        createdBy: userOf(caller),
+      });
+      await db.insert(profileRollouts).values({
+        id: randomUUID(),
+        kind: "profile_update",
+        targetProfileId: "op_other_v1",
+        createdBy: userOf(caller),
+      });
+
+      expect(await rollouts().sweep()).toEqual({
+        rollouts: 0,
+        items: 0,
+        held: 1,
+      });
+      expect(await db.select().from(profileRolloutItems)).toEqual([]);
+
+      const filled = await rollouts().backfill({ dryRun: false });
+      if ("refused" in filled) throw new Error("fill refused");
+      expect(filled.pinned).toEqual([behind.agent.id]);
+      expect(await db.select().from(profileFill)).toHaveLength(1);
+    });
+
+    test("a lineage with a rollout and a failed item does not block the fill of a lineage without one", async () => {
+      const caller = await owner();
+      await lineage(caller);
+      await db.insert(installationProfiles).values(
+        [1, 2].map((version) => ({
+          id: `op_other_v${version}`,
+          name: "other",
+          version,
+          origin: "console" as const,
+          definition: definitionOf(version === 1 ? V1 : V2),
+          permissionMode: "default" as const,
+          fingerprint: `fp-other-${version}`,
+          repositoryIds: [],
+          createdBy: userOf(caller),
+        })),
+      );
+      const waiting = await follower(caller, { profile: "op_other_v1" });
+      const failed = await follower(caller);
+      // Fixed on its profile's own model, so a model fill would take it.
+      const fixed = await follower(caller, {
+        profile: "op_ops_v2",
+        card: card("v1", "claude-opus-5"),
+        model_source: "fixed",
+      });
+      const rolloutId = randomUUID();
+      await db.insert(profileRollouts).values({
+        id: rolloutId,
+        kind: "profile_update",
+        targetProfileId: "op_ops_v2",
+        createdBy: userOf(caller),
+      });
+      await db.insert(profileRolloutItems).values({
+        rolloutId,
+        agentId: failed.agent.id,
+        generation: 0,
+        status: "failed",
+        reasonCode: "release_refused",
+      });
+
+      expect(await rollouts().sweep()).toEqual({
+        rollouts: 0,
+        items: 0,
+        held: 1,
+      });
+      const dry = await rollouts().backfill({ dryRun: true });
+      const filled = await rollouts().backfill({ dryRun: false });
+      if ("refused" in dry || "refused" in filled)
+        throw new Error("fill refused");
+      expect(filled.pinned).toEqual([waiting.agent.id]);
+      expect(filled).toEqual({ ...dry, dryRun: false });
+      expect(filled.modelFollowsProfile).not.toContain(fixed.agent.id);
+      expect((await agentRow(fixed.agent.id))?.modelSource).toBe("fixed");
+      expect((await agentRow(failed.agent.id))?.profileTracking).toBe("follow");
+      expect(await db.select().from(profileFill)).toHaveLength(1);
+    });
+
+    test("with nobody behind, an empty outbox is nothing to hold back", async () => {
+      const caller = await owner();
+      await lineage(caller);
+      await follower(caller, { profile: "op_ops_v2" });
+      expect(await rollouts().sweep()).toEqual({ rollouts: 0, items: 0 });
+    });
+
     test("puts in the agents the insert-time write missed, once, and a failed item stays failed", async () => {
       const caller = await owner();
       await lineage(caller);
+      await writerOpened(caller);
       const behind = await follower(caller);
       const pinned = await follower(caller);
       await db
@@ -662,6 +847,7 @@ integration("profile rollouts on PostgreSQL (U3b reader)", () => {
         [1, V1],
         [2, V2],
       ]);
+      await writerOpened(caller);
       const made = await follower(caller);
       await rollouts().sweep();
       await db
@@ -733,7 +919,7 @@ integration("profile rollouts on PostgreSQL (U3b reader)", () => {
       expect(again.modelFollowsProfile).toEqual([]);
     });
 
-    test("a real run is refused once a rollout exists", async () => {
+    test("a real run is refused when the only agents behind are in a lineage that has a rollout", async () => {
       const caller = await owner();
       await lineage(caller);
       const made = await follower(caller);
@@ -744,6 +930,400 @@ integration("profile rollouts on PostgreSQL (U3b reader)", () => {
       expect(await rollouts().backfill({ dryRun: true })).toMatchObject({
         dryRun: true,
       });
+    });
+  });
+
+  describe("the insert-time write (the writer)", () => {
+    /** A console save of `profile` as the next version of `ops`. */
+    async function save(
+      caller: Caller,
+      profile: CatalogProfile,
+      previousId: string,
+      fingerprint: string,
+    ) {
+      return createPostgresInstallationProfileStore(db).create({
+        actor: {
+          principal: caller,
+          workspaceId: caller.ownerId,
+          userId: userOf(caller),
+        },
+        receiptId: randomUUID(),
+        name: "ops",
+        previousId,
+        definition: definitionOf(profile),
+        permission_mode: "default",
+        fingerprint,
+        repository_ids: [],
+        github_app_repositories: null,
+        deny: null,
+        toolCatalogId: null,
+        connectionId: "main",
+      });
+    }
+    const rolloutsOf = () => db.select().from(profileRollouts);
+
+    test("a changed form puts in the following agents behind it, not a pinned one, and the consumer applies them", async () => {
+      const caller = await owner();
+      await lineage(caller, [
+        [1, V1],
+        [2, V2],
+        [3, V3],
+      ]);
+      const onV1 = await follower(caller);
+      const onV2 = await follower(caller, { profile: "op_ops_v2" });
+      const onV3 = await follower(caller, { profile: "op_ops_v3" });
+      const pinned = await follower(caller, { profile: "op_ops_v2" });
+      await db
+        .update(agents)
+        .set({ profileTracking: "pinned" })
+        .where(eq(agents.id, pinned.agent.id));
+
+      const made = await save(caller, V4, "op_ops_v3", "fp-4");
+      expect(made.outcome).toBe("created");
+      const [rollout] = await rolloutsOf();
+      expect(rollout).toMatchObject({
+        kind: "profile_update",
+        targetProfileId: "op_ops_v4",
+        createdBy: userOf(caller),
+      });
+      const queued = await items(rollout?.id as string);
+      expect(queued.map((i) => i.agentId).sort()).toEqual(
+        [onV1, onV2, onV3].map((m) => m.agent.id).sort(),
+      );
+      expect(queued.every((i) => i.status === "pending")).toBe(true);
+      for (const item of queued) {
+        expect(item.generation).toBe(
+          (await agentRow(item.agentId))?.activationRevision as number,
+        );
+      }
+
+      expect(await runner().runOnce()).toEqual({ claimed: 3, settled: 3 });
+      expect(
+        (await items(rollout?.id as string)).every(
+          (i) => i.status === "applied",
+        ),
+      ).toBe(true);
+      expect(await releasesOf(pinned.agent.id)).toHaveLength(1);
+      expect((await agentRow(onV1.agent.id))?.activeReleaseId).not.toBe(
+        onV1.agent.active_release_id,
+      );
+    });
+
+    test("the same form writes no rollout, and a form nobody follows still writes the row", async () => {
+      const caller = await owner();
+      await lineage(caller);
+      const made = await follower(caller, { profile: "op_ops_v2" });
+      const same = await save(caller, V3, "op_ops_v2", "fp-3");
+      expect(same.outcome).toBe("created");
+      expect(await rolloutsOf()).toEqual([]);
+
+      await save(caller, V4, "op_ops_v3", "fp-4");
+      const [rollout] = await rolloutsOf();
+      expect(rollout?.targetProfileId).toBe("op_ops_v4");
+      expect(await items(rollout?.id as string)).toHaveLength(1);
+      expect(made.agent.id).toBeTruthy();
+
+      const alone = await owner();
+      await lineage(alone, [[1, V1]]);
+      await db.delete(profileRolloutItems);
+      await db.delete(profileRollouts);
+      expect((await rolloutsOf()).length).toBe(0);
+    });
+
+    test("a newer rollout closes the waiting items of the older one and takes the agents", async () => {
+      const caller = await owner();
+      await lineage(caller);
+      const made = await follower(caller);
+      await save(caller, V4, "op_ops_v2", "fp-3");
+      const [first] = await rolloutsOf();
+      expect((await items(first?.id as string))[0]?.status).toBe("pending");
+
+      const next: CatalogProfile = { ...V1, tools: ["Read"] };
+      await save(caller, next, "op_ops_v3", "fp-4");
+      const second = (await rolloutsOf()).find((r) => r.id !== first?.id);
+      expect((await items(first?.id as string))[0]?.status).toBe("superseded");
+      const queued = await items(second?.id as string);
+      expect(queued.map((i) => [i.agentId, i.status])).toEqual([
+        [made.agent.id, "pending"],
+      ]);
+    });
+  });
+
+  describe("what the screens read", () => {
+    test("counts per version, the failed agents, the agents a default-model change misses, and one agent's open step", async () => {
+      const caller = await owner();
+      await lineage(caller);
+      const applied = await follower(caller);
+      const failed = await follower(caller, {
+        card: card("v1", "claude-sonnet-5"),
+        model_source: "fixed",
+      });
+      const waiting = await follower(caller);
+      const rolloutId = await rolloutOf(caller, [
+        applied.agent.id,
+        failed.agent.id,
+        waiting.agent.id,
+      ]);
+      await db
+        .update(profileRolloutItems)
+        .set({ status: "applied" })
+        .where(eq(profileRolloutItems.agentId, applied.agent.id));
+      await db
+        .update(profileRolloutItems)
+        .set({ status: "failed", reasonCode: "credential_unbound" })
+        .where(eq(profileRolloutItems.agentId, failed.agent.id));
+
+      const summary = (await rollouts().summaries(caller.ownerId)).get(
+        "op_ops_v2",
+      );
+      expect(summary).toEqual({
+        total: 3,
+        applied: 1,
+        pending: 1,
+        failed: 1,
+        failed_agents: [
+          {
+            agent_id: failed.agent.id,
+            name: "재무 분석가",
+            reason: "credential_unbound",
+          },
+        ],
+        fixed_model_agents: 1,
+      });
+      const other = await owner();
+      expect((await rollouts().summaries(other.ownerId)).size).toBe(0);
+
+      const detail = await store().get(caller.ownerId, failed.agent.id);
+      expect(detail?.profile_tracking).toBe("follow");
+      expect(detail?.profile_rollout).toEqual({
+        status: "failed",
+        reason: "credential_unbound",
+        target_profile_id: "op_ops_v2",
+      });
+      expect(
+        (await store().get(caller.ownerId, applied.agent.id))?.profile_rollout,
+      ).toBeNull();
+
+      const ask = (workspaceId: string) => ({
+        workspaceId,
+        targetProfileId: "op_ops_v2",
+        agentId: failed.agent.id,
+      });
+      expect(await rollouts().retryFailed(ask(other.ownerId))).toBe(false);
+      expect(await rollouts().retryFailed(ask(caller.ownerId))).toBe(true);
+      expect(await rollouts().retryFailed(ask(caller.ownerId))).toBe(false);
+      expect(
+        (await items(rolloutId)).find((i) => i.agentId === failed.agent.id),
+      ).toMatchObject({ status: "pending", reasonCode: null, attempts: 0 });
+    });
+  });
+
+  describe("bringing an agent to the newest version by hand", () => {
+    test("a pinned agent runs the newest version and follows again", async () => {
+      const caller = await owner();
+      await lineage(caller);
+      const made = await follower(caller);
+      await db
+        .update(agents)
+        .set({ profileTracking: "pinned" })
+        .where(eq(agents.id, made.agent.id));
+
+      const saved = await service().updateAgent(caller, made.agent.id, {
+        follow_latest_profile: true,
+      });
+      expect(saved.release.status).toBe("applied");
+      const row = await agentRow(made.agent.id);
+      expect(row?.profileTracking).toBe("follow");
+      const active = (await releasesOf(made.agent.id)).find(
+        (r) => r.id === row?.activeReleaseId,
+      );
+      expect(active?.runtimeProfileId).toBe("op_ops_v2");
+      expect(saved.profile_tracking).toBe("follow");
+    });
+
+    test("an agent already on the newest version only starts following again, with no release", async () => {
+      const caller = await owner();
+      await lineage(caller);
+      const made = await follower(caller, { profile: "op_ops_v2" });
+      await db
+        .update(agents)
+        .set({ profileTracking: "pinned" })
+        .where(eq(agents.id, made.agent.id));
+      const saved = await service().updateAgent(caller, made.agent.id, {
+        follow_latest_profile: true,
+      });
+      expect(saved.release.status).toBe("unchanged");
+      expect((await agentRow(made.agent.id))?.profileTracking).toBe("follow");
+      expect(await releasesOf(made.agent.id)).toHaveLength(1);
+    });
+
+    test("a waiting draft, with its profile and failure, is left as it was", async () => {
+      const caller = await owner();
+      await lineage(caller);
+      const made = await follower(caller);
+      const kept = await service().updateAgent(caller, made.agent.id, {
+        card: card("v2"),
+        runtime_profile_id: "op_missing_v1",
+      });
+      expect(kept.release.status).toBe("failed");
+      const before = await agentRow(made.agent.id);
+      expect(before?.draftVersionId).not.toBeNull();
+
+      const saved = await service().updateAgent(caller, made.agent.id, {
+        follow_latest_profile: true,
+      });
+      expect(saved.release.status).toBe("applied");
+      const after = await agentRow(made.agent.id);
+      expect(after).toMatchObject({
+        draftVersionId: before?.draftVersionId,
+        draftProfileId: "op_missing_v1",
+        draftFailure: before?.draftFailure,
+        behaviorRevision: before?.behaviorRevision,
+        profileTracking: "follow",
+      });
+    });
+
+    test("a refused rollout item is closed once a person brought the agent to the newest version", async () => {
+      const caller = await owner();
+      await lineage(caller);
+      const behind = await follower(caller);
+      const same = await follower(caller, { profile: "op_ops_v2" });
+      const rolloutId = await rolloutOf(caller, [
+        behind.agent.id,
+        same.agent.id,
+      ]);
+      await db
+        .update(profileRolloutItems)
+        .set({ status: "failed", reasonCode: "credential_unbound" });
+      for (const made of [behind, same]) {
+        await service().updateAgent(caller, made.agent.id, {
+          follow_latest_profile: true,
+        });
+      }
+      expect(
+        (await items(rolloutId)).map((i) => [i.status, i.reasonCode]),
+      ).toEqual([
+        ["applied", null],
+        ["applied", null],
+      ]);
+      expect(
+        (await rollouts().summaries(caller.ownerId)).get("op_ops_v2"),
+      ).toMatchObject({ total: 2, applied: 2, failed: 0, failed_agents: [] });
+    });
+
+    test("a follow judged on an older revision does not undo a revert made since", async () => {
+      const caller = await owner();
+      await lineage(caller);
+      const made = await follower(caller, { profile: "op_ops_v2" });
+      await db
+        .update(agents)
+        .set({ profileTracking: "pinned" })
+        .where(eq(agents.id, made.agent.id));
+      const row = await agentRow(made.agent.id);
+      const followed = await store().followProfile({
+        principal: caller,
+        workspaceId: caller.ownerId,
+        agentId: made.agent.id,
+        // The judgment was made one activation ago.
+        expectedActivationRevision: (row?.activationRevision as number) - 1,
+        managerRoles: ["owner", "admin"],
+      });
+      expect(followed.outcome).toBe("superseded");
+      expect((await agentRow(made.agent.id))?.profileTracking).toBe("pinned");
+    });
+  });
+
+  describe("claims, leases and the activation's three checks", () => {
+    test("a holder whose lease ran out and was not taken over cannot settle, and the item is claimed again", async () => {
+      const caller = await owner();
+      await lineage(caller);
+      const made = await follower(caller);
+      const rolloutId = await rolloutOf(caller, [made.agent.id]);
+      const [held] = await rollouts().claim({ leaseMs: 1, limit: 1 });
+      await Bun.sleep(20);
+      expect(
+        await rollouts().settle(held as NonNullable<typeof held>, {
+          status: "applied",
+        }),
+      ).toBe(false);
+      expect((await items(rolloutId))[0]?.status).toBe("pending");
+      expect(await rollouts().claim({ leaseMs: 1_000, limit: 1 })).toHaveLength(
+        1,
+      );
+    });
+
+    test("a retry gives a failed item its five claims again", async () => {
+      const caller = await owner();
+      await lineage(caller);
+      const made = await follower(caller);
+      const rolloutId = await rolloutOf(caller, [made.agent.id]);
+      for (let i = 0; i < 5; i++) {
+        expect(await rollouts().claim({ leaseMs: 1, limit: 1 })).toHaveLength(
+          1,
+        );
+        await Bun.sleep(5);
+      }
+      expect(await rollouts().claim({ leaseMs: 1_000, limit: 1 })).toEqual([]);
+      const [failed] = await items(rolloutId);
+      expect(failed).toMatchObject({
+        status: "failed",
+        reasonCode: "retries_exhausted",
+        attempts: 5,
+      });
+      expect(
+        await rollouts().retry({
+          rolloutId,
+          agentId: made.agent.id,
+          generation: failed?.generation as number,
+        }),
+      ).toBe(true);
+      expect((await items(rolloutId))[0]).toMatchObject({
+        status: "pending",
+        attempts: 0,
+      });
+      expect(await rollouts().claim({ leaseMs: 1_000, limit: 1 })).toHaveLength(
+        1,
+      );
+      expect((await items(rolloutId))[0]?.attempts).toBe(1);
+    });
+
+    test("the lock refuses a rollout for a moved behavior revision and for a version that is not the newest, each on its own", async () => {
+      const caller = await owner();
+      await lineage(caller);
+      const made = await follower(caller);
+      const row = await agentRow(made.agent.id);
+      const activate = (intent: {
+        behaviorRevision: number;
+        targetProfileId: string;
+      }) =>
+        store().activate({
+          principal: caller,
+          workspaceId: caller.ownerId,
+          agentId: made.agent.id,
+          releaseId: row?.activeReleaseId as string,
+          expectedRevision: row?.activationRevision as number,
+          approvedBy: userOf(caller),
+          managerRoles: ["owner", "admin"],
+          intent: { kind: "rollout", ...intent },
+          reason: "profile_rollout",
+        });
+      const behaviorRevision = row?.behaviorRevision as number;
+      expect(
+        (await activate({ behaviorRevision, targetProfileId: "op_ops_v2" }))
+          .outcome,
+      ).toBe("unchanged");
+      expect(
+        (
+          await activate({
+            behaviorRevision: behaviorRevision + 1,
+            targetProfileId: "op_ops_v2",
+          })
+        ).outcome,
+      ).toBe("superseded");
+      expect(
+        (await activate({ behaviorRevision, targetProfileId: "op_ops_v1" }))
+          .outcome,
+      ).toBe("superseded");
     });
   });
 });

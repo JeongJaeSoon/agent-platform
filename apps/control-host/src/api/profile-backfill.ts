@@ -10,8 +10,8 @@ const USAGE = "usage: profile-backfill [--apply]";
  * The one-time fill before profile rollouts are written (design 2.3, 2.6):
  * agents on an older profile form become `pinned`, and fixed-model agents
  * that run their profile's default model follow it. Without `--apply` it only
- * prints what it would do. Run it once; a real run is refused after the first
- * rollout exists. Exit 0: done (or a dry run); 1: refused.
+ * prints what it would do. Run it once; a real run is refused when only agents
+ * of lineages that already have a rollout are behind. Exit 0: done (or a dry run); 1: refused.
  */
 export async function profileBackfill(
   argv: string[],

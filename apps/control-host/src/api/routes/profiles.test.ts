@@ -561,6 +561,50 @@ describe("POST /v1/installation-profiles/{profile_id}/retire", () => {
   });
 });
 
+describe("POST /v1/installation-profiles/{profile_id}/rollout/retry", () => {
+  const path = `/v1/installation-profiles/${CEILING.id}/rollout/retry`;
+  const agent_id = "019a0000-0000-7000-8000-0000000000a1";
+
+  test("retries one agent, and every refusal maps to its status", async () => {
+    let asked: unknown;
+    const retried = await onInstallation(
+      {
+        retryRollout: async (_caller, profileId, agentId) => {
+          asked = [profileId, agentId];
+          return { retried: true };
+        },
+      },
+      "POST",
+      path,
+      { agent_id },
+    );
+    expect(retried.status).toBe(200);
+    expect(asked).toEqual([CEILING.id, agent_id]);
+    expect(await retried.json()).toEqual({ retried: true });
+    expect(
+      (
+        await onInstallation(
+          { retryRollout: refusing("FORBIDDEN") },
+          "POST",
+          path,
+          { agent_id },
+        )
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await onInstallation({ retryRollout: outage }, "POST", path, {
+          agent_id,
+        })
+      ).status,
+    ).toBe(503);
+    expect(
+      (await onInstallation({}, "POST", path, { agent_id: "not-a-uuid" }))
+        .status,
+    ).toBe(400);
+  });
+});
+
 for (const [action, blocked] of [
   ["block", true],
   ["unblock", false],

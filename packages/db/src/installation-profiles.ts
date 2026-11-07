@@ -10,6 +10,7 @@ import type {
 import { and, asc, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { lockPeople, receiptActorOf } from "./control-shared.ts";
 import { lockSettingsGeneration } from "./installation-settings.ts";
+import { writeProfileRollout } from "./profile-rollouts.ts";
 import type { Database } from "./queries.ts";
 import { installationProfiles, receipts } from "./schema.ts";
 
@@ -166,6 +167,7 @@ export function createPostgresInstallationProfileStore(
           .select({
             id: installationProfiles.id,
             version: installationProfiles.version,
+            definition: installationProfiles.definition,
           })
           .from(installationProfiles)
           .where(
@@ -221,6 +223,14 @@ export function createPostgresInstallationProfileStore(
         if (!row)
           throw new Error("installation profile insert returned no row");
         const record = recordOf(row);
+        if (latest) {
+          await writeProfileRollout(tx, {
+            profileId: record.id,
+            previous: { definition: latest.definition },
+            definition: row.definition,
+            createdBy: actor.userId,
+          });
+        }
         await writeReceipt(tx, actor, {
           id: input.receiptId,
           operation: "create_installation_profile",

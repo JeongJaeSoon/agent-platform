@@ -43,7 +43,7 @@ export function createProfileRolloutRunner(deps: {
   logger: RolloutRunnerLogger;
   /**
    * Whether this replica also writes the items the insert-time write missed.
-   * Off until the writer is open and the one-time fill has run.
+   * The store holds back until the one-time fill has run.
    */
   sweep?: boolean;
   leaseMs?: number;
@@ -52,6 +52,8 @@ export function createProfileRolloutRunner(deps: {
   const { rollouts, agentStore, agents, logger } = deps;
   const leaseMs = deps.leaseMs ?? ROLLOUT_LEASE_MS;
   const batch = deps.batch ?? ROLLOUT_BATCH;
+  // One warning per hold, not one per pass.
+  let warnedHeld = false;
 
   async function judge(item: ClaimedRolloutItem): Promise<RolloutItemResult> {
     let last: RolloutStep = { status: "superseded" };
@@ -102,6 +104,14 @@ export function createProfileRolloutRunner(deps: {
       if (swept.items > 0 || swept.rollouts > 0) {
         logger.info("Profile rollouts swept", swept);
       }
+      const held = swept.held ?? 0;
+      if (held > 0 && !warnedHeld) {
+        logger.warn(
+          "Profile rollout sweep is holding back: agents are behind their profile and the one-time fill has not recorded its completion (run the profile fill once; a fill made by the earlier code needs one more run)",
+          { agents: held },
+        );
+      }
+      warnedHeld = held > 0;
     }
     const items = await rollouts.claim({ leaseMs, limit: batch });
     let settled = 0;

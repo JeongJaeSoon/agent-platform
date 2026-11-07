@@ -316,6 +316,7 @@ describe("OpenAPI document", () => {
         "/v1/installation-profiles/options",
         "/v1/installation-profiles/{profile_id}/block",
         "/v1/installation-profiles/{profile_id}/retire",
+        "/v1/installation-profiles/{profile_id}/rollout/retry",
         "/v1/installation-profiles/{profile_id}/unblock",
         "/v1/installation/settings/connections",
         "/v1/installation/settings/connections/{id}/convert",

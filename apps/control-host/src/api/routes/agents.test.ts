@@ -164,6 +164,7 @@ function store(overrides: Partial<AgentStore> = {}): AgentStore {
     update: async () => ({ outcome: "updated", detail, saved: null }),
     recordDraftFailure: async () => true,
     hasGitHubSettings: async () => false,
+    followProfile: async () => ({ outcome: "updated" as const }),
     insertRelease: async ({ release }) => ({
       outcome: "created",
       release: {

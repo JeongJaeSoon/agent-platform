@@ -138,6 +138,7 @@ function memoryStore(
     update: async () => ({ outcome: "updated", detail, saved: null }),
     recordDraftFailure: async () => true,
     hasGitHubSettings: async () => settingsRow,
+    followProfile: async () => ({ outcome: "updated" as const }),
     insertRelease: async ({ release, refuseGitHubWhenSettings }) => {
       if (
         refuseGitHubWhenSettings === true &&

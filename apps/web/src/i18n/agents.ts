@@ -171,6 +171,20 @@ export const agentsKo = {
   "agent.save.reason.release_refused":
     "프로필이나 저장소 조건을 만족하지 못했습니다",
   "agent.save.reason.profile_unknown": "프로필을 찾을 수 없습니다",
+  "agent.save.reason.retries_exhausted":
+    "여러 번 시도했지만 적용하지 못했습니다",
+  "agent.profileFollow.pinnedTitle": "프로필의 옛 버전을 쓰는 중",
+  "agent.profileFollow.pinnedText":
+    "이 에이전트는 프로필의 새 버전을 따라가지 않고 있습니다. 최신으로 올리면 새 버전이 적용되고 다시 따라갑니다.",
+  "agent.profileFollow.failedTitle": "프로필 새 버전을 적용하지 못했습니다",
+  "agent.profileFollow.failedText": "이유: {reason}",
+  "agent.profileFollow.pendingText":
+    "프로필의 새 버전을 곧 적용합니다. 기다리지 않고 지금 올릴 수도 있습니다.",
+  "agent.profileFollow.raise": "최신으로 올리기",
+  "agent.profileFollow.raising": "올리는 중…",
+  "agent.profileFollow.retry": "다시 시도",
+  "agent.profileFollow.done": "프로필의 최신 버전을 적용했습니다.",
+  "agent.profileFollow.failed": "최신으로 올리지 못했습니다: {reason}",
   "agent.save.reason.blocked": "운영자가 막은 프로필입니다",
   "agent.save.reason.revision_conflict": "다른 저장과 겹쳐 적용하지 못했습니다",
   "agent.save.reason.other": "이유를 알 수 없습니다",
@@ -644,6 +658,21 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.save.reason.release_refused":
     "the profile or repository conditions are not met",
   "agent.save.reason.profile_unknown": "the profile was not found",
+  "agent.save.reason.retries_exhausted":
+    "it was tried several times and could not be applied",
+  "agent.profileFollow.pinnedTitle": "Running an older version of the profile",
+  "agent.profileFollow.pinnedText":
+    "This agent is not following new versions of its profile. Bring it to the latest to apply the new version and follow it again.",
+  "agent.profileFollow.failedTitle":
+    "The new profile version could not be applied",
+  "agent.profileFollow.failedText": "Reason: {reason}",
+  "agent.profileFollow.pendingText":
+    "The new profile version will be applied shortly. You can also bring it up now instead of waiting.",
+  "agent.profileFollow.raise": "Bring to latest",
+  "agent.profileFollow.raising": "Updating…",
+  "agent.profileFollow.retry": "Try again",
+  "agent.profileFollow.done": "The latest profile version is now applied.",
+  "agent.profileFollow.failed": "Could not bring it to the latest: {reason}",
   "agent.save.reason.blocked": "the operator blocked this profile",
   "agent.save.reason.revision_conflict": "it overlapped with another save",
   "agent.save.reason.other": "the reason is unknown",
@@ -1111,6 +1140,21 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.save.reason.release_refused":
     "プロファイルまたはリポジトリの条件を満たしていません",
   "agent.save.reason.profile_unknown": "プロファイルが見つかりません",
+  "agent.save.reason.retries_exhausted":
+    "何度か試しましたが適用できませんでした",
+  "agent.profileFollow.pinnedTitle": "プロファイルの古いバージョンを使用中",
+  "agent.profileFollow.pinnedText":
+    "このエージェントはプロファイルの新しいバージョンに追従していません。最新にすると新しいバージョンが適用され、再び追従します。",
+  "agent.profileFollow.failedTitle":
+    "プロファイルの新しいバージョンを適用できませんでした",
+  "agent.profileFollow.failedText": "理由: {reason}",
+  "agent.profileFollow.pendingText":
+    "プロファイルの新しいバージョンをまもなく適用します。待たずに今すぐ最新にすることもできます。",
+  "agent.profileFollow.raise": "最新にする",
+  "agent.profileFollow.raising": "更新中…",
+  "agent.profileFollow.retry": "再試行",
+  "agent.profileFollow.done": "プロファイルの最新バージョンを適用しました。",
+  "agent.profileFollow.failed": "最新にできませんでした: {reason}",
   "agent.save.reason.blocked": "運用者がブロックしているプロファイルです",
   "agent.save.reason.revision_conflict":
     "ほかの保存と重なって適用できませんでした",
