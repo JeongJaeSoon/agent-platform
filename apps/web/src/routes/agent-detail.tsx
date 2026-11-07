@@ -411,10 +411,19 @@ function AgentView({
                     after,
                   }),
                 }
-              : {
-                  kind: "error",
-                  text: `${agentRefusal(t, error, role)} ${t("agent.rollback.kept")}`,
-                },
+              : after.agent.activation_revision === expected
+                ? {
+                    kind: "error",
+                    text: `${agentRefusal(t, error, role)} ${t("agent.rollback.kept")}`,
+                  }
+                : {
+                    // The pointer moved but not to the target: this rollback
+                    // may have applied and then been replaced.
+                    kind: "error",
+                    text: t("agent.rollback.movedMeanwhile", {
+                      release: releaseLabel(release.id),
+                    }),
+                  },
         );
         await queryClient.invalidateQueries({
           queryKey: queryKeysOf(client).agents,

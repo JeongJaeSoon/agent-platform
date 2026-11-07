@@ -2675,6 +2675,40 @@ describe("릴리스 되돌리기", () => {
     expect(screen.queryByText(/되돌렸습니다/) === null).toBe(true);
   });
 
+  test("응답이 사라진 사이 다른 릴리스로 또 바뀌었으면 유지됐다고 단정하지 않는다", async () => {
+    const server = agentServer();
+    await releasedTwice(server);
+    const activate = server.routes[ACTIVATE] as Answer;
+    const read = server.routes[DETAIL_READ] as Answer;
+    const detailOf = async () =>
+      (await (await read(new Request("https://console.test/"))).json()) as {
+        agent: AgentDetail["agent"];
+      };
+    renderAt(RELEASE_TAB, {
+      ...meOk,
+      ...server.routes,
+      [ACTIVATE]: async (request) => {
+        const was = (await detailOf()).agent;
+        await activate(request);
+        // Another admin re-activates the old release before the page re-reads.
+        await activate(
+          new Request("https://console.test/", {
+            method: "POST",
+            body: JSON.stringify({
+              release_id: was.active_release_id,
+              expected_revision: was.activation_revision + 1,
+            }),
+          }),
+        );
+        throw new TypeError("Failed to fetch");
+      },
+    });
+    await confirmRollback(await setupUser());
+    expect(await screen.findByText(/그 사이 활성 릴리스가/)).toBeDefined();
+    expect(screen.queryByText(/되돌리지 않았습니다/) === null).toBe(true);
+    expect(screen.queryByText(/되돌렸습니다/) === null).toBe(true);
+  });
+
   test("응답이 사라진 뒤 상세 읽기가 계속 실패해도 확인하지 못했다는 안내는 화면에 남는다", async () => {
     const server = agentServer();
     await releasedTwice(server);

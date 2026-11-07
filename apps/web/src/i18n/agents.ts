@@ -233,6 +233,8 @@ export const agentsKo = {
   "agent.rollback.kept": "되돌리지 않았습니다. 지금 설정이 유지됩니다.",
   "agent.rollback.unknown":
     "{release}(으)로 되돌렸는지 확인하지 못했습니다. 응답을 받지 못했고 상태도 다시 읽지 못했습니다. 릴리스 목록에서 활성 릴리스를 확인하세요.",
+  "agent.rollback.movedMeanwhile":
+    "{release}(으)로 되돌렸는지 확인하지 못했습니다. 응답을 받지 못했고, 그 사이 활성 릴리스가 다른 릴리스로 바뀌었습니다. 릴리스 목록에서 지금 활성 릴리스를 확인하세요.",
   "agent.rolledBack": "{release}(으)로 되돌렸습니다.",
   "agent.rolledBack.reenable":
     "다시 따라가게 하려면 프로필 칸에서 '최신으로 올리기'를 누르세요.",
@@ -712,6 +714,8 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.rollback.kept": "Nothing was rolled back. The current settings stay.",
   "agent.rollback.unknown":
     "Could not confirm whether it was rolled back to {release}. No answer came back and the state could not be read again. Check the active release in the list.",
+  "agent.rollback.movedMeanwhile":
+    "Could not confirm whether it was rolled back to {release}. No answer came back, and the active release has changed to a different one since. Check the active release in the list.",
   "agent.rolledBack": "Rolled back to {release}.",
   "agent.rolledBack.reenable":
     "To follow the profile again, use 'Bring to latest' in the profile section.",
@@ -1185,6 +1189,8 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.rollback.kept": "戻していません。現在の設定が維持されます。",
   "agent.rollback.unknown":
     "{release}に戻したか確認できませんでした。応答を受け取れず、状態も再読み込みできませんでした。一覧で有効なリリースを確認してください。",
+  "agent.rollback.movedMeanwhile":
+    "{release}に戻したか確認できませんでした。応答を受け取れず、その間に有効なリリースが別のものに変わりました。一覧で現在有効なリリースを確認してください。",
   "agent.rolledBack": "{release}に戻しました。",
   "agent.rolledBack.reenable":
     "再び追従させるには、プロファイル欄の「最新にする」を押してください。",
