@@ -23,7 +23,7 @@ outcome: "복원 여유를 계산하고 지원되는 자원 크기를 바꾼다"
 
 #### 측정 방법
 
-전용 compose 스택(fake model, cgroup v2)에서 쟀다. source worker가 합성 transcript를 mirror에 넣고 checkpoint한 뒤 pause한다. 이어서 새 worker가 그 checkpoint를 복원하고 첫 resume turn을 돈다. 그동안 0.5초마다 worker 컨테이너의 cgroup(`memory.peak`, anon, file, shmem, swap, oom_kill)과 프로세스별 VmHWM을 기록했다. `memory.peak`에는 회수 가능한 page cache(file)도 들어간다. 그래도 기준에는 포함했다. worker 이미지는 claude-agent-sdk 0.3.270, Claude Code CLI 2.1.270이다.
+비교 조건은 fake model·cgroup v2 Compose 환경이다. source worker가 합성 transcript를 mirror에 넣고 checkpoint한 뒤 pause한다. 이어서 새 worker가 그 checkpoint를 복원하고 첫 resume turn을 돈다. 그동안 0.5초마다 worker 컨테이너의 cgroup(`memory.peak`, anon, file, shmem, swap, oom_kill)과 프로세스별 VmHWM을 기록했다. `memory.peak`에는 회수 가능한 page cache(file)도 들어간다. 그래도 기준에는 포함했다. worker 이미지는 claude-agent-sdk 0.3.270, Claude Code CLI 2.1.270이다.
 
 #### 4608MiB 한도 (현재 기본값)
 
@@ -52,7 +52,7 @@ outcome: "복원 여유를 계산하고 지원되는 자원 크기를 바꾼다"
 
 ### 2. transcript 상한과 메모리 선택
 
-후보 상한마다 필요한 메모리와 노드당 세션 수를 비교했다. 메모리는 2 × peak를 512MiB 단위로 올린 값이다. 세션 수는 allocatable 30GiB(30720MiB) 노드 기준이다. 표본은 개발 장비 두 대의 transcript 12개다. 한 대의 상위 10개는 400.1, 217.2, 113.4, 102.0, 96.3, 86.0, 85.2, 78.8, 70.4, 68.5MiB이고, 다른 한 대의 상위 2개는 591.8, 150MiB다. 상위 값만 모은 표본이라 전체 분포를 대표하지는 않는다.
+후보 상한마다 필요한 메모리와 노드당 세션 수를 비교했다. 메모리는 2 × peak를 512MiB 단위로 올린 값이다. 세션 수는 allocatable 30GiB(30720MiB) 노드 기준이다. 표본이 작아 이 표만으로 운영 환경의 상한을 결정하지 않는다.
 
 | 상한 | compaction 없는 peak | 절반 기준 메모리 | 노드당 세션 | 분포 중 상한 안 | 80% 경고 |
 |---|---|---|---|---|---|
@@ -97,25 +97,9 @@ local Docker 실행 기반에서는 한 머신의 메모리를 `EXECUTION_SLOT_L
 
 메모리 값은 다음 launch부터 적용되고 실행 중 worker는 교체되지 않는다. 상한을 바꾸는 직접 빌드는 API와 worker의 같은 릴리스가 필요하므로 [업그레이드 게이트](/run-server/self-hosting/upgrade-compose#실행-전-게이트)를 따른다.
 
-### 4. provider 비용을 읽는 법
+### 4. provider 비용과 상한 대조
 
-- 세션 비용은 credential route가 센다. proxy는 2xx `/v1/messages` 응답(JSON과 SSE 모두)에서 usage를 읽는다. 응답이 끝나거나 끊기면 authorizer listener의 `POST /usage`로 보고한다. `count_tokens`와 오류 응답은 세지 않는다.
-  - 응답이 usage를 다 말하지 않으면 많게 추정한다. `message_stop` 전에 끊긴 stream은 전달한 content 한 글자를 token 하나로 쳐서 output에 넣고, 전달한 web search 결과 블록 하나를 검색 한 번으로 친다. usage를 읽지 못한 JSON 응답(끊김, 8 MiB 초과, JSON 아님)은 요청으로 센다. 요청 1 byte를 input token 하나로, `max_tokens`를 output 전부로 본다. 이런 호출은 proxy가 `Provider usage estimated` 경고를 남기고 ledger에 `estimated=true`로 적힌다.
-  - API는 가격표로 USD를 구해 micro-dollar 단위로 올림한다. 그 금액을 `provider_usage`에 교환 하나당 한 줄로 쓰고, 같은 트랜잭션에서 세션 비용에 더한다. 그래서 ledger 합과 세션 비용이 맞는다.
-  - engine의 호출과 도구가 engine의 token으로 직접 부른 호출을 똑같이 센다.
-  - 보고에는 proxy가 교환마다 만든 id가 붙는다. authorizer가 답하지 못하면 1·5·15초 뒤에 다시 보내고, 같은 id는 한 번만 센다. 끝내 보고하지 못하면 proxy가 `Provider usage went unreported` 오류 로그를 남기고 그 교환은 세지 않는다.
-- turn 종료 때 SDK가 알려 준 `total_cost_usd` 증분은 turn 결과(`cost_usd`)에만 남고 세션 비용에는 더하지 않는다. engine의 turn별 `maxBudgetUsd`는 그대로 SDK 값으로 판정한다. proxy 계측 전에 만든 세션은 그때까지 SDK 값을 더한 비용을 이어받는다.
-- 가격표는 플랫폼 코드(`packages/platform/src/limits/model-prices.ts`)가 소유한다. 모델 id별로 input, output, cache write(5분 1.25배, 1시간 2배), cache read 단가를 둔다. 모델이 추가되거나 가격이 바뀌면 릴리스와 함께 고친다.
-  - fast mode는 따로 둔 fast 단가표로 센다. 지금은 Opus 5.5($8/$40)와 Opus 5·Opus 4.8($10/$50)만 있다. cache 배수는 fast 단가 위에 그대로 곱한다. speed는 응답의 `usage.speed`를 따르고, 응답이 말하지 않으면 요청의 `speed`를 따른다. 둘 다 없으면 `standard`다.
-  - 표에 없는 모델, fast 단가가 없는 모델의 fast 응답, 이름이 아닌 speed 값은 항목마다 두 표를 통틀어 최고 단가로 센다. authorizer가 `Provider usage priced at the fallback rate` 경고를 남기고, ledger에는 `priced_by=fallback`으로 적힌다.
-  - 응답 `usage.server_tool_use`의 web search 한 번마다 $0.01(1,000회 $10)을 더한다. web fetch는 token 말고 요금이 없다. code execution은 더하지 않는다. web search·web fetch와 함께 쓰면 요금이 없고, 아니면 호출 수가 아니라 컨테이너 시간으로 과금되며 조직 무료 시간이 있기 때문이다. 세 횟수와 speed는 ledger(`provider_usage`)에 함께 적힌다.
-  - 4.6 이후 모델은 US 전용 추론(`inference_geo: "us"`)이면 token 단가 전부(fast·cache 포함)에 1.1배를 곱한다. web search 요금에는 곱하지 않는다. geo는 응답의 `usage.inference_geo`를 따르고, 응답이 말하지 않으면 요청의 `inference_geo`를 따른다. 둘 다 없으면 `unknown`이다. workspace 기본값이 `us`일 수 있어서다. `global`과 `us`가 아닌 값은 최고 단가에 1.1배로 센다(`priced_by=fallback`). geo는 ledger에 `inference_geo`로 적힌다. `inference_geo`를 모르는 옛 API는 이 필드가 붙은 보고를 `400`으로 거절하고, proxy는 그 교환을 세지 못한다(`Provider usage went unreported`). 그래서 업그레이드할 때는 API(migration 포함)를 egress proxy보다 먼저 올린다. 한 번의 `up -d`는 이 순서를 지키지 않으므로 compose 설치는 `docker compose -f infra/compose.yml --profile apps up -d api`(migrate가 먼저 돈다)로 API를 올리고, `curl -s http://127.0.0.1:3000/readyz`가 ready인 것을 본 뒤 `docker compose -f infra/compose.yml --profile apps up -d egress-proxy`로 proxy를 올린다. 새 API는 이 필드가 없는 옛 proxy의 보고도 받는다.
-  - 4.6 이전 모델(Opus 4.5·4, Sonnet 4.5·4, Haiku 4.5)은 `inference_geo`를 받지 않으므로 geo와 상관없이 표준 단가로 센다. 이 모델들의 창은 200K이고 공개된 long-context 단가가 없다. 그래서 input·cache write·cache read 합이 200K를 넘는 호출은 최고 단가로 센다(`priced_by=fallback`). 4.6 이후 모델은 1M 전체가 표준 단가다.
-  - batch는 credential route가 `/v1/messages/batches`를 열지 않아서 해당이 없다.
-- 토큰 상한은 `provider_usage` 한 줄의 `input_tokens + cache_creation_input_tokens + cache_read_input_tokens + output_tokens`를 `sessions.provider_tokens`에 더해 센다. 더하는 일은 `provider_usage` insert trigger가 같은 트랜잭션에서 한다. 그래서 rollout 중이나 롤백 뒤에 0127 이전 API가 기록한 호출도 빠지지 않는다. cache read도 모델이 처리한 token이라 센다. 많게 추정한 보고는 추정치 그대로 더한다. 이 누계를 더한 migration은 기존 세션의 값을 `provider_usage` 합으로 채운다. 그 전에 SDK 값으로만 비용을 셌던 세션의 token은 채울 수 없다. 누계는 2^53-1(`Number.MAX_SAFE_INTEGER`)에서 멈춘다(migration 0129). trigger는 numeric으로 더하므로 비정상적으로 큰 token 값이 와도 오류로 usage 기록과 비용을 되돌리지 않는다.
-  - SDK에는 token 예산 옵션이 없다. 그래서 turn 도중의 토큰 상한은 아래 egress 거절과 재인가만 맡는다. 상한에 닿은 뒤 열린 Messages 호출은 거절되어 turn이 `failed(budget_exceeded)`로 끝나고, 다음 turn부터는 `BUDGET_EXCEEDED`로 dispatch되지 않는다. proxy는 authorizer의 `BUDGET_EXCEEDED` 거절을 Messages 오류 형식(`message`가 `BUDGET_EXCEEDED:`로 시작)으로 전한다. 사유는 이 문구로 정하지 않는다. 엔진은 이 403을 `api_error`로 보고하고, 재인가에서 끊긴 교환도 재시도가 남지 않았으면(`PROVIDER_MAX_RETRIES=0`) 끊긴 연결 그대로 `api_error`로 보고한다. finalize는 `api_error`로 끝난 turn의 세션이 이미 상한을 넘었으면 사유를 `budget_exceeded`로, receipt 오류를 `BUDGET_EXCEEDED`로 기록하고, 엔진의 provider 진단(`provider_error`)은 비운다. 상한 아래에서 난 403은 `api_error`로 남는다.
-- 비용 상한과 토큰 상한은 호출이 끝난 뒤에 판정한다. 동시에 열린 호출은 모두 인가를 통과할 수 있고, 진행 중인 turn은 상한을 넘을 수 있다.
-- 누적 비용이나 누적 token이 상한 이상인 세션의 provider egress token은 authorizer가 403 `BUDGET_EXCEEDED`로 거절한다. 새 provider 교환은 곧바로 거절되고, 이미 열린 교환은 다음 재인가(30초 주기)에서 끊긴다. repository·object store route는 거절하지 않는다.
+[사용량과 비용 계측](/run-server/self-hosting/reference/configuration#사용량과-비용-계측)의 추정·fallback 단가·재인가 경계를 보고 실제 provider 청구와 비교한다. [설치 상한](/run-server/self-hosting/reference/configuration#설치-상한)을 바꾸고 적용할 때는 [모델 연결](/run-server/self-hosting/model-connections)과 backend별 업그레이드 절차를 따른다.
 
 ## 확인
 

@@ -80,6 +80,12 @@ USER 1000:1000
 
 출하 이미지의 `bun install`은 user `.npmrc`의 registry와 token으로 metadata를 route에서 받는다. 하지만 tarball은 metadata의 `dist.tarball`에 적힌 `https://registry.npmjs.org/...` 주소로 직접 받으려 해서 forward proxy가 `403`으로 막는다. npm은 `replace-registry-host` 기본값(`npmjs`)으로 그 host를 설정한 registry로 바꿔 받는다. Bun에는 그런 설정이 없어 지금은 Bun으로 공개 npm 패키지를 설치할 수 없다.
 
+#### 사설 패키지 registry 허용
+
+1. `EGRESS_CREDENTIAL_ALLOWLIST`에 `npm.pkg.github.com:443,rubygems.pkg.github.com:443`을 포함해 필요한 기본 항목까지 모두 다시 적는다. 빠져 있으면 등록해 둔 token이 있어도 요청이 `403 egress denied`다.
+2. `EGRESS_PACKAGES_REDIRECT_ALLOWLIST`에 `pkg-npm.githubusercontent.com:443,rubygemsregistryv2prod.blob.core.windows.net:443`을 더한다. GitHub는 tarball과 `.gem`을 이 host로 302 redirect한다. proxy는 이 redirect를 token 없이 따라간다.
+3. GitHub Enterprise Server라면 `GITHUB_PACKAGES_*_URL`을 설정한다([설정 레퍼런스](/run-server/self-hosting/reference/configuration)).
+
 ## 확인
 
 각 digest를 target 아키텍처에서 pull하고 image smoke·의존성 검사와 설치 준비 검사를 통과해야 한다. release 입력이나 helm template의 최종 이미지가 자기 registry의 정확한 digest인지 대조한다. 이미지가 pull된 것과 실제 세션 실행은 별도 검사다.

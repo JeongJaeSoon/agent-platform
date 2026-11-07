@@ -78,6 +78,8 @@ config:
 
 `config.aws.region`의 기본값은 `ap-northeast-1`이다. 다른 리전의 bucket이면 바꾼다. 연결, 저장소, MCP 서버, 상한은 values에 없다. 설치한 뒤 웹 콘솔에서 더한다. `bun run settings:k8s import`를 쓰는 대안은 설치 버전의 저장소 checkout과 호스트 Bun·kubectl이 필요하다. 기본값과 설명은 `helm show values`에 있다.
 
+`config.egress.credentialAllowlist` 값은 기본값을 통째로 대체하므로 GitHub·checkpoint bucket host를 넣을 때 provider와 패키지 registry 등 필요한 항목을 모두 다시 적는다. API와 proxy가 같은 credential 두 목록을 읽는다.
+
 다른 설치와 겹치지 않는 `installationId`를 같은 파일에 둔다. `images.*`의 digest는 게시 chart의 값을 유지한다. DB·S3·Secret·CNI가 준비됐는지 확인한 뒤 진행한다.
 
 ### 4. 설치와 rollout

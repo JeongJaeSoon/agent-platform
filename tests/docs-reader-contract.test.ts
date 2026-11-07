@@ -13,6 +13,7 @@ const root = join(
 const held = /\/(session-data-flow|monitoring-datadog)(\.(en|ja))?\.mdx$/;
 const internal =
   /검증 카드|검사자(?:가|는|의|\s)|카드는 보지 못|\b94S-\d+\b|\b(?:NOW|LATER|DROP)\s*[:：]|\b(?:NOT VERIFIED|VERIFIED)\b|\brun_[a-f0-9]{8,}\b|\btask_[a-f0-9]{8,}\b/u;
+// This narrow check recognizes selected Korean verbs, not every diary.
 const measurementDiary =
   /\d{4}-\d{2}-\d{2}[^.。\n]*(?:측정|실측|조사|확인했|확인\))/u;
 
