@@ -477,6 +477,8 @@ export function sessions(context: Context): Sessions {
         ),
       approve,
       reject,
+      // The SDK never sends `?schedule=true`, so the scheduled form of the
+      // documented answer cannot come back; the cast narrows the union.
       openPullRequest: (id, pushRequestId, params, options) =>
         call(
           policy,
@@ -492,7 +494,7 @@ export function sessions(context: Context): Sessions {
               },
             ),
           options,
-        ),
+        ) as unknown as Promise<PullRequestResult>,
       commentPullRequest: (id, pushRequestId, params, options) =>
         call(
           policy,

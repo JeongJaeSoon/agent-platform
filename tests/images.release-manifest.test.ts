@@ -262,12 +262,13 @@ if (args[0] === "api") {
     jq(state.releases, expr);
   } else { console.error("unexpected api call " + args.join(" ")); process.exit(9); }
 } else if (args[0] === "release" && args[1] === "create") {
+  state.createArgs = args;
   state.releases.push({ id: 100 + state.releases.length, tag_name: args[2], draft: args.includes("--draft"), prerelease: args.includes("--prerelease"), assets: [] });
   save();
 } else if (args[0] === "release" && args[1] === "upload") {
   const r = state.releases.find((r) => r.tag_name === args[2]);
-  const asset = { id: 500 + r.assets.length, name: "release-manifest.json", state: "uploaded", content: readFileSync(args[3], "utf8") };
-  if (state.uploadFails) { asset.state = "starter"; r.assets.push(asset); save(); process.exit(1); }
+  const asset = { id: 500 + r.assets.length, name: args[3].split("/").pop(), state: "uploaded", content: readFileSync(args[3], "utf8") };
+  if (state.uploadFails && (state.uploadFails === true || state.uploadFails === asset.name)) { asset.state = "starter"; r.assets.push(asset); save(); process.exit(1); }
   r.assets.push(asset);
   save();
 } else { console.error("unexpected gh call " + args.join(" ")); process.exit(9); }
@@ -282,10 +283,16 @@ type Fake = {
     assets: { id: number; name: string; state: string; content: string }[];
   }[];
   listFails?: boolean;
-  uploadFails?: boolean;
+  uploadFails?: boolean | string;
+  createArgs?: string[];
 };
 
-function publish(initial: Fake, manifest: object, name = tag) {
+function publish(
+  initial: Fake,
+  manifest: object,
+  name = tag,
+  extra: Record<string, string> = {},
+) {
   const dir = mkdtempSync(join(tmpdir(), "release-publish-"));
   try {
     const bin = join(dir, "bin");
@@ -296,8 +303,18 @@ function publish(initial: Fake, manifest: object, name = tag) {
     writeFileSync(stateFile, JSON.stringify(initial));
     const file = join(dir, MANIFEST_ASSET);
     writeFileSync(file, `${JSON.stringify(manifest, null, 2)}\n`);
+    const extraFiles = Object.entries(extra).map(([asset, content]) => {
+      const path = join(dir, asset);
+      writeFileSync(path, content);
+      return path;
+    });
     const run = Bun.spawnSync(
-      [join(root, ".github/scripts/release-publish.sh"), name, file],
+      [
+        join(root, ".github/scripts/release-publish.sh"),
+        name,
+        file,
+        ...extraFiles,
+      ],
       {
         env: {
           ...Bun.env,
@@ -345,6 +362,15 @@ describe("release-publish.sh", () => {
     expect(JSON.parse(state.releases[0]?.assets[0]?.content ?? "")).toEqual(
       manifest,
     );
+  });
+
+  test("the body is the generated notes plus the manifest line", () => {
+    const { state } = publish({ releases: [] }, manifest);
+    const args = state.createArgs ?? [];
+    expect(args).toContain("--generate-notes");
+    const notes = args[args.indexOf("--notes") + 1] ?? "";
+    expect(notes).toContain(MANIFEST_ASSET);
+    expect(notes).toContain("image digests");
   });
 
   test("a prerelease tag makes a prerelease", () => {
@@ -426,6 +452,53 @@ describe("release-publish.sh", () => {
     expect(state.releases[0]?.draft).toBe(true);
   });
 
+  describe("with more files than the manifest", () => {
+    const bundle = {
+      "bundle.tar.gz": "bytes-1",
+      "bundle.tar.gz.sha256": "sum-1\n",
+    };
+    const names = (s: Fake) => s.releases[0]?.assets.map((a) => a.name).sort();
+
+    test("uploads every file and publishes only afterwards", () => {
+      const { exitCode, state } = publish(
+        { releases: [] },
+        manifest,
+        tag,
+        bundle,
+      );
+      expect(exitCode).toBe(0);
+      expect(state.releases[0]?.draft).toBe(false);
+      expect(names(state)).toEqual(
+        [MANIFEST_ASSET, "bundle.tar.gz", "bundle.tar.gz.sha256"].sort(),
+      );
+    });
+
+    test("a file that fails to upload keeps the release a draft", () => {
+      const { exitCode, state } = publish(
+        { releases: [], uploadFails: "bundle.tar.gz" },
+        manifest,
+        tag,
+        bundle,
+      );
+      expect(exitCode).toBe(1);
+      expect(state.releases[0]?.draft).toBe(true);
+    });
+
+    test("a rerun with the same bytes passes and other bytes fail unchanged", () => {
+      const first = publish({ releases: [] }, manifest, tag, bundle);
+      const same = publish(first.state, manifest, tag, bundle);
+      expect(same.exitCode).toBe(0);
+      expect(same.state).toEqual(first.state);
+      const other = publish(first.state, manifest, tag, {
+        ...bundle,
+        "bundle.tar.gz": "bytes-2",
+      });
+      expect(other.exitCode).toBe(1);
+      expect(other.stderr).toContain("different bundle.tar.gz");
+      expect(other.state).toEqual(first.state);
+    });
+  });
+
   test("a lookup that fails is not an absent release", () => {
     const { exitCode, state } = publish(
       { releases: [], listFails: true },
@@ -453,7 +526,9 @@ describe("images.yml release job", () => {
     const writers = Object.entries(jobs)
       .filter(([, job]) => job.permissions?.contents === "write")
       .map(([name]) => name);
-    expect(writers).toEqual(["release"]);
+    // `release-tag` and `release-publish` are the release by merge's: the same
+    // gate comes from release-approve, which they reach through the chart.
+    expect(writers).toEqual(["release", "release-tag", "release-publish"]);
     expect(jobs.release?.needs).toBe("chart-publish");
     expect(jobs.release?.if).toBe(jobs.publish?.if);
     expect(jobs.release?.permissions).toEqual({ contents: "write" });
@@ -464,8 +539,35 @@ describe("images.yml release job", () => {
     expect(runs.join("\n")).toContain(
       "release-manifest.ts published chart-out release-manifest.json",
     );
+    // The tag is the ref's, or RELEASE_REF's when a main run releases.
     expect(runs.join("\n")).toContain(
-      'release-publish.sh "$GITHUB_REF_NAME" release-manifest.json',
+      'ref="${RELEASE_REF:-$GITHUB_REF}"\ntag="${ref#refs/tags/}"\n.github/scripts/release-publish.sh "$tag" release-manifest.json',
     );
+    // The auto release job shares these steps, so the bundle is built and
+    // attached there too, after the approval chain (release-tag).
+    expect(jobs["release-publish"]?.steps).toEqual(jobs.release?.steps);
+  });
+
+  test("the bundle is built before it is attached, and only the release job attaches it", () => {
+    const runs = (jobs.release?.steps ?? []).map((step) => step.run ?? "");
+    const text = runs.join("\n");
+    expect(text.indexOf("test-ops-bundle.sh")).toBeGreaterThan(-1);
+    expect(text.indexOf("test-ops-bundle.sh")).toBeLessThan(
+      text.indexOf("release-publish.sh"),
+    );
+    expect(text).toContain("werft-test-ops-$" + "{tag}.tar.gz.sha256");
+    expect(text).toContain(
+      '"$' + '{ref#refs/tags/}" release-manifest.json bundle-out',
+    );
+    // Every other run builds and checks it, and uploads nothing.
+    const other = jobs["test-ops-bundle"];
+    expect(other?.if).toBeUndefined();
+    expect(other?.permissions).toBeUndefined();
+    const otherRuns = (other?.steps ?? [])
+      .map((step) => step.run ?? "")
+      .join("\n");
+    expect(otherRuns).toContain("test-ops-bundle.sh");
+    expect(otherRuns).not.toContain("release-publish");
+    expect(otherRuns).not.toContain("gh ");
   });
 });

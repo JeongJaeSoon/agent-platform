@@ -11,6 +11,9 @@ import type {
   PushReceiptResult,
   PushRefusal,
   PushRequest,
+  PushRequestFlow,
+  PushRequestOrigin,
+  PushRequestSnapshot,
   ReceiptActor,
   RepositoryCeiling,
 } from "@werft-ai/contracts";
@@ -133,6 +136,11 @@ export const PUSH_REFUSAL_ERRORS: Record<
     message:
       "The agent's settings no longer push without approval; the request waits for a person again",
   },
+  pinned_source_invalid: {
+    code: "CHECKPOINT_UNAVAILABLE",
+    message:
+      "The checkpoint this request pinned no longer verifies for the session; reject it and request a push again",
+  },
 };
 
 export type PushOperation = "request_push" | "resolve_push";
@@ -160,6 +168,16 @@ export type CreatePushRequestInput = {
   targetBranch?: string;
   checkpointRevision: number;
   gitCommit: string;
+  /**
+   * `intent`: made by the intent runner from the revision a finished turn
+   * pinned, so the create-time "pointer still on this revision" check does
+   * not apply. Absent is `direct`.
+   */
+  origin?: PushRequestOrigin;
+  /** Fixed at creation. Absent is `legacy`. */
+  flow?: PushRequestFlow;
+  /** The pull request the intent asked for once pushed; the PR drain runs it. */
+  pullRequestIntent?: unknown;
   /**
    * The session's policy pushes without a person's approval: the request is
    * approved in the same transaction, decided by that policy.
@@ -202,7 +220,13 @@ export type PushWriteResult =
   | { outcome: "written" | "replayed"; request: PushRequest }
   | { outcome: "conflict" }
   // The receipt recording the refusal is already committed.
-  | { outcome: "refused"; refusal: PushRefusal; receiptId: string };
+  | {
+      outcome: "refused";
+      refusal: PushRefusal;
+      receiptId: string;
+      /** `pull_request_pending`: `request_open` because of an unfinished PR stage. */
+      reason?: "pull_request_pending";
+    };
 
 /** An approved request the platform has taken to push. */
 export type PushJob = {
@@ -309,6 +333,17 @@ export interface PushRequestStore {
     sessionId: string,
     pushRequestId: string,
   ): Promise<PushRequest | null>;
+  /**
+   * Where one push stands (intent, push request, pull request stage), read
+   * in one repeatable-read transaction so an intent turning into a request
+   * cannot show two different pictures. Either id finds the same push once
+   * they are linked. Null outside the owner's session.
+   */
+  snapshot(
+    ownerId: string,
+    sessionId: string,
+    ref: { pushRequestId: string } | { pushIntentId: string },
+  ): Promise<PushRequestSnapshot | null>;
   /**
    * requested → approved | rejected. An approval is refused when the
    * session's checkpoint pointer no longer names the pinned revision; the

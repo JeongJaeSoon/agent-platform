@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type {
+  ListPushRequestsResponse,
   ListSessionOutputsResponse,
   SessionDetail,
   SessionGitHubAttribution,
@@ -597,5 +598,175 @@ describe("the session's GitHub pull requests", () => {
       expect.stringMatching(/^허용 목록 밖워크플로 실행 · /),
     ]);
     expect(rows[0]?.querySelector("time")?.getAttribute("datetime")).toBe(AT);
+  });
+});
+
+describe("the session's GitHub work", () => {
+  const withRepository = {
+    ...detail,
+    repository: { id: "demo", full_name: "acme/demo", branch: "main" },
+  };
+  const actor = {
+    principal: { kind: "api_key" as const, id: "key-1" },
+    actor_user_id: null,
+    agent_id: null,
+  };
+  const request = {
+    id: "019a0000-0000-7000-8000-0000000000a1",
+    session_id: SESSION_ID,
+    repository_id: "demo",
+    checkpoint_revision: 2,
+    git_commit: "a".repeat(40),
+    target_branch: `agent/${SESSION_ID}`,
+    state: "pushed" as const,
+    requested_by: actor,
+    requested_at: AT,
+    resolved_by: null,
+    resolved_at: null,
+    resolution_reason: null,
+    request_receipt_id: "019a0000-0000-7000-8000-0000000000b1",
+    resolution_receipt_id: null,
+    finished_at: AT,
+    push_receipt_id: null,
+    origin: "intent" as const,
+    flow: "actions" as const,
+    pr_state: "opening" as const,
+    pr_error: null,
+    pr_number: null,
+    pr_url: null,
+  };
+  const intent = (
+    id: string,
+    fields: Partial<ListPushRequestsResponse["intents"][number]>,
+  ) => ({
+    id: `019a0000-0000-7000-8000-0000000000${id}`,
+    session_id: SESSION_ID,
+    repository_id: "demo",
+    target_branch: `agent/${SESSION_ID}`,
+    status: "deferred" as const,
+    refusal_code: null,
+    push_request_id: null,
+    created_at: AT,
+    ...fields,
+  });
+  function working(answer: ListPushRequestsResponse) {
+    return {
+      ...routes(() => json(200, outputs)),
+      [`GET /v1/sessions/${SESSION_ID}`]: () => json(200, withRepository),
+      [`GET /v1/sessions/${SESSION_ID}/push-requests`]: () => json(200, answer),
+    };
+  }
+
+  test("lists a request with its PR stage, a waiting intent, and why an ended one ended; an intent that became a request is not listed twice", async () => {
+    renderAt(
+      `/sessions/${SESSION_ID}`,
+      working({
+        items: [request],
+        intents: [
+          intent("c1", { status: "deferred" }),
+          intent("c2", {
+            status: "failed",
+            refusal_code: "pinned_source_invalid",
+          }),
+          intent("c3", { status: "cancelled", refusal_code: "session_closed" }),
+          intent("c4", { status: "requested", push_request_id: request.id }),
+        ],
+      }),
+    );
+    await openOutputs();
+    const area = await screen.findByRole("region", { name: "GitHub 작업" });
+    const rows = within(area).getAllByRole("listitem");
+    expect(rows).toHaveLength(4);
+    expect(within(area).getByText("push됨")).toBeDefined();
+    expect(within(area).getByText("PR 여는 중")).toBeDefined();
+    expect(within(area).getByText("턴이 끝나기를 기다리는 중")).toBeDefined();
+    expect(
+      within(area).getByText(/고정한 체크포인트를 더는 확인할 수 없습니다/),
+    ).toBeDefined();
+    expect(within(area).getByText(/세션이 닫혔습니다/)).toBeDefined();
+  });
+
+  test("an opened PR links to its number; a failed stage says why; a PR address that is not https is not a link", async () => {
+    renderAt(
+      `/sessions/${SESSION_ID}`,
+      working({
+        items: [
+          {
+            ...request,
+            id: "019a0000-0000-7000-8000-0000000000a2",
+            pr_state: "opened",
+            pr_number: 7,
+            pr_url: "https://github.com/acme/demo/pull/7",
+          },
+          {
+            ...request,
+            id: "019a0000-0000-7000-8000-0000000000a3",
+            pr_state: "failed",
+            pr_error: "head_moved",
+          },
+          {
+            ...request,
+            id: "019a0000-0000-7000-8000-0000000000a4",
+            pr_state: "opened",
+            pr_number: 8,
+            pr_url: "javascript:alert(1)",
+          },
+          {
+            ...request,
+            id: "019a0000-0000-7000-8000-0000000000a5",
+            pr_state: "cancelled",
+            pr_error: "push_failed",
+          },
+        ],
+        intents: [],
+      }),
+    );
+    await openOutputs();
+    const area = await screen.findByRole("region", { name: "GitHub 작업" });
+    const link = within(area).getByRole("link", { name: "PR #7" });
+    expect(link.getAttribute("href")).toBe(
+      "https://github.com/acme/demo/pull/7",
+    );
+    expect(link.getAttribute("rel")).toContain("noreferrer");
+    expect(within(area).queryByRole("link", { name: "PR #8" })).toBeNull();
+    expect(
+      within(area).getByText(/브랜치가 push한 commit이 아닌 곳을 가리켜/),
+    ).toBeDefined();
+    // A push-stage refusal code has no PR wording: nothing is invented.
+    expect(within(area).queryByText(/push_failed/)).toBeNull();
+    expect(within(area).getByText("PR 실패")).toBeDefined();
+    expect(within(area).getByText("PR 취소됨")).toBeDefined();
+  });
+
+  test("an older server's answer, with no intents and no pr_state, still lists the request without a stage", async () => {
+    const {
+      flow: _flow,
+      origin: _origin,
+      pr_state: _stage,
+      ...older
+    } = request;
+    renderAt(
+      `/sessions/${SESSION_ID}`,
+      working({ items: [older] } as unknown as ListPushRequestsResponse),
+    );
+    await openOutputs();
+    const area = await screen.findByRole("region", { name: "GitHub 작업" });
+    expect(within(area).getAllByRole("listitem")).toHaveLength(1);
+    expect(within(area).getByText("push됨")).toBeDefined();
+    expect(within(area).queryByText("PR 여는 중")).toBeNull();
+  });
+
+  test("nothing is shown for a session with no push work, and a session without a repository is not asked", async () => {
+    const { api } = renderAt(`/sessions/${SESSION_ID}`, {
+      ...working({ items: [], intents: [] }),
+      [`GET /v1/sessions/${SESSION_ID}`]: () =>
+        json(200, { ...detail, repository: null }),
+    });
+    await openOutputs();
+    await screen.findByRole("region", { name: "out/ 파일" });
+    expect(screen.queryByRole("region", { name: "GitHub 작업" })).toBeNull();
+    expect(api.calls.some((call) => call.path.endsWith("/push-requests"))).toBe(
+      false,
+    );
   });
 });

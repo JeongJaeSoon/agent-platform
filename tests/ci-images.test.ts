@@ -144,7 +144,7 @@ describe("images.yml", () => {
       mirrored: true,
     });
     const setups = steps("docker/setup-buildx-action");
-    expect(setups.length).toBe(7);
+    expect(setups.length).toBe(8);
     for (const setup of setups)
       expect(setup.with?.["driver-opts"]).toBe(
         `image=${expression("env.BUILDKIT_IMAGE")}`,

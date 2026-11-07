@@ -29,6 +29,7 @@ import { PASS_LOOP_ROLES } from "../apps/control-host/src/pass-loop/loop.ts";
 import { DEFAULT_MAX_BODY_BYTES_IN_FLIGHT } from "../apps/egress-proxy/src/credential.ts";
 import {
   GH_VERSION,
+  GIT_LFS_COMPRESS,
   GIT_LFS_GO,
   GIT_LFS_VERSION,
   GIT_LFS_X_NET,
@@ -259,6 +260,7 @@ describe("app Dockerfiles", () => {
     const source = basePins.worker.source;
     expect(source).toContain(`ARG GIT_LFS_VERSION=${GIT_LFS_VERSION}\n`);
     expect(source).toContain(`ARG GIT_LFS_X_NET=${GIT_LFS_X_NET}\n`);
+    expect(source).toContain(`ARG GIT_LFS_COMPRESS=${GIT_LFS_COMPRESS}\n`);
     expect(source).toContain(`ARG GIT_LFS_GO=${GIT_LFS_GO}\n`);
     expect(source).toMatch(
       /^ADD --checksum=sha256:[0-9a-f]{64} \\\n {2}https:\/\/github\.com\/git-lfs\/git-lfs\/releases\/download\/v\$\{GIT_LFS_VERSION\}\/git-lfs-v\$\{GIT_LFS_VERSION\}\.tar\.gz \\$/m,
@@ -926,6 +928,9 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       (condition ?? "").split(" && ").every((term) => {
         const prefix = term.match(/^startsWith\(github\.ref, '([^']+)'\)$/);
         if (prefix) return run.ref.startsWith(prefix[1] ?? "");
+        // The release jobs of a main run: they run only when release-detect
+        // found a new version heading, which no row below models.
+        if (term === "needs.release-detect.outputs.tag != ''") return false;
         const equal = term.match(/^github\.(event_name|ref) == '([^']+)'$/);
         if (!equal) throw new Error(`unexpected term: ${term}`);
         return (equal[1] === "ref" ? run.ref : run.event) === equal[2];
@@ -938,10 +943,12 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       expect(writers.sort()).toEqual([
         "chart-publish",
         "chart-publish-main",
+        "chart-publish-release",
         "index",
         "index-main",
         "promote",
         "promote-main",
+        "promote-release",
         "publish",
         "publish-main",
       ]);
@@ -971,6 +978,23 @@ describe("compose and workflow agree with the Dockerfiles", () => {
           `type=gha,scope=images-${expression("matrix.app")}-${expression("matrix.arch")}`,
         );
       }
+    });
+
+    test("only the build job writes the layer cache, and never for a pull request", () => {
+      for (const name of ["publish", "publish-main"]) {
+        const build = jobs[name]?.steps.find((step) =>
+          step.uses?.startsWith("docker/build-push-action@"),
+        );
+        expect(build?.with?.["cache-to"]).toBeUndefined();
+      }
+      const build = jobs.build?.steps.find((step) =>
+        step.uses?.startsWith("docker/build-push-action@"),
+      );
+      expect(build?.with?.["cache-to"]).toBe(
+        expression(
+          "github.event_name != 'pull_request' && format('type=gha,scope=images-{0}-{1},mode=max', matrix.app, matrix.arch) || ''",
+        ),
+      );
     });
 
     test("nothing of one arch overwrites the other's", () => {
@@ -1025,10 +1049,33 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       );
     });
 
-    test("only the tag path waits for the release environment", () => {
+    test("only the tag path waits for the release environment, once, at publish", () => {
+      expect(jobs.publish?.environment).toBe("release");
+      for (const name of ["index", "promote", "chart-publish"]) {
+        expect(jobs[name]?.environment).toBeUndefined();
+      }
       for (const name of ["publish", "index", "promote", "chart-publish"]) {
-        expect(jobs[name]?.environment).toBe("release");
         expect(jobs[`${name}-main`]?.environment).toBeUndefined();
+      }
+    });
+
+    test("every later tag-path writer is reachable only through the approved publish", () => {
+      const needsOf = (name: string): string[] => {
+        const needs = jobs[name]?.needs;
+        return needs === undefined ? [] : [needs].flat();
+      };
+      const reaches = (
+        name: string,
+        target: string,
+        seen = new Set<string>(),
+      ) => {
+        if (name === target) return true;
+        if (seen.has(name)) return false;
+        seen.add(name);
+        return needsOf(name).some((next) => reaches(next, target, seen));
+      };
+      for (const name of ["index", "promote", "chart-publish"]) {
+        expect(reaches(name, "publish")).toBe(true);
       }
     });
 
@@ -1077,7 +1124,12 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       const packageStep = index("chart-package.ts published chart-out");
       const read = index("docker manifest inspect");
       const install = index("deploy/kind/up.sh");
-      const upload = steps.findIndex((step) => step.with?.name === "chart");
+      // The suffix is empty on the main and pushed-tag paths, `-release` on
+      // the release by merge, so its artifacts do not meet main's.
+      const suffix = expression("env.ARTIFACT_SUFFIX");
+      const upload = steps.findIndex(
+        (step) => step.with?.name === `chart${suffix}`,
+      );
       expect(packageStep).toBeGreaterThan(-1);
       expect(read).toBeGreaterThan(packageStep);
       expect(install).toBeGreaterThan(read);
@@ -1085,7 +1137,7 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       expect(steps[install]?.run).toContain("CHART_PACKAGE=");
       expect(
         steps.flatMap((step) => step.with?.name ?? []).slice(0, 1),
-      ).toEqual(["image-digests-published"]);
+      ).toEqual([`image-digests-published${suffix}`]);
       expect(runsOf(jobs.chart)).not.toContain("docker login");
       expect(runsOf(jobs["chart-publish"])).toContain("chart-push.sh");
     });
@@ -1139,15 +1191,37 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       expect(runsOf(jobs.build)).toContain(
         'image-licenses.sh "$APP" "$' + "{NAME}:sha-$" + '{GITHUB_SHA::12}"',
       );
-      // Shared steps: the tag path stays strict by the ref, not by the job.
+      // Shared steps: the tag path stays strict by the ref, not by the job,
+      // and the release by merge (RELEASE_REF set, run ref main) is strict too.
       expect(
         jobs.sources?.steps.flatMap((step) => step.env?.SOURCES_MODE ?? []),
       ).toEqual([
-        expression("github.ref == 'refs/heads/main' && 'main' || 'release'"),
+        expression(
+          "env.RELEASE_REF == '' && github.ref == 'refs/heads/main' && 'main' || 'release'",
+        ),
       ]);
       expect(runsOf(jobs.sources)).toContain(
-        'image-sources.sh debian-sources unverified-sources "$SOURCES_MODE"',
+        'image-sources.sh debian-sources unverified-sources "$SOURCES_MODE" held-sources-prior held-sources',
       );
+      // A failed attempt hands its answers on, and the next one takes them
+      // only from its own run and its own job.
+      for (const name of ["sources", "sources-main"]) {
+        const steps = jobs[name]?.steps ?? [];
+        const upload = steps.find((step) =>
+          String(step.with?.name).startsWith("held-sources-"),
+        );
+        expect(upload?.if).toBe("always()");
+        expect(upload?.with?.name).toBe(
+          `held-sources-${expression("github.job")}-${expression("github.run_attempt")}`,
+        );
+        const download = steps.find((step) =>
+          String(step.with?.pattern).startsWith("held-sources-"),
+        );
+        expect(download?.if).toBe("github.run_attempt > 1");
+        expect(download?.with?.pattern).toBe(
+          `held-sources-${expression("github.job")}-*`,
+        );
+      }
       expect(
         jobs.publish?.steps.flatMap((step) => step.with?.push ?? []),
       ).toEqual([true]);
@@ -1519,6 +1593,63 @@ esac
     });
   });
 
+  describe("image-scan.sh", () => {
+    const script = join(root, ".github/scripts/image-scan.sh");
+
+    test("a build whose scan got no answer fails the job", () => {
+      const build = Bun.YAML.parse(read(".github/workflows/images.yml")) as {
+        jobs: {
+          build: { steps: { name?: string; "continue-on-error"?: boolean }[] };
+        };
+      };
+      const scan = build.jobs.build.steps.find(
+        (step) => step.name === "Vulnerability scan",
+      );
+      expect(scan).toBeDefined();
+      expect(scan?.["continue-on-error"]).toBeUndefined();
+    });
+
+    test("a scanner download that keeps failing exits non-zero and leaves error", () => {
+      const directory = mkdtempSync(join(tmpdir(), "image-scan-"));
+      try {
+        mkdirSync(join(directory, "bin"));
+        // The pinned checksums are per architecture; pretend to be x86_64 so
+        // the run reaches the download on any host.
+        writeFileSync(
+          join(directory, "bin/uname"),
+          "#!/usr/bin/env bash\necho x86_64\n",
+          { mode: 0o755 },
+        );
+        writeFileSync(
+          join(directory, "bin/curl"),
+          '#!/usr/bin/env bash\necho "$*" >"$FAKE/curl"\nexit 22\n',
+          { mode: 0o755 },
+        );
+        const result = Bun.spawnSync(
+          ["bash", script, "app-amd64", "image:ref", join(directory, "out")],
+          {
+            env: {
+              PATH: `${join(directory, "bin")}:${process.env.PATH ?? ""}`,
+              FAKE: directory,
+              GITHUB_STEP_SUMMARY: join(directory, "summary"),
+            },
+          },
+        );
+        expect(result.exitCode).toBe(22);
+        expect(readFileSync(join(directory, "out/app-amd64.txt"), "utf8")).toBe(
+          "error\n",
+        );
+        // A 504 from the release host is transient: retry every kind of
+        // failure, and wait longer than curl's default one-second backoff.
+        const args = readFileSync(join(directory, "curl"), "utf8");
+        expect(args).toContain("--retry-all-errors");
+        expect(args).toMatch(/--retry-delay [1-9]\d/);
+      } finally {
+        rmSync(directory, { recursive: true, force: true });
+      }
+    });
+  });
+
   describe("image-sources.sh", () => {
     const shared = "https://snapshot.debian.org/package/acl/2.3.2-2/";
     const workerOnly = "https://snapshot.debian.org/package/gh/1/";
@@ -1650,6 +1781,86 @@ exit "$FAKE_EXIT"
 
     test("an unknown mode is refused", () => {
       expect(run("relaese", 0).code).toBe(2);
+    });
+
+    test("earlier attempts' held files are joined and passed on, and this attempt's goes out", () => {
+      const directory = mkdtempSync(join(tmpdir(), "image-sources-prior-"));
+      mkdirSync(join(directory, "bin"));
+      mkdirSync(join(directory, "lists"));
+      mkdirSync(join(directory, "prior/held-sources-sources-1"), {
+        recursive: true,
+      });
+      mkdirSync(join(directory, "prior/held-sources-sources-2"));
+      // Copies what it was handed as --prior and writes a held set of its own
+      // before failing, as the real check does.
+      writeFileSync(
+        join(directory, "bin/bun"),
+        `#!/usr/bin/env bash
+echo "$*" >"$FAKE/check"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --prior) cp "$2" "$FAKE/prior-seen"; shift ;;
+    --held-out) echo "acl 2.3.2-2" >"$2"; shift ;;
+  esac
+  shift
+done
+printf '%b' "$FAKE_STDERR" >&2
+exit 3
+`,
+        { mode: 0o755 },
+      );
+      writeFileSync(
+        join(directory, "prior/held-sources-sources-1/held.txt"),
+        "acl 2.3.2-2\n",
+      );
+      writeFileSync(
+        join(directory, "prior/held-sources-sources-2/held.txt"),
+        "gh 1\n",
+      );
+      for (const { app, arch } of lists) {
+        writeFileSync(
+          join(directory, "lists", `${app}-${arch}.md`),
+          `| acl | 2.3.2-2 | acl |  | ${shared} |\n`,
+        );
+      }
+      const result = Bun.spawnSync(
+        [
+          "bash",
+          join(root, ".github/scripts/image-sources.sh"),
+          "lists",
+          "results",
+          "release",
+          "prior",
+          "held",
+        ],
+        {
+          cwd: directory,
+          env: {
+            PATH: `${join(directory, "bin")}:${process.env.PATH ?? ""}`,
+            FAKE: directory,
+            FAKE_EXIT: "3",
+            FAKE_STDERR: unreachable,
+          },
+        },
+      );
+      // Strict as ever: the sources still unanswered stop a release.
+      expect(result.exitCode).toBe(1);
+      const check = readFileSync(join(directory, "check"), "utf8");
+      expect(check).toContain("--snapshot-check 1800 --prior ");
+      expect(check).toContain(`--held-out held/held.txt `);
+      expect(
+        readFileSync(join(directory, "prior-seen"), "utf8").split("\n").sort(),
+      ).toEqual(["", "acl 2.3.2-2", "gh 1"]);
+      // The failed check's own set is where the workflow uploads from.
+      expect(readFileSync(join(directory, "held/held.txt"), "utf8")).toBe(
+        "acl 2.3.2-2\n",
+      );
+    });
+
+    test("with no earlier attempt the check gets no prior file", () => {
+      const { check } = run("release", 0);
+      expect(check).not.toContain("--prior");
+      expect(check).not.toContain("--held-out");
     });
   });
 
@@ -1948,6 +2159,21 @@ esac
       expect(store.tagged().filter((tag) => tag.includes("main-"))).toEqual([]);
     });
 
+    test("a main run that releases promotes under the release tag, and main's own ref still writes nothing else", () => {
+      const store = registry();
+      const run = store.promote({ RELEASE_REF: "refs/tags/v1.2.3" });
+      expect(run.code).toBe(0);
+      expect(store.record("worker").tags).toEqual([
+        "v1.2.3",
+        `sha-${sha.slice(0, 12)}`,
+      ]);
+      expect(store.tagged().filter((tag) => tag.includes("main-"))).toEqual([]);
+      const other = registry();
+      const refused = other.promote({ RELEASE_REF: "refs/heads/feature" });
+      expect(refused.code).toBe(1);
+      expect(other.creates()).toBe("");
+    });
+
     test("any other ref writes nothing", () => {
       const store = registry();
       const run = store.promote({
@@ -2241,6 +2467,9 @@ describe("compose layers", () => {
   const S3_ONLY = ["S3_BUCKET", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"];
   // And what only LocalStack's does: on s3 no upstream is private.
   const LOCALSTACK_ONLY = ["EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST"];
+  // The model key is entered on the console's model connections screen;
+  // the env value only serves a connection that names it with `value_env`.
+  const OPTIONAL = ["ANTHROPIC_API_KEY"];
   const holdsKey = (service: string, variable: string) =>
     service === "api" ||
     (service === "maintenance" && variable.startsWith("AWS_"));
@@ -2533,7 +2762,10 @@ describe("compose layers", () => {
       for (const [name, service] of Object.entries(servicesOf(layer))) {
         const values = Object.entries(
           (service.environment ?? {}) as Record<string, string>,
-        ).filter(([variable]) => variable !== "SETTINGS_DOCUMENT");
+        ).filter(
+          ([variable]) =>
+            variable !== "SETTINGS_DOCUMENT" && !OPTIONAL.includes(variable),
+        );
         if (typeof service.image === "string") values.push(["", service.image]);
         for (const [variable, value] of values)
           expect({ name, value }).toEqual({
@@ -2542,6 +2774,17 @@ describe("compose layers", () => {
               new RegExp(`^\\$\\{${variable || "[A-Z_]+"}:\\?[^}]+\\}$`),
             ),
           });
+        for (const variable of OPTIONAL)
+          if (service.environment?.[variable] !== undefined)
+            expect({
+              name,
+              variable,
+              value: service.environment[variable],
+            }).toEqual({
+              name,
+              variable,
+              value: `\${${variable}:-}`,
+            });
         expect({ name, volumes: service.volumes }).toEqual({
           name,
           volumes:
@@ -2725,13 +2968,15 @@ describe("compose layers", () => {
       "s3",
       S3_LAYERS,
       Object.keys(TEST_OPS_REQUIRED).filter(
-        (name) => !LOCALSTACK_ONLY.includes(name),
+        (name) => !LOCALSTACK_ONLY.includes(name) && !OPTIONAL.includes(name),
       ),
     ],
     [
       "localstack",
       LOCALSTACK_LAYERS,
-      Object.keys(TEST_OPS_REQUIRED).filter((name) => !S3_ONLY.includes(name)),
+      Object.keys(TEST_OPS_REQUIRED).filter(
+        (name) => !S3_ONLY.includes(name) && !OPTIONAL.includes(name),
+      ),
     ],
   ] as const)(
     "the test-ops layers on %s refuse to render without their required values",
@@ -2747,6 +2992,20 @@ describe("compose layers", () => {
         });
         expect(stderr).toContain(`${variable} must`);
       }
+    },
+    COMPOSE_RENDER_TIMEOUT_MS,
+  );
+
+  test.each([
+    ["s3", S3_LAYERS],
+    ["localstack", LOCALSTACK_LAYERS],
+  ] as const)(
+    "the test-ops layers on %s render and start without a model key",
+    (_store, layers) => {
+      const { ANTHROPIC_API_KEY: _key, ...withoutKey } = TEST_OPS_REQUIRED;
+      const { exitCode, stderr, model } = render(layers, withoutKey);
+      expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
+      expect(model?.services?.api?.environment?.ANTHROPIC_API_KEY).toBe("");
     },
     COMPOSE_RENDER_TIMEOUT_MS,
   );

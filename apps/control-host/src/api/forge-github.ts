@@ -12,6 +12,7 @@ import {
   type ForgeComment,
   ForgeCredentialError,
   type ForgePullRequest,
+  type ForgePullRequestWithBody,
   GITHUB_API_BASE,
   type GitCredential,
   type GitHubApi,
@@ -275,6 +276,27 @@ export function createGitHubConnection(
       const [found] = data;
       return found === undefined ? null : pullRequestOf(found);
     }
+    async function findPullRequestsForBranch(
+      branch: string,
+      options?: { limit?: number },
+    ): Promise<ForgePullRequestWithBody[]> {
+      const { data } = await call("pull request lookup", () =>
+        client.request("GET /repos/{owner}/{repo}/pulls", {
+          ...target,
+          head: `${repo.owner}:${branch}`,
+          state: "all",
+          sort: "created",
+          direction: "desc",
+          per_page: Math.min(Math.max(options?.limit ?? 10, 1), 100),
+          headers,
+        }),
+      );
+      return data.map((found) => ({
+        ...pullRequestOf(found),
+        body: found.body ?? "",
+        headRepository: found.head.repo?.full_name.toLowerCase() ?? null,
+      }));
+    }
     // Routes octokit's types do not know yet (return_run_details).
     const request = client.request as unknown as (
       route: string,
@@ -354,6 +376,18 @@ export function createGitHubConnection(
         return Uint8Array.from(Buffer.from(data.content, "base64"));
       },
       findPullRequestForBranch,
+      findPullRequestsForBranch,
+      async isAncestor(ancestor, descendant) {
+        const { data } = await call("commit comparison", () =>
+          client.request("GET /repos/{owner}/{repo}/compare/{basehead}", {
+            ...target,
+            basehead: `${ancestor}...${descendant}`,
+            per_page: 1,
+            headers,
+          }),
+        );
+        return data.status === "ahead" || data.status === "identical";
+      },
       async createPullRequest(input) {
         try {
           const { data } = await client.request(

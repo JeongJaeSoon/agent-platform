@@ -157,6 +157,7 @@ function harness(
     pending: pendingRequestsQuery(client, SESSION_ID).queryKey,
     usage: sessionUsageQuery(client, SESSION_ID).queryKey,
     turns: sessionTurnsQuery(client, SESSION_ID).queryKey,
+    github: queryKeysOf(client).sessionGithubWork(SESSION_ID),
   };
   /** Each invalidation as the key it names and whether it matches exactly. */
   const invalidated = () =>
@@ -459,7 +460,7 @@ describe("useSessionEvents", () => {
       h.stream.push(status, assistant, question, status, result, error);
     });
     await waitFor(() => expect(hook.result.current.events).toHaveLength(6));
-    await waitFor(() => expect(h.invalidated()).toHaveLength(7));
+    await waitFor(() => expect(h.invalidated()).toHaveLength(8));
     expect(h.invalidated()).toEqual([
       [h.keys.list, true],
       [h.keys.waiting, true],
@@ -468,6 +469,7 @@ describe("useSessionEvents", () => {
       [h.keys.pending, false],
       [h.keys.usage, false],
       [h.keys.turns, false],
+      [h.keys.github, false],
     ]);
   });
 
@@ -516,8 +518,21 @@ describe("useSessionEvents", () => {
     await waitFor(() => expect(hook.result.current.state).toBe("open"));
     const expected = [
       [question, [h.keys.detail, h.keys.pending]],
-      [result, [h.keys.detail, h.keys.usage]],
+      [result, [h.keys.detail, h.keys.usage, h.keys.github]],
       [error, [h.keys.detail]],
+      [
+        [
+          "system",
+          {
+            type: "system",
+            subtype: "workspace_limit_mode",
+            bytes: "hard",
+            inodes: "unknown",
+            reason: "storage_declaration_and_capacity",
+          },
+        ],
+        [h.keys.detail],
+      ],
     ] as const;
     let seen = 0;
     for (const [event, keys] of expected) {

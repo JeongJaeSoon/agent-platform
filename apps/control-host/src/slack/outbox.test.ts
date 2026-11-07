@@ -21,6 +21,8 @@ import {
   createPostgresAgentIdentityStore,
   createPostgresAgentStore,
   createPostgresCredentialBindingStore,
+  createPostgresPullRequestDrain,
+  createPostgresPushRequests,
   createPostgresSecretStore,
   createPostgresSlackAppStore,
   createPostgresSlackInboundEventStore,
@@ -31,6 +33,7 @@ import {
   linkedAccounts,
   memberships,
   pendingRequests,
+  pushIntents,
   pushRequests,
   receipts,
   registerSlackInstallation,
@@ -2239,6 +2242,48 @@ describe.each(ENGINES)("the Slack thread status on %s", (engine) => {
     expect(stamped.every((row) => row.reconciledAt !== null)).toBe(true);
   });
 
+  test("a push intent or a pull request stage change marks the thread status due", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    const [session] = await db
+      .select()
+      .from(sessions)
+      .where(eq(sessions.id, sessionId));
+    const [turn] = await db
+      .select({ id: turns.id })
+      .from(turns)
+      .where(eq(turns.sessionId, sessionId));
+    if (!session || !turn) throw new Error("no session or turn");
+    const dirty = async () => (await statusRows())[0]?.dirtyRev ?? 0;
+    const intentId = randomUUID();
+    let before = await dirty();
+    await db.insert(pushIntents).values({
+      id: intentId,
+      ownerId: session.ownerId,
+      sessionId,
+      turnId: turn.id,
+      attemptId: "attempt-1",
+      repositoryId: "sandbox",
+      targetBranch: `agent/${sessionId}`,
+      status: "deferred",
+      actor: {
+        principal: { kind: "api_key", id: "k" },
+        actor_user_id: null,
+        agent_id: null,
+      },
+      approvalBasis: "push.primary",
+      policySource: "agent",
+    });
+    expect(await dirty()).toBeGreaterThan(before);
+    before = await dirty();
+    await db
+      .update(pushIntents)
+      .set({ status: "cancelled", refusalCode: "session_closed" })
+      .where(eq(pushIntents.id, intentId));
+    expect(await dirty()).toBeGreaterThan(before);
+  });
+
   test("processing is sent again after 50 minutes, before Slack drops it", async () => {
     const fixture = await agentInSlack();
     await mention(fixture, THREAD);
@@ -3179,5 +3224,237 @@ describe.each(ENGINES)("the Slack card settle on %s", (engine) => {
       (row.settleUncertainLatestAt?.getTime() ?? 0);
     expect(waitMs).toBeGreaterThanOrEqual(W - 1000);
     expect(await settler()).toMatchObject({ claimed: 0 });
+  });
+});
+
+describe.each(ENGINES)("action notices on %s", (engine) => {
+  useDatabase(engine);
+
+  const COMMIT = "a".repeat(40);
+
+  /** A session in a Slack thread, and a push request taken up by the pusher. */
+  async function pushing(
+    flow: "legacy" | "actions",
+    options: {
+      intent?: unknown;
+      slack?: boolean;
+      /** Another request of the session an earlier call made. */
+      sessionId?: string;
+    } = {},
+  ) {
+    let sessionId = options.sessionId;
+    if (sessionId === undefined) {
+      const fixture = await agentInSlack();
+      await mention(fixture, THREAD);
+      sessionId = await sessionOf(fixture);
+    }
+    const [session] = await db
+      .select()
+      .from(sessions)
+      .where(eq(sessions.id, sessionId));
+    if (!session) throw new Error("no session");
+    if (options.slack === false) await db.delete(schema.sessionLinks);
+    const receiptId = randomUUID();
+    await db.insert(receipts).values({
+      id: receiptId,
+      ownerId: session.ownerId,
+      operation: "request_push",
+      targetRef: { kind: "session", id: sessionId },
+    });
+    const id = randomUUID();
+    await db.insert(pushRequests).values({
+      id,
+      ownerId: session.ownerId,
+      sessionId,
+      repositoryId: "sandbox",
+      repositoryBinding: "sha256:binding",
+      checkpointRevision: 1,
+      gitCommit: COMMIT,
+      targetBranch: `agent/${sessionId}`,
+      state: "pushing",
+      pushAttempts: 1,
+      flow,
+      pullRequestIntent: options.intent ?? null,
+      requestedBy: {
+        principal: { kind: "installation", id: "i" },
+        actor_user_id: null,
+        agent_id: null,
+      },
+      requestReceiptId: receiptId,
+      decidedAt: new Date(),
+      decidedBy: { kind: "policy" },
+      decisionReceiptId: receiptId,
+    });
+    return { id, sessionId, ownerId: session.ownerId };
+  }
+
+  const pushed = {
+    state: "pushed" as const,
+    remoteUrl: "https://github.com/acme/app.git",
+    remoteRef: "refs/heads/x",
+    previousCommit: null,
+  };
+  const notices = async () =>
+    (await db.select().from(slackOutbox))
+      .filter((row) => row.kind === "action_notice")
+      .sort((a, b) => a.dedupeKey.localeCompare(b.dedupeKey));
+  const row = async (id: string) =>
+    (await db.select().from(pushRequests).where(eq(pushRequests.id, id)))[0];
+
+  test("a finished push of the action flow leaves one notice in the same commit as its state, and a PR intent makes the stage due", async () => {
+    const { id } = await pushing("actions", { intent: { title: "T" } });
+    const store = createPostgresPushRequests(db);
+    const job = { id, attempt: 1 } as never;
+    expect(await store.finish(job, pushed)).toBe(true);
+    expect(await row(id)).toMatchObject({ state: "pushed", prState: "due" });
+    const [notice, ...rest] = await notices();
+    expect(rest).toEqual([]);
+    expect(notice).toMatchObject({
+      kind: "action_notice",
+      dedupeKey: `action:${id}:pushed`,
+      status: "pending",
+    });
+    expect(notice?.body.text).toContain("sandbox");
+    expect(notice?.body.text).toContain("aaaaaaa");
+    // A repeat of the same result is no second row.
+    expect(await store.finish(job, pushed)).toBe(false);
+    expect(await notices()).toHaveLength(1);
+  });
+
+  test("a push without a PR intent stays at push; a failed one cancels the stage and says so", async () => {
+    const bare = await pushing("actions");
+    const store = createPostgresPushRequests(db);
+    await store.finish({ id: bare.id, attempt: 1 } as never, pushed);
+    expect((await row(bare.id))?.prState).toBeNull();
+
+    const failed = await pushing("actions", {
+      intent: { title: "T" },
+      sessionId: bare.sessionId,
+    });
+    await store.finish({ id: failed.id, attempt: 1 } as never, {
+      state: "failed",
+      refusal: "push_failed",
+    });
+    expect(await row(failed.id)).toMatchObject({
+      state: "failed",
+      prState: "cancelled",
+      prError: "push_failed",
+    });
+    const keys = (await notices()).map((entry) => entry.dedupeKey);
+    expect(keys).toContain(`action:${failed.id}:push_failed`);
+    expect(keys).toContain(`action:${bare.id}:pushed`);
+  });
+
+  test("a request of the legacy flow gets no notice", async () => {
+    const legacy = await pushing("legacy");
+    await createPostgresPushRequests(db).finish(
+      { id: legacy.id, attempt: 1 } as never,
+      pushed,
+    );
+    expect(await notices()).toEqual([]);
+    expect((await row(legacy.id))?.state).toBe("pushed");
+  });
+
+  test("a session with no Slack thread gets no notice, and its push still finishes", async () => {
+    const web = await pushing("actions", { slack: false });
+    await createPostgresPushRequests(db).finish(
+      { id: web.id, attempt: 1 } as never,
+      pushed,
+    );
+    expect(await notices()).toEqual([]);
+    expect((await row(web.id))?.state).toBe("pushed");
+  });
+
+  test("the drain's settle writes the state and the notice together: opened tells once with the PR link, in the starter's language", async () => {
+    const { id, sessionId } = await pushing("actions", {
+      intent: { title: "T" },
+    });
+    await createPostgresPushRequests(db).finish(
+      { id, attempt: 1 } as never,
+      pushed,
+    );
+    const drain = createPostgresPullRequestDrain(db);
+    const job = await drain.claimNextDue(60_000);
+    if (job === null) throw new Error("no job");
+    await drain.settle(job, {
+      kind: "opened",
+      pullRequest: {
+        number: 12,
+        url: "https://github.com/acme/app/pull/12",
+        head: `agent/${sessionId}`,
+        base: "main",
+        headSha: COMMIT,
+        title: "T",
+        created: true,
+      },
+    });
+    expect(await row(id)).toMatchObject({
+      prState: "opened",
+      prVerifiedNumber: 12,
+    });
+    const opened = (await notices()).find(
+      (entry) => entry.dedupeKey === `action:${id}:opened`,
+    );
+    expect(opened?.body).toMatchObject({
+      link_url: "https://github.com/acme/app/pull/12",
+    });
+    expect(opened?.body.text).toContain("12");
+    // A fenced settle writes neither state nor notice.
+    expect(
+      await drain.settle(job, {
+        kind: "stop",
+        stage: "failed",
+        error: "head_moved",
+      }),
+    ).toEqual({ result: "fenced" });
+    expect((await notices()).map((entry) => entry.dedupeKey)).toEqual([
+      `action:${id}:opened`,
+      `action:${id}:pushed`,
+    ]);
+  });
+
+  test("an unclear end tells once as uncertain, and a stop with a code names the code", async () => {
+    const drain = createPostgresPullRequestDrain(db);
+    const store = createPostgresPushRequests(db);
+    const one = await pushing("actions", { intent: { title: "T" } });
+    await store.finish({ id: one.id, attempt: 1 } as never, pushed);
+    const job = await drain.claimNextDue(60_000);
+    if (job === null) throw new Error("no job");
+    await drain.settle(job, {
+      kind: "stop",
+      stage: "uncertain",
+      error: "lookup_failed",
+    });
+    const uncertain = (await notices()).find(
+      (entry) => entry.dedupeKey === `action:${one.id}:pr_uncertain`,
+    );
+    expect(uncertain?.body.text).toContain("lookup_failed");
+    expect(await drain.claimNextDue(60_000)).toBeNull();
+
+    const two = await pushing("actions", {
+      intent: { title: "T" },
+      sessionId: one.sessionId,
+    });
+    await store.finish({ id: two.id, attempt: 1 } as never, pushed);
+    const second = await drain.claimNextDue(60_000);
+    if (second === null) throw new Error("no job");
+    await drain.settle(second, {
+      kind: "stop",
+      stage: "failed",
+      error: "head_moved",
+    });
+    const failed = (await notices()).find(
+      (entry) => entry.dedupeKey === `action:${two.id}:pr_failed`,
+    );
+    expect(failed?.body.text).toContain("head_moved");
+  });
+
+  test("the migration lets an action_notice row in (the kind CHECK was widened)", async () => {
+    const { id } = await pushing("actions");
+    await createPostgresPushRequests(db).finish(
+      { id, attempt: 1 } as never,
+      pushed,
+    );
+    expect((await notices())[0]?.kind).toBe("action_notice");
   });
 });

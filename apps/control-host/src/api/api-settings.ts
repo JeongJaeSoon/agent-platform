@@ -1,8 +1,11 @@
 import { existsSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import {
+  DEFAULT_WORKSPACE_ENFORCE,
   WORKER_HEARTBEAT_INTERVAL_MS,
   WORKER_LEASE_SAFETY_MARGIN_MS,
+  type WorkspaceEnforce,
+  workspaceEnforceSchema,
 } from "@werft-ai/contracts";
 import { integerSetting, settingProblems } from "@werft-ai/contracts/settings";
 import { type LogLevel, logLevelFromEnv } from "@werft-ai/observability";
@@ -11,6 +14,7 @@ import {
   DEFAULT_PENDING_TTL_MS,
   installationLimitProblems,
 } from "@werft-ai/platform";
+import { booleanFlag } from "../boolean-flag.ts";
 import { googleLoginConfigFromEnv } from "./google-login.ts";
 
 /**
@@ -20,6 +24,7 @@ import { googleLoginConfigFromEnv } from "./google-login.ts";
  * is an installation running under settings nobody chose.
  */
 export type ApiSettings = {
+  workspaceEnforce: WorkspaceEnforce;
   leaseTtlMs: number;
   logLevel: LogLevel;
   pendingTtlMs: number;
@@ -29,6 +34,12 @@ export type ApiSettings = {
     maxStreamsPerOwner?: number;
   };
   webDistDir?: string;
+  /**
+   * AGENT_ACTION_FLOWS: a `request_push` inside a running turn becomes a push
+   * intent. Off by default; the operator turns it on only once every replica
+   * runs the intent code, and turning it off stops only new intents.
+   */
+  actionFlows: boolean;
 };
 
 export class ApiSettingsError extends Error {
@@ -44,6 +55,14 @@ export function apiSettingsFromEnv(
   environment: Record<string, string | undefined>,
 ): ApiSettings {
   const { problems, read } = settingProblems();
+  const workspaceEnforce = read(() => {
+    const result = workspaceEnforceSchema.safeParse(
+      environment.WORKSPACE_ENFORCE ?? DEFAULT_WORKSPACE_ENFORCE,
+    );
+    if (!result.success)
+      throw new Error("WORKSPACE_ENFORCE must be warn, fail, or off");
+    return result.data;
+  });
   // Unset keeps the platform default.
   const optionalInteger = (
     name: string,
@@ -61,6 +80,11 @@ export function apiSettingsFromEnv(
       min: 1,
       max: MAX_PENDING_REQUEST_TTL_SEC,
     }),
+  );
+  const actionFlows = read(() =>
+    environment.AGENT_ACTION_FLOWS === undefined
+      ? false
+      : booleanFlag(environment.AGENT_ACTION_FLOWS, "AGENT_ACTION_FLOWS"),
   );
   const sse = {
     batchMaxBytes: read(() =>
@@ -93,6 +117,7 @@ export function apiSettingsFromEnv(
   }
   if (problems.length > 0) throw new ApiSettingsError(problems);
   return {
+    workspaceEnforce: workspaceEnforce as WorkspaceEnforce,
     leaseTtlMs: leaseTtlMs as number,
     logLevel: logLevel as LogLevel,
     pendingTtlMs:
@@ -109,6 +134,7 @@ export function apiSettingsFromEnv(
         : { maxStreamsPerOwner: sse.maxStreamsPerOwner }),
     },
     ...(webDistDir === undefined ? {} : { webDistDir }),
+    actionFlows: actionFlows as boolean,
   };
 }
 

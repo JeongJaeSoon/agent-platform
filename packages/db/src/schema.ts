@@ -22,7 +22,12 @@ import {
   OPEN_PUSH_REQUEST_STATES,
   PERMISSION_MODE_VALUES,
   type PlatformPrompt,
+  PULL_REQUEST_STAGE_VALUES,
   PUSH_APPROVAL_BASIS_VALUES,
+  PUSH_INTENT_REFUSAL_VALUES,
+  PUSH_INTENT_STATUS_VALUES,
+  PUSH_REQUEST_FLOW_VALUES,
+  PUSH_REQUEST_ORIGIN_VALUES,
   PUSH_REQUEST_STATE_VALUES,
   RECEIPT_STATUS_VALUES,
   REPOSITORY_SCOPE_VALUES,
@@ -2279,8 +2284,48 @@ export const pushRequests = pgTable(
     // approval is judged again before it runs; a person's stands.
     approvalBasis: text("approval_basis"),
     approvalSettingsRevision: integer("approval_settings_revision"),
+    // `intent`: made by the intent runner from a revision a finished turn
+    // pinned, so the latest-checkpoint rules do not apply to it.
+    origin: text().notNull().default("direct"),
+    // Fixed at creation; the install setting never decides it later.
+    flow: text().notNull().default("legacy"),
+    // Filled and run by the pull-request drain; the same-target check reads
+    // `pr_state` here so a later push waits for an unfinished PR stage.
+    pullRequestIntent: jsonb("pull_request_intent"),
+    prState: text("pr_state"),
+    // The pull-request drain's claim: the token fences every write of a
+    // dropped claim; `pr_next_attempt_at` is the backoff after a forge error.
+    prClaimToken: uuid("pr_claim_token"),
+    prLeaseExpiresAt: timestamp("pr_lease_expires_at", { withTimezone: true }),
+    prAttempts: integer("pr_attempts").notNull().default(0),
+    prNextAttemptAt: timestamp("pr_next_attempt_at", { withTimezone: true }),
+    // A public code and detail for the stage's end (`head_moved`, ...).
+    prError: text("pr_error"),
+    prErrorDetails: jsonb("pr_error_details"),
+    // Which pull request, at which head commit, the drain verified. Only the
+    // drain's path writes these; a row saved by the public open is unverified.
+    prVerifiedNumber: integer("pr_verified_number"),
+    prVerifiedHeadSha: text("pr_verified_head_sha"),
   },
   (table) => [
+    index("push_requests_pr_drain_idx")
+      .on(table.prState, table.prNextAttemptAt)
+      .where(sql`${table.prState} IN ('due','opening')`),
+    check(
+      "push_requests_origin_check",
+      sql`${table.origin} IN (${sql.raw(sqlList(PUSH_REQUEST_ORIGIN_VALUES))})`,
+    ),
+    check(
+      "push_requests_flow_check",
+      sql`${table.flow} IN (${sql.raw(sqlList(PUSH_REQUEST_FLOW_VALUES))})`,
+    ),
+    check(
+      "push_requests_pr_state_check",
+      sql`${table.prState} IS NULL OR ${table.prState} IN (${sql.raw(sqlList(PULL_REQUEST_STAGE_VALUES))})`,
+    ),
+    index("push_requests_pr_open_idx")
+      .on(table.sessionId, table.repositoryId, table.targetBranch)
+      .where(sql`${table.prState} IN ('due','opening')`),
     check(
       "push_requests_approval_basis_check",
       sql`${table.approvalBasis} IS NULL OR ${table.approvalBasis} IN (${sql.raw(sqlList(PUSH_APPROVAL_BASIS_VALUES))})`,
@@ -2322,6 +2367,75 @@ export const pushRequests = pgTable(
     index("push_requests_pushing_lease_idx")
       .on(table.leaseExpiresAt)
       .where(sql`${table.state} = 'pushing'`),
+  ],
+);
+
+// What a `request_push` made inside a running turn asked for: "push what this
+// turn ends with". The control-host's action-broker pins the turn's final
+// checkpoint revision in the finalize transaction; the intent runner then
+// makes the push request from that revision. The actor, approval basis and
+// policy source are stored so the runner acts with the requester's authority
+// and judges the gates again, never with more.
+export const pushIntents = pgTable(
+  "push_intents",
+  {
+    id: uuid().primaryKey(),
+    ownerId: text("owner_id").notNull(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => sessions.id),
+    turnId: bigint("turn_id", { mode: "number" })
+      .notNull()
+      .references(() => turns.id, { onDelete: "cascade" }),
+    attemptId: text("attempt_id").notNull(),
+    repositoryId: text("repository_id").notNull(),
+    targetBranch: text("target_branch").notNull(),
+    status: text().notNull().default("deferred"),
+    pinnedRevision: integer("pinned_revision"),
+    pushRequestId: uuid("push_request_id").references(() => pushRequests.id),
+    refusalCode: text("refusal_code"),
+    actor: jsonb().notNull(),
+    // `push.primary` or `push.attached`, and who the policy was at creation.
+    approvalBasis: text("approval_basis"),
+    policySource: text("policy_source"),
+    pullRequest: jsonb("pull_request"),
+    // The runner's lease: a claim token fences writes of a dropped claim.
+    claimToken: uuid("claim_token"),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    settledAt: timestamp("settled_at", { withTimezone: true }),
+  },
+  (table) => [
+    check(
+      "push_intents_status_check",
+      sql`${table.status} IN (${sql.raw(sqlList(PUSH_INTENT_STATUS_VALUES))})`,
+    ),
+    check(
+      "push_intents_refusal_check",
+      sql`${table.refusalCode} IS NULL OR ${table.refusalCode} IN (${sql.raw(sqlList(PUSH_INTENT_REFUSAL_VALUES))})`,
+    ),
+    check(
+      "push_intents_shape_check",
+      sql`(${table.status} NOT IN ('pinned','requested') OR ${table.pinnedRevision} IS NOT NULL) AND ((${table.status} = 'requested') = (${table.pushRequestId} IS NOT NULL)) AND ((${table.status} IN ('failed','cancelled')) = (${table.refusalCode} IS NOT NULL))`,
+    ),
+    // One intent per turn and target: the same call again is the same row.
+    // One target per turn and repository is enforced by `createDeferred`
+    // under the session row lock, not by this index.
+    uniqueIndex("push_intents_turn_target_idx").on(
+      table.turnId,
+      table.repositoryId,
+      table.targetBranch,
+    ),
+    index("push_intents_session_idx").on(table.sessionId, table.createdAt),
+    // The runner and the keep-set read the unfinished ones only.
+    index("push_intents_open_idx")
+      .on(table.status, table.createdAt)
+      .where(sql`${table.status} IN ('deferred','pinned')`),
   ],
 );
 
@@ -3855,7 +3969,7 @@ export const slackOutbox = pgTable(
     }),
     check(
       "slack_outbox_kind_check",
-      sql`${table.kind} IN ('instruction', 'reply', 'notice', 'failure_notice', 'input_notice', 'welcome')`,
+      sql`${table.kind} IN ('instruction', 'reply', 'notice', 'failure_notice', 'input_notice', 'welcome', 'action_notice')`,
     ),
     check(
       "slack_outbox_status_check",
@@ -4734,6 +4848,13 @@ export const providerConnections = pgTable(
       .$type<SettingsCredentialSource>()
       .notNull(),
     origin: text().$type<SettingsOrigin>().notNull(),
+    /**
+     * The `auth` this row had while its credential came from the
+     * deployment (an env or Secrets Manager reference, never a value),
+     * set once when the console moves it to a stored value. Ceilings made
+     * over the old definition keep matching this row.
+     */
+    replacesAuth: jsonb("replaces_auth").$type<Record<string, unknown>>(),
     disabledAt: timestamp("disabled_at", { withTimezone: true }),
     disabledBy: uuid("disabled_by").references(() => users.id),
     createdBy: uuid("created_by").references(() => users.id),
@@ -4815,6 +4936,20 @@ export const settingsGeneration = pgTable(
     generation: bigint({ mode: "number" }).notNull().default(0),
   },
   (table) => [check("settings_generation_single_check", sql`${table.id} = 1`)],
+);
+
+// One row once the one-time profile fill has run for real. The sweep holds
+// back while neither this row nor any rollout exists, so an install that
+// deploys the writer before the fill is not rolled out over the fill's head.
+export const profileFill = pgTable(
+  "profile_fill",
+  {
+    id: integer().primaryKey().default(1),
+    completedAt: timestamp("completed_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [check("profile_fill_single_check", sql`${table.id} = 1`)],
 );
 
 // The commit attribution each claim of a session asked for (author, the

@@ -11,8 +11,10 @@ import {
   type ListAgentsQuery,
   listAgentsResponseSchema,
   requestBodyInvalidDetailsSchema,
+  saveAgentResponseSchema,
 } from "@werft-ai/contracts";
 import {
+  type AgentRecord,
   type AgentService,
   type AgentStore,
   type AuthorizationPolicy,
@@ -63,7 +65,10 @@ const card = {
   rules: [],
 };
 
-const detail: AgentDetail = {
+const detail: AgentRecord = {
+  behavior_revision: 0,
+  model_source: "fixed",
+  draft: null,
   agent: {
     id: AGENT,
     workspace_id: "019a0000-0000-7000-8000-0000000000c1",
@@ -156,8 +161,10 @@ function store(overrides: Partial<AgentStore> = {}): AgentStore {
     findRelease: async () => storedRelease(),
     releaseSuperseded: async () => false,
     create: async () => ({ outcome: "created", detail }),
-    update: async () => ({ outcome: "updated", detail }),
+    update: async () => ({ outcome: "updated", detail, saved: null }),
+    recordDraftFailure: async () => true,
     hasGitHubSettings: async () => false,
+    followProfile: async () => ({ outcome: "updated" as const }),
     insertRelease: async ({ release }) => ({
       outcome: "created",
       release: {
@@ -192,7 +199,10 @@ function asPerson(caller: Caller): Caller {
   };
 }
 
-type Routed = Omit<AgentService, "resolveRelease" | "promptIdentity">;
+type Routed = Omit<
+  AgentService,
+  "resolveRelease" | "promptIdentity" | "rolloutRelease"
+>;
 
 function app(
   agentStore: AgentStore = store(),
@@ -552,7 +562,16 @@ describe("POST /v1/agents", () => {
       body,
     );
     expect(response.status).toBe(201);
-    expect(agentDetailSchema.parse(await response.json())).toEqual(detail);
+    expect(saveAgentResponseSchema.parse(await response.json())).toEqual({
+      ...detail,
+      effective_behavior: { applied: null, draft: null },
+      release: {
+        status: "unchanged",
+        reason: null,
+        release_id: null,
+        version_id: detail.versions.at(-1)?.id as string,
+      },
+    });
     expect(created).toMatchObject({
       slug: "finance",
       createdBy: OWNER_USER,
@@ -669,7 +688,10 @@ describe("GET /v1/agents/{id}", () => {
   test("returns versions, releases and the active release", async () => {
     const response = await send(app(), "GET", `/v1/agents/${AGENT}`);
     expect(response.status).toBe(200);
-    expect(agentDetailSchema.parse(await response.json())).toEqual(detail);
+    expect(agentDetailSchema.parse(await response.json())).toEqual({
+      ...detail,
+      effective_behavior: { applied: null, draft: null },
+    });
   });
 
   test("a missing agent and a malformed id are both not found", async () => {
@@ -695,6 +717,45 @@ describe("GET /v1/agents/{id}", () => {
 });
 
 describe("PATCH /v1/agents/{id}", () => {
+  test("an agent that keeps changing under the save is 409 REVISION_CONFLICT, and a refused release is answered with 200 and its reason", async () => {
+    const api = app(store({ update: async () => ({ outcome: "stale" }) }));
+    const response = await send(api, "PATCH", `/v1/agents/${AGENT}`, {
+      card,
+      runtime_profile_id: "coding",
+    });
+    expect(response.status).toBe(409);
+    expect(await codeOf(response)).toBe("REVISION_CONFLICT");
+
+    const released = await send(
+      app(
+        store({
+          update: async () => ({
+            outcome: "updated",
+            detail,
+            saved: {
+              status: "pending",
+              versionId: VERSION,
+              behaviorRevision: 1,
+            },
+          }),
+        }),
+      ),
+      "PATCH",
+      `/v1/agents/${AGENT}`,
+      { card, runtime_profile_id: "coding" },
+    );
+    expect(released.status).toBe(200);
+    const body = saveAgentResponseSchema.parse(await released.json());
+    // This catalog's profile needs a repository the agent never had: the
+    // card is kept and the refusal is the answer, not an error status.
+    expect(body.release).toEqual({
+      status: "failed",
+      reason: "release_refused",
+      release_id: null,
+      version_id: body.versions.at(-1)?.id as string,
+    });
+  });
+
   test("a card becomes a new version", async () => {
     let update: unknown;
     const response = await send(
@@ -702,7 +763,7 @@ describe("PATCH /v1/agents/{id}", () => {
         store({
           update: async (input) => {
             update = input;
-            return { outcome: "updated", detail };
+            return { outcome: "updated", detail, saved: null };
           },
         }),
       ),

@@ -5,6 +5,8 @@ import {
   installationProfileIdParamsSchema,
   installationProfileOptionsResponseSchema,
   listProfilesResponseSchema,
+  retryProfileRolloutRequestSchema,
+  retryProfileRolloutResponseSchema,
   workspaceProfileChangeResponseSchema,
   workspaceProfileIdParamsSchema,
 } from "@werft-ai/contracts";
@@ -95,6 +97,19 @@ export function registerProfileRoutes(
       installationProfileChangeResponseSchema,
       retired,
     );
+  });
+
+  apiRoute(router, "retryProfileRollout", async (context) => {
+    const params = requireParams(context, installationProfileIdParamsSchema);
+    const body = await parseJsonBody(context, retryProfileRolloutRequestSchema);
+    const retried = await mapped(() =>
+      installation.retryRollout(
+        context.get("caller"),
+        params.profile_id,
+        body.agent_id,
+      ),
+    );
+    return jsonWithSchema(context, retryProfileRolloutResponseSchema, retried);
   });
 
   for (const [operationId, blocked] of [

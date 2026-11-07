@@ -30,6 +30,7 @@ import { openResumeReceipt } from "./resume-control.ts";
 import {
   attempts,
   checkpoints,
+  pushIntents,
   pushRequests,
   receipts,
   sessions,
@@ -237,14 +238,30 @@ export function createPostgresCheckpointStore(
     },
 
     async readPushPinnedRevisions(sessionId: string): Promise<number[]> {
+      // One statement, so one snapshot: an intent turning into a request is
+      // a single transaction, and any snapshot sees the revision in one of
+      // the two. The collector reads the pointer first and this after.
       const rows = await db
-        .selectDistinct({ revision: pushRequests.checkpointRevision })
+        .select({ revision: pushRequests.checkpointRevision })
         .from(pushRequests)
         .where(
           and(
             eq(pushRequests.sessionId, sessionId),
             inArray(pushRequests.state, [...OPEN_PUSH_REQUEST_STATES]),
           ),
+        )
+        .union(
+          db
+            // The where clause leaves no null; the column type cannot say so.
+            .select({ revision: sql<number>`${pushIntents.pinnedRevision}` })
+            .from(pushIntents)
+            .where(
+              and(
+                eq(pushIntents.sessionId, sessionId),
+                eq(pushIntents.status, "pinned"),
+                isNotNull(pushIntents.pinnedRevision),
+              ),
+            ),
         );
       return rows.map((row) => row.revision);
     },
@@ -325,6 +342,9 @@ export function createPostgresCheckpointStore(
             eq(sessions.admissionState, "closed"),
             lt(sessions.updatedAt, sql`now() - interval '1 day'`),
             sql`NOT EXISTS (SELECT 1 FROM ${pushRequests} WHERE ${pushRequests.sessionId} = ${sessions.id} AND ${inArray(pushRequests.state, [...OPEN_PUSH_REQUEST_STATES])})`,
+            // A deferred or pinned intent still becomes a request that
+            // pins a revision; the collection is not over while one exists.
+            sql`NOT EXISTS (SELECT 1 FROM ${pushIntents} WHERE ${pushIntents.sessionId} = ${sessions.id} AND ${pushIntents.status} IN ('deferred','pinned'))`,
           ),
         )
         .returning({ id: sessions.id });

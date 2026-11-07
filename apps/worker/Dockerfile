@@ -45,8 +45,10 @@ RUN --mount=type=bind,source=scripts/image-prune.sh,target=/tmp/image-prune.sh \
 # Git LFS, for a session's LFS objects through the proxy's repository route.
 # Built here from upstream's release source rather than taken as its binary or
 # Debian's package: both link a golang.org/x/net the image scan fails on
-# (94S-1194), and the scan takes no exception for it. The build moves x/net to
-# GIT_LFS_X_NET; go.mod and go.sum must then hash to the pins below, which
+# (94S-1194), and the scan takes no exception for it. The same holds for
+# github.com/klauspost/compress 1.19.1 (GO-2026-6865, fixed in 1.20.2). The
+# build moves x/net to GIT_LFS_X_NET and compress to GIT_LFS_COMPRESS;
+# go.mod and go.sum must then hash to the pins below, which
 # fixes every module the binary links. Source, Go toolchain and module set are
 # pinned; bumped by hand, since the daily apt upgrade does not reach them.
 # The toolchain stays in this stage. THIRD_PARTY_NOTICES names the versions
@@ -57,6 +59,7 @@ ARG GIT_LFS_VERSION=3.8.1
 # The commit v3.8.1 tags; `git lfs version` reports it.
 ARG GIT_LFS_COMMIT=a662a6dbfedf706cfa9fc7a5b7bcc7ba2e2c8a65
 ARG GIT_LFS_X_NET=0.62.0
+ARG GIT_LFS_COMPRESS=1.20.2
 ARG GIT_LFS_GO=1.27.3
 ARG BUILDARCH
 ARG TARGETARCH
@@ -88,9 +91,9 @@ WORKDIR /tmp/git-lfs-src
 RUN tar -xzf "/tmp/go-${BUILDARCH}.tar.gz" -C /usr/local \
   && tar -xzf /tmp/git-lfs-src.tar.gz --strip-components=1 \
   && export PATH="/usr/local/go/bin:${PATH}" GOTOOLCHAIN=local \
-  && go get "golang.org/x/net@v${GIT_LFS_X_NET}" \
-  && echo "dc2dee038bdb5fbe42a7b0028cea2d7f35b6983b6afc86571d4bd4e5604890a0  go.mod" | sha256sum -c - \
-  && echo "dd02990f50037188fabf10501b466c489c69677edf4130b81f1d9581aea677e6  go.sum" | sha256sum -c - \
+  && go get "golang.org/x/net@v${GIT_LFS_X_NET}" "github.com/klauspost/compress@v${GIT_LFS_COMPRESS}" \
+  && echo "5e9ffd420b23b3a013d9be80d7a11376c7d7a932ac9a13d11ecb2e994ce520fa  go.mod" | sha256sum -c - \
+  && echo "654c608e1f9f9e0f9e67d55e5973d5beee8cb4a9be9c542bf0e241fe20ea8173  go.sum" | sha256sum -c - \
   && CGO_ENABLED=0 GOOS=linux GOARCH="$TARGETARCH" go build -trimpath \
     -ldflags="-s -w -X github.com/git-lfs/git-lfs/v3/config.GitCommit=${GIT_LFS_COMMIT}" \
     -o /tmp/git-lfs . \

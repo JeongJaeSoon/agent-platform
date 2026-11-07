@@ -4,6 +4,7 @@ import {
   OPT_IN_PERMISSION_MODES,
   PERMISSION_MODE_VALUES,
   type ProfileSummary,
+  type RetryProfileRolloutResponse,
   RUNTIME_KIND_VALUES,
   runtimeKindSchema,
   type WorkspaceProfileChangeResponse,
@@ -14,6 +15,7 @@ import type {
   InstallationProfileRecord,
   InstallationProfileStore,
 } from "../ports/installation-profile-store.ts";
+import type { ProfileRolloutStore } from "../ports/profile-rollout-store.ts";
 import type { TeamActor } from "../ports/team-store.ts";
 import {
   type CatalogProfileConfig,
@@ -80,6 +82,7 @@ const badRequest = (message: string, reason_code: string, field?: string) =>
 export function createInstallationProfileService(deps: {
   authorization: AuthorizationPolicy;
   store: Pick<InstallationProfileStore, "create" | "retire" | "setBlocked">;
+  rollouts: Pick<ProfileRolloutStore, "retryFailed">;
   catalog: SessionCatalogView & { workspace_profiles: WorkspaceProfiles };
   connections: () => Connections;
   allowUnattended: boolean;
@@ -382,6 +385,24 @@ export function createInstallationProfileService(deps: {
             result.outcome === "retired" ? receiptId : null,
           );
       }
+    },
+
+    /**
+     * A person's retry of one agent a profile rollout failed for: the one way
+     * a failed item runs again (design 2.3). The item is judged afresh.
+     */
+    async retryRollout(
+      caller: Caller,
+      profileId: string,
+      agentId: string,
+    ): Promise<RetryProfileRolloutResponse> {
+      const actor = await operator(caller);
+      const retried = await deps.rollouts.retryFailed({
+        workspaceId: actor.workspaceId,
+        targetProfileId: profileId,
+        agentId,
+      });
+      return { retried };
     },
 
     /**

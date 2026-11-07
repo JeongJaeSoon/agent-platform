@@ -3,7 +3,7 @@
 # `werft` from compose.yaml, on the loopback ports docs/quickstart.md
 # lists.
 #
-#   scripts/local.sh up [--fake-model]   check Docker, ports and the key, build, start, wait for /readyz,
+#   scripts/local.sh up [--fake-model]   check Docker and ports, build, start, wait for /readyz,
 #                                        add the web console's demo accounts and, with --fake-model, their data
 #   scripts/local.sh down                delete the stack AND ALL ITS DATA
 #   scripts/local.sh down --keep-volumes stop the stack and delete its workers, keep its volumes
@@ -31,10 +31,13 @@
 #
 # `up` runs the real Messages API: tests/fixtures/settings/real-model.json,
 # which migrate imports, the caller's
-# ANTHROPIC_API_KEY handed by name to the API alone, and the real-model
-# e2e's cost limits (infra/compose.real-model.yml, docs/real-claude.md). The
-# key comes from the shell or, failing that, the repository's .env. Without
-# the key nothing is touched.
+# ANTHROPIC_API_KEY handed by name to the API alone when there is one, and the
+# real-model e2e's cost limits (infra/compose.real-model.yml,
+# docs/real-claude.md). The key is optional: it comes from the shell or,
+# failing that, the repository's .env, and without it the stack still starts
+# on this overlay with no model connection (profiles show `connection_missing`)
+# until the key is entered on the console's model connections screen. A
+# malformed .env line stops `up` before anything is touched.
 #
 # --fake-model runs without a key instead (infra/compose.fake-model.yml):
 # the compose fake Messages API answers from the script in each prompt
@@ -140,9 +143,10 @@ mode() {
         echo "local.sh: invalid ANTHROPIC_API_KEY quoting in ${AGENT_PLATFORM_DOTENV:-.env}; nothing was started" >&2
         exit 2
       elif [ "$key_status" != 0 ]; then
-        # Never a quiet fallback to the fake: that stack would look fine.
-        echo "local.sh: up needs ANTHROPIC_API_KEY exported or in .env (docs/real-claude.md), or --fake-model to run without one; nothing was started" >&2
-        exit 2
+        # Never a quiet fallback to the fake: that stack would look fine. The
+        # real-model stack starts with no model connection instead, and the
+        # key goes in on the console.
+        echo "local.sh: no ANTHROPIC_API_KEY in the shell or .env; the stack starts with no model connection (not the fake). Add the key in the console: 설정 > 워크스페이스 설정 > 모델 연결 > 연결 추가 (docs/real-claude.md)" >&2
       fi
       overlay=infra/compose.real-model.yml
       ;;

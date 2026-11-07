@@ -34,9 +34,12 @@ import {
   createPostgresMcpEgressStore,
   createPostgresMemberStore,
   createPostgresPendingRequests,
+  createPostgresProfileRolloutStore,
+  createPostgresPullRequestDrain,
   createPostgresPullRequestSettingsStore,
   createPostgresPullRequests,
   createPostgresPushFollowUpStore,
+  createPostgresPushIntents,
   createPostgresPushRequests,
   createPostgresRepositoryAttachments,
   createPostgresSecretStore,
@@ -99,8 +102,11 @@ import {
   createOutcomeRefresher,
   createPendingRequestService,
   createProfileRegistry,
+  createProfileRolloutRunner,
+  createPullRequestDrain,
   createPullRequestService,
   createPushExecutor,
+  createPushIntentRunner,
   createPushRequestService,
   createRepositoryAttachmentService,
   createSessionAchievementService,
@@ -501,6 +507,7 @@ const slackWelcome =
         logger,
       });
 const githubSettingsStore = createPostgresGitHubSettingsStore(db);
+const profileRollouts = createPostgresProfileRolloutStore(db);
 const agents = createAgentService({
   authorization,
   store: agentStore,
@@ -510,6 +517,7 @@ const agents = createAgentService({
   ...(slackWelcome === null ? {} : { welcome: slackWelcome }),
   keys: createPostgresWorkspaceKeyStore(db),
   outsideAgents: agentAccess,
+  profileLineage: profileRollouts,
 });
 const archivedEvents = archivedEventSource(checkpointStorage);
 const sessions = createSessionService({
@@ -527,6 +535,7 @@ const sessions = createSessionService({
   catalog,
   releases: { ...agents, ...newSessionGitHubReaders(db) },
   promptRevision: platformPromptRevisionFromEnv(process.env),
+  actionFlows: () => settings.actionFlows,
   credentials: credentialBindings,
   limits,
 });
@@ -739,6 +748,7 @@ const workspaceProfiles = createWorkspaceProfileService({
   authorization,
   store: workspaceProfileStore,
   catalog,
+  rollouts: profileRollouts,
 });
 const achievementRules = createAchievementRuleService({
   authorization,
@@ -747,6 +757,7 @@ const achievementRules = createAchievementRuleService({
 const installationProfiles = createInstallationProfileService({
   authorization,
   store: installationProfileStore,
+  rollouts: profileRollouts,
   catalog,
   connections: () => workspaceProfileVersions.connections,
   allowUnattended: unattendedAllowed(process.env),
@@ -903,9 +914,11 @@ const agentPullRequest = createAgentPullRequestService({
   settings: pullRequestSettings,
 });
 const pushStore = createPostgresPushRequests(db);
+const pushIntentStore = createPostgresPushIntents(db);
 const pushRequests = createPushRequestService({
   authorization,
   store: pushStore,
+  intents: pushIntentStore,
   source: checkpoints.pushSource,
   catalog,
 });
@@ -932,6 +945,7 @@ const repositoryAttachments = createRepositoryAttachmentService({
 });
 const githubMcp = createGitHubMcpServer({
   store: githubMcpStore,
+  actionFlows: () => settings.actionFlows,
   // The same fields the egress authorizer logs for a failed call: no message,
   // which can carry a connection string or GitHub's text.
   onInternalError: (error, { tool, sessionId, requestId }) =>
@@ -945,6 +959,7 @@ const githubMcp = createGitHubMcpServer({
     pushRequests: createPushRequestService({
       authorization: bound,
       store: pushStore,
+      intents: pushIntentStore,
       source: checkpoints.pushSource,
       catalog,
     }),
@@ -975,6 +990,33 @@ const pushExecutor = createPushExecutor({
   bundles: checkpoints.pushSource,
   pusher: createGitPusher({ maxGitMemoryBytes: checkpointGitMemoryBytes }),
   attributions: commitAttributions,
+  logger,
+}).start();
+// The control-host action-broker's intent runner starts whatever
+// AGENT_ACTION_FLOWS says: intents made while it was on are finished after it
+// is turned off. It makes push requests as the stored actor and approves
+// nothing.
+const pushIntentRunner = createPushIntentRunner({
+  store: pushIntentStore,
+  createFromIntent: (job) => pushRequests.createFromIntent(job),
+  logger,
+}).start();
+// Moves agents that follow a profile onto its newest version (design 2.3).
+// Every replica runs it; an item's lease and the activation's compare-and-swap
+// make a second one harmless.
+const profileRolloutRunner = createProfileRolloutRunner({
+  rollouts: profileRollouts,
+  agentStore,
+  agents,
+  logger,
+  sweep: true,
+}).start();
+// The pull request drain of the control-host's action-broker starts whether
+// or not AGENT_ACTION_FLOWS is on: a stage left from before a restart with
+// the setting off is still finished.
+const pullRequestDrain = createPullRequestDrain({
+  store: createPostgresPullRequestDrain(db),
+  opener: pullRequests,
   logger,
 }).start();
 // Each replica reads the state of the pull requests sessions opened; the
@@ -1095,6 +1137,7 @@ const workers = createWorkerGateway({
       }),
   options: {
     sessionCostLimitUsd: limits.sessionCostLimitUsd,
+    workspaceEnforce: settings.workspaceEnforce,
     sessionTokenLimit: limits.sessionTokenLimit,
     leaseTtlMs: settings.leaseTtlMs,
     // How long a permission or question takes answers. The worker waits
@@ -1352,6 +1395,12 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
         : [server, authorizerListener],
       [
         { name: "push-executor", close: () => pushExecutor.stop() },
+        { name: "push-intent-runner", close: () => pushIntentRunner.stop() },
+        {
+          name: "profile-rollout-runner",
+          close: () => profileRolloutRunner.stop(),
+        },
+        { name: "pull-request-drain", close: () => pullRequestDrain.stop() },
         { name: "outcome-refresher", close: () => outcomeRefresher.stop() },
         { name: "achievement-judge", close: () => achievementJudge.stop() },
         { name: "event-listener", close: () => notifier.close() },

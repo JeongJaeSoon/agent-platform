@@ -80,6 +80,18 @@ export interface SettingsDocumentStore {
     value: string,
     actor: TeamActor,
   ): Promise<SettingsConsoleResult>;
+  /**
+   * Moves a connection whose credential comes from the deployment (an env
+   * or Secrets Manager reference) to a value the person enters, sealed under
+   * the same id. The reference stays on the row as `replaces`, so the
+   * ceilings made over it keep matching it. The server never reads the
+   * referenced value: `value` is what was typed.
+   */
+  convertConnection(
+    id: string,
+    value: string,
+    actor: TeamActor,
+  ): Promise<SettingsConsoleResult>;
   /** For a repository: removed. Never undone; the id stays taken. */
   disable(
     owner: { kind: SettingsKind; id: string },
@@ -116,6 +128,15 @@ export type SettingsConsoleResult =
        * `not_stored`: the row's credential is not its own value (an
        * operator's reference, which the console only shows and disables).
        * `disabled`: the row is disabled or removed.
+       * `not_external`: moving a row to a stored value needs one whose
+       * credential comes from the deployment.
+       * `alias_taken`: another connection is, or was, exactly what this one
+       * was, so a ceiling made over it could not tell which one is its own.
        */
-      reason: "already_exists" | "not_stored" | "disabled";
+      reason:
+        | "already_exists"
+        | "not_stored"
+        | "disabled"
+        | "not_external"
+        | "alias_taken";
     };

@@ -1023,7 +1023,7 @@ export function workspaceProfileRefusal(
   profileId: string,
   options: { retiredAllowed?: boolean } = {},
 ): {
-  state: WorkspaceProfileState | "blocked" | "unknown";
+  state: WorkspaceProfileState | "blocked" | "unknown" | "connection_missing";
   message: string;
 } | null {
   if (!profileId.startsWith(WORKSPACE_PROFILE_PREFIX)) {
@@ -1036,6 +1036,14 @@ export function workspaceProfileRefusal(
       return {
         state,
         message: `Profile ${profileId} is blocked by the operator`,
+      };
+    }
+    // Without a usable key the connection is left out of the catalog; say so
+    // instead of letting the start read as an unknown profile.
+    if (state === "connection_missing") {
+      return {
+        state,
+        message: `Profile ${profileId} cannot run: its model connection has no usable key. Add the key under Settings > Workspace settings > Model connections.`,
       };
     }
     return !options.retiredAllowed && state === "retired"
@@ -1682,13 +1690,21 @@ export function sessionCatalogView(
   }
   const repositories: Record<string, CatalogRepositoryView> = {};
   for (const [id, repository] of Object.entries(config.repositories)) {
-    const { auth, ...rest } = repository;
-    repositories[id] =
-      auth !== undefined && "registered" in auth
-        ? { ...rest, github_app: true }
-        : rest;
+    repositories[id] = repositoryView(repository);
   }
   return { profiles, repositories };
+}
+
+/** The repository without its credentials, keeping the console App's mark. */
+export function repositoryView(
+  repository: Omit<CatalogRepositoryConfig, "auth"> & {
+    auth?: CatalogRepositoryConfig["auth"] | RepositoryCredential;
+  },
+): CatalogRepositoryView {
+  const { auth, ...rest } = repository;
+  return auth !== undefined && "registered" in auth
+    ? { ...rest, github_app: true }
+    : rest;
 }
 
 /** One reference's value, refused naming `path` when it cannot go into a header. */

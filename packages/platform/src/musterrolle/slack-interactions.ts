@@ -430,6 +430,30 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
       await card();
       return "already";
     }
+    // An `actions` request is finished by the platform (the push, the pull
+    // request when one was asked for, and the notice), and the stored flow
+    // decides, not today's install setting. Its follow-up turn would tell the
+    // model to open a pull request even for a push that asked for none. The
+    // flow is read before the decision: a read that fails leaves the request
+    // open for another press instead of guessing `legacy`.
+    // The request already carries its flow; only a row without one is read.
+    let flow: Awaited<ReturnType<typeof deps.followUps.flowOf>> =
+      request.flow ?? null;
+    try {
+      if (request.flow === undefined) {
+        flow = await deps.followUps.flowOf({
+          sessionId: value.s,
+          pushRequestId: request.id,
+        });
+      }
+    } catch (error) {
+      deps.logger.warn("Slack push flow not read", {
+        agent_id: pressed.agentId,
+        code: error instanceof Error ? error.message : String(error),
+      });
+      await notice(pressed, "failed");
+      return "failed";
+    }
     try {
       await deps.pushes.decide(actor, value.s, value.r, {
         idempotencyKey: `slack:${value.r}:${pressed.userId}`,
@@ -454,6 +478,12 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
         error.code === "FORBIDDEN" ? "noApproveRight" : "failed",
       );
       return "failed";
+    }
+    // An actions-flow push has no continuation turn: the turn that asked for
+    // it already ended, and the platform carries the push on from here.
+    if (flow === "actions") {
+      await card();
+      return decision === "approve" ? "approved" : "rejected";
     }
     // The decision stands; the session only learns of it from this turn.
     // The key makes a retry a no-op once one attempt has landed.

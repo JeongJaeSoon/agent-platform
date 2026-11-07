@@ -228,6 +228,35 @@ export const openPullRequestResponseSchema = z.object({
   receipt_id: receiptIdSchema,
 });
 
+/**
+ * The answer to `?schedule=true` (and to the MCP call with a push intent id)
+ * while the pull request is not open yet: the platform holds the content and
+ * opens the pull request once the push finishes. At least one id is set.
+ */
+export const scheduledPullRequestResponseSchema = z
+  .object({
+    status: z.literal("scheduled"),
+    // Set once the intent became a push request, or when called with one.
+    push_request_id: pushRequestIdSchema.nullable(),
+    // Set while the intent has no push request, or when called with one.
+    push_intent_id: z.uuid().nullable(),
+    receipt_id: receiptIdSchema,
+  })
+  .refine((r) => r.push_request_id !== null || r.push_intent_id !== null, {
+    message: "a scheduled answer names a push request or a push intent",
+  });
+
+/** What `openPullRequest` answers: the opened pull request, or a schedule. */
+export const openPullRequestResultSchema = z.union([
+  openPullRequestResponseSchema,
+  scheduledPullRequestResponseSchema,
+]);
+
+/** `?schedule=true`: strictly the string `true`, or absent. */
+export const openPullRequestQuerySchema = z
+  .object({ schedule: z.literal("true").optional() })
+  .strict();
+
 export const pullRequestCommentSchema = z.object({
   id: z.number().int().positive(),
   url: z.url(),
@@ -264,6 +293,12 @@ export const PULL_REQUEST_REFUSAL_VALUES = [
   "github_refused",
   // Closing or reopening a pull request that was merged.
   "pull_request_merged",
+  // A later push request to the same target exists; attach the content there.
+  "superseded",
+  // The push intent ended (failed or cancelled) before it became a request.
+  "intent_ended",
+  // The branch's open pull request is on another commit than the pushed one.
+  "head_moved",
 ] as const;
 export const pullRequestRefusalSchema = z.enum(PULL_REQUEST_REFUSAL_VALUES);
 
@@ -295,6 +330,10 @@ export const pullRequestReceiptResultSchema = z.object({
   template: pullRequestTemplateRecordSchema.optional(),
 });
 
+export type ScheduledPullRequestResponse = z.infer<
+  typeof scheduledPullRequestResponseSchema
+>;
+export type OpenPullRequestResult = z.infer<typeof openPullRequestResultSchema>;
 export type PullRequest = z.infer<typeof pullRequestSchema>;
 export type OpenPullRequestRequest = z.infer<
   typeof openPullRequestRequestSchema

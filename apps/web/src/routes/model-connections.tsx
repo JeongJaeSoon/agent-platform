@@ -155,6 +155,7 @@ export function ModelConnections({
                 over={over(item.id)}
                 busy={rows.busy}
                 onValue={() => rows.openValue(item.id)}
+                onConvert={() => rows.openConvert(item.id)}
                 onDisable={() => rows.openDisable(item.id)}
               />
             ))}
@@ -185,12 +186,14 @@ function ConnectionRow({
   over,
   busy,
   onValue,
+  onConvert,
   onDisable,
 }: {
   readonly item: SettingsConnection;
   readonly over: number;
   readonly busy: boolean;
   readonly onValue: () => void;
+  readonly onConvert: () => void;
   readonly onDisable: () => void;
 }) {
   const { t } = useI18n();
@@ -240,6 +243,15 @@ function ConnectionRow({
               {item.state === "needs_value"
                 ? t("settings.setFirstValue")
                 : t("settings.setValue")}
+            </RowAction>
+          ) : null}
+          {actions.convert ? (
+            <RowAction
+              disabled={busy}
+              aria-label={t("settings.convertFor", { id: item.id })}
+              onClick={onConvert}
+            >
+              {t("settings.convert")}
             </RowAction>
           ) : null}
           {actions.disable ? (

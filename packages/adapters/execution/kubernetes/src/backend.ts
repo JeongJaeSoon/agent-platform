@@ -44,6 +44,7 @@ import {
   workspaceClaimFor,
   workspaceClaimNameFor,
 } from "./specs.ts";
+import { workspaceCapacity } from "./workspace-capacity.ts";
 
 /** How long `terminate` without `waitForExit` waits for the Pod to go. */
 const STOP_WAIT_MS = 5_000;
@@ -175,6 +176,11 @@ export class KubernetesBackend implements ExecutionBackend {
     // Refuses limits this host would refuse before a nonce is spent on them.
     podFor(config, intent, "", "", proxyAddress);
     await this.ensureWorkspace(intent.sessionId);
+    const pvcCapacityBytes = await workspaceCapacity(
+      client,
+      config.namespace,
+      workspaceClaimNameFor(intent.sessionId, config),
+    );
     // Two passes at most, as in the Docker backend: the second follows a
     // lost create race and judges the winner by the same rules.
     for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -238,6 +244,7 @@ export class KubernetesBackend implements ExecutionBackend {
               secretName,
               bootstrapFingerprintOf(nonce),
               proxyAddress,
+              pvcCapacityBytes,
             ),
           ),
         );

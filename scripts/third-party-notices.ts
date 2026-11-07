@@ -152,6 +152,8 @@ export type BaseImage = { bun: string; digest: string };
 export const GIT_LFS_VERSION = "3.8.1";
 /** The golang.org/x/net that build moves Git LFS to. */
 export const GIT_LFS_X_NET = "0.62.0";
+/** The github.com/klauspost/compress that build moves Git LFS to. */
+export const GIT_LFS_COMPRESS = "1.20.2";
 /** The Go toolchain that build uses. */
 export const GIT_LFS_GO = "1.27.3";
 /** The upstream GitHub CLI release binary the worker Dockerfile installs. */
@@ -594,7 +596,7 @@ function baseSection(rows: readonly Row[], base: BaseImage): string {
     "",
     `### Git LFS ${GIT_LFS_VERSION} (worker, \`/usr/local/bin/git-lfs\`)`,
     "",
-    `- **라이선스.** Git LFS 자체는 MIT다. 저작권 표시와 허가문 전문은 이미지 안 \`/usr/local/share/doc/git-lfs/LICENSE.md\`(https://github.com/git-lfs/git-lfs/blob/v${GIT_LFS_VERSION}/LICENSE.md)에 있다. 이미지의 실행 파일은 worker Dockerfile이 git-lfs 프로젝트의 v${GIT_LFS_VERSION} 소스 릴리스(sha256 고정)에서 Go ${GIT_LFS_GO}로 직접 빌드한 것이다. git-lfs 소스는 고치지 않았다. 바꾼 것은 의존 모듈 버전뿐이다: \`golang.org/x/net\`을 v${GIT_LFS_X_NET}으로 올렸고, 그에 따라 \`golang.org/x/crypto\`·\`x/sync\`·\`x/sys\`·\`x/text\`도 올라갔다(빌드가 go.mod·go.sum을 sha256으로 확인한다).`,
+    `- **라이선스.** Git LFS 자체는 MIT다. 저작권 표시와 허가문 전문은 이미지 안 \`/usr/local/share/doc/git-lfs/LICENSE.md\`(https://github.com/git-lfs/git-lfs/blob/v${GIT_LFS_VERSION}/LICENSE.md)에 있다. 이미지의 실행 파일은 worker Dockerfile이 git-lfs 프로젝트의 v${GIT_LFS_VERSION} 소스 릴리스(sha256 고정)에서 Go ${GIT_LFS_GO}로 직접 빌드한 것이다. git-lfs 소스는 고치지 않았다. 바꾼 것은 의존 모듈 버전뿐이다: \`golang.org/x/net\`을 v${GIT_LFS_X_NET}으로, \`github.com/klauspost/compress\`를 v${GIT_LFS_COMPRESS}로 올렸고, 그에 따라 \`golang.org/x/crypto\`·\`x/sync\`·\`x/sys\`·\`x/text\`도 올라갔다(빌드가 go.mod·go.sum을 sha256으로 확인한다).`,
     `- **정적으로 링크된 Go 코드.** 이 실행 파일은 Go 표준 라이브러리를 링크한다. 그 BSD-3-Clause 문구도 같은 LICENSE.md에 있다. https://github.com/git-lfs/git-lfs/blob/v${GIT_LFS_VERSION}/go.mod 에 적힌 모듈(위에서 올린 버전 포함)도 링크하며, 각 모듈의 라이선스는 그 모듈의 소스에 있다. 링크한 모듈과 버전은 실행 파일에 기록되어 있어, 이미지 밖의 Go로 \`go version -m <실행 파일>\`을 실행하면 보인다.`,
     `- **대응 소스.** https://github.com/git-lfs/git-lfs/tree/v${GIT_LFS_VERSION} 와 apps/worker/Dockerfile의 \`git-lfs\` stage(모듈 버전 변경)`,
     "",
@@ -966,11 +968,22 @@ const SNAPSHOT_ROUND_PAUSE_MS = [15_000, 30_000, 60_000];
 const SNAPSHOT_DENIALS_TO_BELIEVE = 2;
 
 /**
+ * How snapshot.debian.org answered, by HTTP status or failure kind ("timeout",
+ * "error", "not-json"). Printed after a check so a log tells the service
+ * shedding load (503, 504, 429) from this side failing to connect.
+ */
+export const snapshotResponses = new Map<string, number>();
+
+function tally(kind: string): void {
+  snapshotResponses.set(kind, (snapshotResponses.get(kind) ?? 0) + 1);
+}
+
+/**
  * Whether snapshot.debian.org holds a source package version, by its
  * machine-readable srcfiles listing: 404 or an empty listing says no, anything
  * else that is not a listing is no answer.
  */
-async function snapshotHolds(
+export async function snapshotHolds(
   source: string,
   version: string,
   timeoutMs: number,
@@ -980,17 +993,78 @@ async function snapshotHolds(
     const response = await fetch(url, {
       signal: AbortSignal.timeout(timeoutMs),
     });
+    tally(String(response.status));
     if (response.status === 404) return "missing";
     if (response.ok) {
-      const { result } = (await response.json()) as { result?: unknown };
-      if (Array.isArray(result)) {
-        return result.length > 0 ? "held" : "missing";
+      // Only a body that is not JSON is "not-json"; a timeout or reset while
+      // reading it must still reach the outer catch.
+      const body = (await response.json().catch((error: unknown) => {
+        if (error instanceof SyntaxError) return undefined;
+        throw error;
+      })) as { result?: unknown } | undefined;
+      if (Array.isArray(body?.result)) {
+        return body.result.length > 0 ? "held" : "missing";
       }
+      tally("not-json");
     }
-  } catch {
+  } catch (error) {
+    tally(
+      error instanceof Error && error.name === "TimeoutError"
+        ? "timeout"
+        : "error",
+    );
     // No answer; the next round asks again.
   }
   return "unreachable";
+}
+
+const heldKey = (entry: { source: string; version: string }) =>
+  `${entry.source} ${entry.version}`;
+
+/** The "<source> <version>" lines of earlier attempts' held files, as a set. */
+export function parseHeld(text: string): Set<string> {
+  return new Set(
+    text
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => /^\S+ \S+$/.test(line)),
+  );
+}
+
+/**
+ * Asks only for what no earlier attempt of this run found held. The answers
+ * stay in the order of `wanted`, and a source carried over counts as held, so
+ * the verdict is the one a full check would give. `held` is what to hand the
+ * next attempt: the earlier set joined with what this one found.
+ */
+export async function snapshotAnswersWithPrior(
+  wanted: { source: string; version: string }[],
+  prior: Set<string>,
+  budgetMs: number,
+  holds?: typeof snapshotHolds,
+  pause?: (ms: number) => Promise<unknown>,
+): Promise<{ answers: SnapshotAnswer[]; held: Set<string> }> {
+  const answers = wanted.map(
+    (entry): SnapshotAnswer =>
+      prior.has(heldKey(entry)) ? "held" : "unreachable",
+  );
+  const asking = wanted.flatMap((_, index) =>
+    answers[index] === "held" ? [] : [index],
+  );
+  const asked = await snapshotAnswers(
+    asking.map((index) => wanted[index] as (typeof wanted)[number]),
+    budgetMs,
+    holds,
+    pause,
+  );
+  asking.forEach((index, position) => {
+    answers[index] = asked[position] as SnapshotAnswer;
+  });
+  const held = new Set(prior);
+  wanted.forEach((entry, index) => {
+    if (answers[index] === "held") held.add(heldKey(entry));
+  });
+  return { answers, held };
 }
 
 /**
@@ -1196,11 +1270,21 @@ async function main(argv: string[]): Promise<number> {
   // Exit 1 when snapshot.debian.org lacks a listed source, 3 when it did not
   // answer for one; image-sources.sh decides what either means for a publish.
   if (mode === "--snapshot-check") {
-    const [budget, ...files] = rest;
+    const [budget, ...args] = rest;
     const budgetSeconds = Number(budget);
+    // --prior <file>: answers earlier attempts of this run found held.
+    // --held-out <file>: where to write the held set for the next attempt.
+    const files: string[] = [];
+    let priorFile: string | undefined;
+    let heldOut: string | undefined;
+    for (let at = 0; at < args.length; at += 1) {
+      if (args[at] === "--prior") priorFile = args[++at];
+      else if (args[at] === "--held-out") heldOut = args[++at];
+      else files.push(args[at] as string);
+    }
     if (files.length === 0 || !(budgetSeconds > 0)) {
       console.error(
-        "usage: third-party-notices.ts --snapshot-check <budget seconds> <file>...",
+        "usage: third-party-notices.ts --snapshot-check <budget seconds> [--prior <file>] [--held-out <file>] <file>...",
       );
       return 2;
     }
@@ -1215,11 +1299,31 @@ async function main(argv: string[]): Promise<number> {
         wanted.set(`${entry.source} ${entry.version}`, entry);
       }
     }
-    const answers = await snapshotAnswers(
+    const prior = parseHeld(
+      priorFile && existsSync(priorFile) ? readFileSync(priorFile, "utf8") : "",
+    );
+    const carried = [...wanted.keys()].filter((key) => prior.has(key)).length;
+    if (carried > 0) {
+      console.log(
+        `${carried} of ${wanted.size} sources were found held by an earlier attempt`,
+      );
+    }
+    const { answers, held: heldSet } = await snapshotAnswersWithPrior(
       [...wanted.values()],
+      prior,
       budgetSeconds * 1000,
     );
+    // Written before the verdict: a failed attempt is the one that hands on.
+    if (heldOut) {
+      writeFileSync(heldOut, `${[...heldSet].sort().join("\n")}\n`);
+    }
     const held = answers.filter((answer) => answer === "held").length;
+    console.log(
+      `snapshot.debian.org responses: ${
+        [...snapshotResponses].map(([kind, n]) => `${kind}=${n}`).join(" ") ||
+        "none"
+      } (4 requests at a time, ${SNAPSHOT_REQUEST_MS / 1000}s timeout, rounds pause ${SNAPSHOT_ROUND_PAUSE_MS.map((ms) => ms / 1000).join("/")}s)`,
+    );
     console.log(
       `snapshot.debian.org holds ${held} of ${wanted.size} sources in ${files.length} lists`,
     );

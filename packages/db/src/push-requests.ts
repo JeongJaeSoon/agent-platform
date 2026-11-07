@@ -6,10 +6,15 @@ import {
   type GitHubPolicySource,
   githubPolicyReceiptFields,
   githubPolicySourceOf,
+  OPEN_PULL_REQUEST_STAGES,
   OPEN_PUSH_REQUEST_STATES,
+  type PullRequestStage,
   type PushDecider,
   type PushReceiptResult,
   type PushRequest,
+  type PushRequestFlow,
+  type PushRequestOrigin,
+  type PushRequestSnapshot,
   type PushRequestState,
   pushBranchFor,
   pushClassOf,
@@ -25,7 +30,8 @@ import {
   type PushWriteResult,
   type ToolSummaryContext,
 } from "@werft-ai/platform";
-import { and, desc, eq, inArray, type SQL, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, or, type SQL, sql } from "drizzle-orm";
+import { enqueueActionNotice } from "./action-notices.ts";
 import {
   findIdempotent,
   type IdempotencyScope,
@@ -40,6 +46,8 @@ import {
   catalogRepositories,
   githubWorkspaceSettings,
   idempotencyKeys,
+  pullRequests,
+  pushIntents,
   pushRequests,
   receipts,
   sessions,
@@ -139,7 +147,75 @@ export async function toolSummaryContext(
   };
 }
 
-function publicPushRequest(row: Row): PushRequest {
+type RecordedPullRequest = { number: number | null; url: string };
+
+/**
+ * The pull request of each push request. A pull request row belongs to the
+ * push request that created it; a later push to the same branch finds that
+ * pull request open and only records its verified number. A number is unique
+ * within a repository only, so that row is found by session, repository and
+ * number.
+ */
+async function recordedPullRequests(
+  db: Database,
+  rows: readonly {
+    id: string;
+    sessionId: string;
+    repositoryId: string;
+    prVerifiedNumber: number | null;
+  }[],
+): Promise<Map<string, RecordedPullRequest>> {
+  if (rows.length === 0) return new Map();
+  const reusing = rows.filter((row) => row.prVerifiedNumber !== null);
+  const found = await db
+    .select({
+      sessionId: pullRequests.sessionId,
+      repositoryId: pullRequests.repositoryId,
+      pushRequestId: pullRequests.pushRequestId,
+      number: pullRequests.number,
+      url: pullRequests.url,
+    })
+    .from(pullRequests)
+    .where(
+      or(
+        inArray(
+          pullRequests.pushRequestId,
+          rows.map((row) => row.id),
+        ),
+        reusing.length === 0
+          ? undefined
+          : and(
+              inArray(pullRequests.sessionId, [
+                ...new Set(reusing.map((row) => row.sessionId)),
+              ]),
+              inArray(pullRequests.number, [
+                ...new Set(reusing.map((row) => row.prVerifiedNumber ?? 0)),
+              ]),
+            ),
+      ),
+    );
+  const byRequest = new Map<string, RecordedPullRequest>();
+  for (const row of rows) {
+    const own = found.find((entry) => entry.pushRequestId === row.id);
+    const reused =
+      row.prVerifiedNumber === null
+        ? undefined
+        : found.find(
+            (entry) =>
+              entry.sessionId === row.sessionId &&
+              entry.repositoryId === row.repositoryId &&
+              entry.number === row.prVerifiedNumber,
+          );
+    const entry = own ?? reused;
+    if (entry) byRequest.set(row.id, { number: entry.number, url: entry.url });
+  }
+  return byRequest;
+}
+
+function publicPushRequest(
+  row: Row,
+  recorded: RecordedPullRequest | null = null,
+): PushRequest {
   return {
     id: row.id,
     session_id: row.sessionId,
@@ -157,6 +233,12 @@ function publicPushRequest(row: Row): PushRequest {
     resolution_receipt_id: row.decisionReceiptId,
     finished_at: row.finishedAt?.toISOString() ?? null,
     push_receipt_id: row.pushReceiptId,
+    origin: row.origin as PushRequestOrigin,
+    flow: row.flow as PushRequestFlow,
+    pr_state: (row.prState as PullRequestStage | null) ?? null,
+    pr_error: row.prError ?? null,
+    pr_number: recorded?.number ?? null,
+    pr_url: recorded?.url ?? null,
   };
 }
 
@@ -451,7 +533,36 @@ export function createPostgresPushRequests(
           )
           .limit(1);
         if (open) return refuse(tx, "request_open", open);
-        if (session.checkpointRevision !== input.checkpointRevision) {
+        // The same target also waits while an earlier request's pull
+        // request is still due or opening: two pushes must not become the
+        // heads of each other's pull requests. Every creator passes here
+        // (REST, the legacy MCP path, the intent runner), all under the
+        // session row lock taken above.
+        const [pending] = await tx
+          .select()
+          .from(pushRequests)
+          .where(
+            and(
+              eq(pushRequests.sessionId, sessionId),
+              eq(pushRequests.repositoryId, input.repositoryId),
+              eq(pushRequests.targetBranch, targetBranch),
+              inArray(pushRequests.prState, [...OPEN_PULL_REQUEST_STAGES]),
+            ),
+          )
+          .limit(1);
+        if (pending) {
+          return {
+            ...(await refuse(tx, "request_open", pending)),
+            reason: "pull_request_pending",
+          };
+        }
+        // An intent request pins the revision its turn ended on, which a
+        // later turn's checkpoint may have passed; its source is verified
+        // by the caller against that revision instead.
+        if (
+          input.origin !== "intent" &&
+          session.checkpointRevision !== input.checkpointRevision
+        ) {
           return refuse(tx, "checkpoint_moved", null);
         }
         const id = randomUUID();
@@ -533,6 +644,17 @@ export function createPostgresPushRequests(
             targetBranch,
             requestedBy: input.actor,
             requestReceiptId: receiptId,
+            // Taken after the session lock, not at transaction start: the
+            // pull request schedule orders requests by this value under the
+            // same lock, and a transaction that waited for the lock must not
+            // look older than the one it waited for.
+            createdAt: sql`clock_timestamp()`,
+            // An intent request is always `actions`, whatever the setting
+            // is when the runner makes it.
+            origin: input.origin ?? "direct",
+            flow:
+              input.origin === "intent" ? "actions" : (input.flow ?? "legacy"),
+            pullRequestIntent: input.pullRequestIntent ?? null,
             ...(policy === null
               ? {}
               : {
@@ -563,7 +685,10 @@ export function createPostgresPushRequests(
           ),
         )
         .orderBy(desc(pushRequests.createdAt), desc(pushRequests.id));
-      return rows.map(publicPushRequest);
+      const recorded = await recordedPullRequests(db, rows);
+      return rows.map((row) =>
+        publicPushRequest(row, recorded.get(row.id) ?? null),
+      );
     },
 
     async get(ownerId, sessionId, pushRequestId) {
@@ -578,7 +703,100 @@ export function createPostgresPushRequests(
           ),
         )
         .limit(1);
-      return row ? publicPushRequest(row) : null;
+      if (!row) return null;
+      const recorded = await recordedPullRequests(db, [row]);
+      return publicPushRequest(row, recorded.get(row.id) ?? null);
+    },
+
+    snapshot(ownerId, rawSessionId, ref) {
+      const sessionId = rawSessionId.toLowerCase();
+      if (!UUID.test(sessionId)) return Promise.resolve(null);
+      const byIntent = "pushIntentId" in ref;
+      const wanted = (
+        "pushIntentId" in ref ? ref.pushIntentId : ref.pushRequestId
+      ).toLowerCase();
+      if (!UUID.test(wanted)) return Promise.resolve(null);
+      return db.transaction(
+        async (tx) => {
+          let intent: typeof pushIntents.$inferSelect | undefined;
+          let requestId: string | null = null;
+          if (byIntent) {
+            [intent] = await tx
+              .select()
+              .from(pushIntents)
+              .where(
+                and(
+                  eq(pushIntents.id, wanted),
+                  eq(pushIntents.sessionId, sessionId),
+                  eq(pushIntents.ownerId, ownerId),
+                ),
+              )
+              .limit(1);
+            if (!intent) return null;
+            requestId = intent.pushRequestId;
+          } else {
+            requestId = wanted;
+            [intent] = await tx
+              .select()
+              .from(pushIntents)
+              .where(
+                and(
+                  eq(pushIntents.pushRequestId, wanted),
+                  eq(pushIntents.sessionId, sessionId),
+                  eq(pushIntents.ownerId, ownerId),
+                ),
+              )
+              .limit(1);
+          }
+          const [request] =
+            requestId === null
+              ? []
+              : await tx
+                  .select()
+                  .from(pushRequests)
+                  .where(
+                    and(
+                      eq(pushRequests.id, requestId),
+                      eq(pushRequests.sessionId, sessionId),
+                      eq(pushRequests.ownerId, ownerId),
+                    ),
+                  )
+                  .limit(1);
+          if (!request && !intent) return null;
+          const [pull] = request
+            ? await tx
+                .select({ number: pullRequests.number, url: pullRequests.url })
+                .from(pullRequests)
+                .where(eq(pullRequests.pushRequestId, request.id))
+                .limit(1)
+            : [];
+          const scope = request ?? intent;
+          if (!scope) return null;
+          return {
+            push_intent_id: intent?.id ?? null,
+            intent_status: (intent?.status ??
+              null) as PushRequestSnapshot["intent_status"],
+            intent_refusal: (intent?.refusalCode ??
+              null) as PushRequestSnapshot["intent_refusal"],
+            push_request_id: request?.id ?? null,
+            push_state: (request?.state ??
+              null) as PushRequestSnapshot["push_state"],
+            repository_id: scope.repositoryId,
+            target_branch: scope.targetBranch,
+            pull_request_scheduled: request
+              ? request.pullRequestIntent !== null
+              : intent?.pullRequest != null,
+            pull_request_stage: (request?.prState ??
+              null) as PushRequestSnapshot["pull_request_stage"],
+            pull_request_error: request?.prError ?? null,
+            pull_request:
+              pull?.number == null
+                ? null
+                : { number: pull.number, url: pull.url },
+          };
+        },
+        { isolationLevel: "repeatable read", accessMode: "read only" },
+      );
     },
 
     async displayOf(ownerId, sessionId, pushRequestId) {
@@ -712,7 +930,11 @@ export function createPostgresPushRequests(
           const sameCommit =
             input.latest?.revision === session.checkpointRevision &&
             input.latest.gitCommit === row.gitCommit;
+          // An intent request is pinned to a past revision on purpose; the
+          // service checks that revision (`pinnedSourceValid`) before this
+          // runs, and the pointer moving is not a reason to refuse.
           if (
+            row.origin !== "intent" &&
             session.checkpointRevision !== row.checkpointRevision &&
             !sameCommit
           ) {
@@ -809,6 +1031,21 @@ export function createPostgresPushRequests(
 
     finish(job, outcome) {
       return db.transaction(async (tx) => {
+        // The session first, then the request, as every other writer does:
+        // the notice written below references the session, and a schedule
+        // that holds the session while it waits for this request would
+        // otherwise wait on each other.
+        const [owner] = await tx
+          .select({ sessionId: pushRequests.sessionId })
+          .from(pushRequests)
+          .where(eq(pushRequests.id, job.id))
+          .limit(1);
+        if (!owner) return false;
+        await tx
+          .select({ id: sessions.id })
+          .from(sessions)
+          .where(eq(sessions.id, owner.sessionId))
+          .for("update");
         const [row] = await tx
           .select()
           .from(pushRequests)
@@ -868,8 +1105,33 @@ export function createPostgresPushRequests(
             leaseExpiresAt: null,
             pushError: error,
             pushReceiptId: receiptId,
+            // A pull request intent turns the finished push into a due
+            // stage in this same write: the row is locked, so an intent
+            // reserved meanwhile is either seen here or sees `pushed`.
+            // Only the actions flow has a drain; a legacy request's pull
+            // request is the follow-up turn's.
+            ...(row.flow !== "actions" ||
+            row.pullRequestIntent === null ||
+            row.prState !== null
+              ? {}
+              : pushed
+                ? { prState: "due", prNextAttemptAt: null }
+                : { prState: "cancelled", prError: outcome.refusal }),
           })
           .where(eq(pushRequests.id, row.id));
+        if (row.flow === "actions") {
+          await enqueueActionNotice(tx, {
+            sessionId: row.sessionId,
+            pushRequestId: row.id,
+            notice: {
+              result: pushed ? "pushed" : "push_failed",
+              repository: row.repositoryId,
+              branch: row.targetBranch,
+              commit: row.gitCommit,
+              ...(pushed ? {} : { reason: outcome.refusal }),
+            },
+          });
+        }
         return true;
       });
     },

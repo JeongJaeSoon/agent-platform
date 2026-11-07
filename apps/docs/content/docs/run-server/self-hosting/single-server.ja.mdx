@@ -6,17 +6,17 @@ description: 公開イメージで Linux サーバー1台に Werft を設置す�
 Linux サーバー1台に Docker Compose で Werft を設置します。イメージはビルドせず、公開されたものを digest で固定して取得します。このページは、`/readyz` が 200 を返すところまでの手順を書いています。Kubernetes に設置する場合は [Kubernetes の設置](/run-server/self-hosting/kubernetes) を読んでください。
 
 <Callout type="warn">
-この手順は、OrbStack の Ubuntu(arm64)マシンで公開イメージを使い、手順1〜6と手順7の `key create` まで実行して確認しました。手順7の `/bootstrap` 画面での最初の owner の作成は確認していません。実際のモデル呼び出しは確認しました。コンソールで作成した GitHub App を使う `claude-coding` プロファイルのセッションで、turn 1 が `completed` で終わりました。`reset` は、セッションがない設置でコンテナを `-v` なしで止めた後に一度実行し、exit 0 と postgres の volume の削除を確認しました。内容が違う場合は、リポジトリの `scripts/test-ops.sh` と `infra/` のファイルが基準です。
+この手順は、OrbStack の Ubuntu(arm64)マシンで公開イメージを使い、手順1〜6と手順7の `key create` まで実行して確認しました。v0.1.0 を付けた commit(`9e2098e5`)では、手順3〜7を公開された `main-<12>` イメージで改めて実行しました。`/readyz` と docs は 200、bootstrap リクエストは 201、キーを付けたリクエストは 200、付けないリクエストは 401 でした。この実行は手順7の `/bootstrap` リクエストまでです。それ以前の実行では、オーナーが `/bootstrap` 画面で最初の owner を自分で作成し(検証カードは画面を見ていません)、ログイン API(`POST /v1/auth/login`)は 200 でした。ブラウザの `/login` 画面でのログインは行っていません。実際のモデル呼び出しは確認しました。コンソールで作成した GitHub App を使う `claude-coding` プロファイルのセッションで、turn 1 が `completed` で終わりました。`reset` は、セッションがない設置でコンテナを `-v` なしで止めた後に一度実行し、exit 0 と postgres の volume の削除を確認しました。内容が違う場合は、リポジトリの `scripts/test-ops.sh` と `infra/` のファイルが基準です。
 </Callout>
 
 <Callout type="warn">
-`v` タグはまだありません。今は `main` にマージされるたびに公開される `main-<12>` タグを使います。これはリリースではなく、タグが指すイメージは digest で固定して使います。最初の `v` タグができたら、下の `TAG` を `v<バージョン>` に変え、手順2で同じタグを checkout します。ほかのコマンドは同じです。
+最初のリリース `v0.1.0` が公開されました(GitHub Release と `v0.1.0` のイメージタグ)。リリースを設置するには、下の `TAG` を `v0.1.0` に変え、手順2で同じタグを checkout します。ほかのコマンドは同じです。ただし上の確認は `v0.1.0` と同じ commit の `main-<12>` イメージで行ったもので、`v0.1.0` タグのイメージでこの手順を実行してはいません。`main-<12>` はリリースではなく、タグが指すイメージは digest で固定して使います。
 </Callout>
 
 ## 配備の判断
 
 - 対象はサーバー1台と `local-docker` 実行基盤です。この設置では高可用性を扱いません。複数ノードが必要なら [Kubernetes の設置](/run-server/self-hosting/kubernetes)を使います。
-- provider key は運用者の key 1つをすべてのセッションで共有します。利用者ごとに owner と API key を別々に発行し、共有しません。
+- モデルキーは運用者の key 1つをすべてのセッションで共有します。設置したあと Web コンソールのモデル接続の画面で入れ、サーバーは DB に封印して保存します。利用者ごとに owner と API key を別々に発行し、共有しません。
 - 実サーバーのオブジェクトストアは専用の AWS S3 bucket です。同じホストの LocalStack はホストや Docker が再起動すると checkpoint を失うので、試用だけに使います。
 - アクセスは loopback bind と SSH tunnel が基本です。reverse proxy は TLS と VPN または IP allowlist の両方がそろったときだけ使います。
 
@@ -27,12 +27,70 @@ Linux サーバー1台に Docker Compose で Werft を設置します。イメ�
 | OS | Linux。`x86_64` と `arm64` のどちらも使える |
 | Docker Engine | 28 以上 |
 | Docker Compose | 2.24.6 以上 |
-| ディスク | Docker のデータルートが XFS で、`prjquota` 付きで mount されている。`preflight` はこれを検査しない。そうでないと `deploy` で scheduler の quota 検査が失敗し、設置が止まる。Docker Desktop では使えない。OrbStack の既定のマシンは btrfs なのでこの条件を満たさない。マシン内で sparse イメージファイル(60G)に `mkfs.xfs` で XFS を作り、`loop,prjquota` で mount して Docker の `data-root` に指定すると、mount オプションに `prjquota` が現れ、`deploy` の quota 検査が通る(OrbStack マシン1台で1回確認した) |
+| ディスク | Docker のデータルートが XFS で、`prjquota` 付きで mount されている。`preflight` はこれを検査しない。そうでないと `deploy` で scheduler の quota 検査が失敗し、設置が止まる。ext4 のサーバーは、下の「ディスクの準備」で XFS を作る。Docker Desktop では使えない |
 | 時刻 | NTP で同期している。再起動後に Docker が自動で起動する |
 | ツール | `git`、`jq`、`curl`、`openssl`、Bun 1.3.14、Docker Buildx プラグイン。Docker daemon に接続できるアカウント |
 | ネットワーク | ホストが `ghcr.io` と Docker Hub からイメージを取得できる。パッケージはログイン不要。セッションは `api.anthropic.com` と `github.com` に接続する |
 
 設置にはリポジトリの checkout が必要です。compose ファイルと `scripts/test-ops.sh` を checkout から読むためです。イメージは checkout からビルドしません。
+
+### ディスクの準備: XFS `prjquota`
+
+**なぜ必要か。** セッションごとに workspace volume が1つでき、その volume は同じディスクの PostgreSQL、LocalStack、ほかのセッションと容量を分け合います。Werft は volume ごとに容量(`EXECUTION_WORKSPACE_QUOTA_MB`、既定 4096MiB)と inode(`EXECUTION_WORKSPACE_QUOTA_INODES`、既定 1,000,000)の上限を設定します。この上限を強制するのは XFS の project quota です。`prjquota` のないファイルシステム(ext4 を含む)では、Docker が `size` オプションを受け付けません。そのため scheduler は起動時に probe volume を作り、作れなければ worker を1つも起動せずに終了します。上限なしで動かす方法は `EXECUTION_WORKSPACE_QUOTA=off` だけですが、`test-ops` の設定検査がこの値を拒否するので、この設置手順では使えません。
+
+**今のサーバーが条件を満たすか確認する。**
+
+```bash
+findmnt -no FSTYPE,OPTIONS -T "$(docker info -f '{{.DockerRootDir}}')"
+P="quota-probe-$(date +%s)"; docker volume create --driver local --opt size=64m "$P" && docker volume rm "$P"
+```
+
+1行目に `xfs` が出てオプションに `prjquota` があり、2行目がエラーなく終われば良いです。ext4 だと2行目は `quota size requested but no quota support` で拒否されます。設置済みなら `xfs_quota -x -c 'report -p'` で volume ごとの使用量と上限が見えます。
+
+**ext4 のサーバーを準備する。** イメージファイルに XFS を作り、`/var/lib/docker` に `loop,prjquota` で mount します。イメージファイルは mount 先の外に置きます。以下は1つにつながった行なので、どれかの段階が失敗するとその後(特に Docker の起動)は実行されません。既存の `/var/lib/docker` があれば `/var/lib/docker.old` に移し、mount の後に `rsync` で戻します。Docker を一度も使っていないサーバーでは、この2段階は飛ばされます。
+
+```bash
+[ ! -e /var/lib/docker.old ] &&
+sudo apt-get install -y xfsprogs rsync &&   # dnf なら dnf install -y xfsprogs rsync
+sudo systemctl stop docker docker.socket &&
+{ [ ! -e /var/lib/docker ] || sudo mv /var/lib/docker /var/lib/docker.old; } &&
+sudo truncate -s 60G /var/lib/docker.xfs.img &&
+sudo mkfs.xfs -q /var/lib/docker.xfs.img &&
+sudo mkdir -p /var/lib/docker &&
+echo '/var/lib/docker.xfs.img /var/lib/docker xfs loop,prjquota 0 0' | sudo tee -a /etc/fstab &&
+sudo mount /var/lib/docker &&
+mount | grep 'on /var/lib/docker .*prjquota' &&
+{ [ ! -e /var/lib/docker.old ] || sudo rsync -aHAX /var/lib/docker.old/ /var/lib/docker/; } &&
+sudo systemctl start docker
+```
+
+`/var/lib/docker.old` がすでにあれば、最初の段階で止まります。中身を確認して別の場所へ退避してから、やり直します。途中で止まったら Docker は止まったままです。原因を直すまで起動しません。すでに移していれば `/var/lib/docker.old` が元のデータです。上の確認コマンドが通ってから `deploy` に進みます。
+
+- 60G は Docker 全体(イメージ、ログ、すべての volume)の上限です。イメージファイルは sparse なので書いた分だけホストのディスクを使いますが、小さくはなりません。ホストのファイルシステムにその分の空きが必要です。
+- 確認したこと: `truncate`、`mkfs.xfs`、`mount -o loop,prjquota`、`mount | grep prjquota` は、リポジトリの CI の `workspace-quota` job がそのまま実行します(8G のイメージ)。イメージファイルを Docker の `data-root` に指定する方法は OrbStack マシン1台で1回確認しました。`/etc/fstab` の行と `rsync` での移行は、このページを書く間に実行していません(**未検証**)。先にテスト用サーバーで試します。
+- 2つの配備経路の workspace 上限を同じ項目で並べた表は、[Kubernetes への設置](/run-server/self-hosting/kubernetes)の「workspace のストレージと上限」にあります。
+
+**このサーバーの workspace ストレージと上限。**
+
+| 項目 | 単一サーバー |
+| --- | --- |
+| 保存場所 | セッションごとに Docker `local` volume が1つ。名前にはランダムな接尾辞が付き、label で探す。Docker データルートの XFS の上にある |
+| 容量の上限 | `EXECUTION_WORKSPACE_QUOTA_MB`、既定 4096MiB、最小 1024MiB。volume を作るとき `size` で設定する |
+| inode の上限 | `EXECUTION_WORKSPACE_QUOTA_INODES`、既定 1,000,000。同じ XFS project に `ihard`・`isoft` で設定する |
+| 強制する主体 | XFS `prjquota`(カーネル)。上限を設定できるかは scheduler の quota preflight が確認する |
+| 超えたとき | worker 内の書き込みが `ENOSPC` で失敗する。上限を設定できないサーバーでは scheduler が起動しない |
+| 運用者が決める値 | Docker データルートのファイルシステム(XFS、`prjquota`)とそのサイズ、上の2つの上限 |
+| 確認コマンド | `findmnt -no FSTYPE,OPTIONS -T "$(docker info -f '{{.DockerRootDir}}')"`、`xfs_quota -x -c 'report -p'`、`df -h`、`df -i` |
+
+## checkout なしでインストールする: リリースバンドル
+
+`v*` の GitHub Release には、compose ファイル、`scripts/test-ops.sh`、設定例を収めた `werft-test-ops-<tag>.tar.gz` が付きます。イメージは含まず、リリースの `release-manifest.json` にある digest で、公開済みのイメージを取得します。バンドルを使えば下の手順 2(checkout)とホストの bun は不要です。ダウンロードから `deploy` までのコマンドは、リポジトリの `docs/operator/test-ops.md`(韓国語)の「릴리스 번들로 설치」にあります。
+
+| | checkout インストール | バンドルインストール |
+|---|---|---|
+| 必要なもの | git、jq、curl、bun 1.3.14、デプロイする commit の checkout | docker、jq、curl |
+| `preflight` `deploy` `start` `stop` `status` `key` `reset` `manifest` | 対応 | 対応 |
+| `upgrade` `backup` `reseed` `restore-drill` | 対応 | 拒否。checkout で行う |
 
 ## 1. イメージの digest を読む
 
@@ -66,7 +124,7 @@ unset API_IMAGE WORKER_IMAGE EGRESS_PROXY_IMAGE
 
 ## 2. checkout を取得する
 
-イメージと同じ commit を checkout します。`<12>` は上の `TAG` の12文字です。最初の `v` タグ以降は `git checkout v<バージョン>` です。
+イメージと同じ commit を checkout します。`<12>` は上の `TAG` の12文字です。リリースを設置するときは `git checkout v0.1.0` のようにリリースタグを使います。
 
 ```bash
 git clone https://github.com/JeongJaeSoon/werft.git
@@ -92,14 +150,15 @@ sudo install -d -m 700 -o "$USER" /var/lib/werft/test-ops
 | `POSTGRES_PASSWORD` | ランダムな値。英数字と `.` `_` `~` `-` だけを使う |
 | `EGRESS_AUTHORIZER_TOKEN` | 32文字以上のランダムな値 |
 | `PLATFORM_SECRET_KEY` | `openssl rand -hex 32` の64文字の hex。失うと保存した認証情報を読めない |
-| `ANTHROPIC_API_KEY` | セッションが使う Anthropic key。API コンテナにだけ渡る |
 | `BOOTSTRAP_TOKEN` | コメントを外して32〜256文字のランダムな値を入れる。最初の owner を作るトークン。入れないと API が生成してコンテナのログに出力する |
 
 例のファイルには、`EXECUTION_INSTALLATION_ID`(`test-ops`)、`PLATFORM_SETTINGS_DOCUMENT`(`/etc/werft/settings.json`)、`EGRESS_CREDENTIAL_ALLOWLIST`(`api.anthropic.com:443,github.com:443`)、`EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`(`localstack:4566`)、`EXECUTION_WORKSPACE_QUOTA`(`on`)があらかじめ入っています。既定の LocalStack 設置ならそのままにします。空だと compose が描画を拒否します。
 
 値をターミナルに出力したり、コマンド引数で渡したりしません。ランダムな値は `openssl rand -hex 32` で作り、エディタに貼り付けます。
 
-設定ドキュメントは `/etc/werft/settings.json` に置きます。セッションが使うモデル接続、GitHub リポジトリ、profile を書きます。値ではなく環境変数の名前だけを書くので、秘密は含みません。リポジトリの URL だけを実際の値に変えます。例は公開リポジトリを前提にしています。リポジトリの項目には `"auth": { "kind": "github_app" }` が必要です。ないと取り込みでそのリポジトリが落ちて `preflight` が設置を止めます。この値を入れると通ることを確認しました。非公開リポジトリの認証は [API サーバーのページ](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)(韓国語)に従います。
+モデルキー(`ANTHROPIC_API_KEY`)はこのファイルに入れません。サーバーを起動したあと、[ステップ8](#8-モデルキーを入れる)で Web コンソールのモデル接続の画面から入れます。キーがなくてもサーバーは起動しますが、キーを入れるまではモデルを呼ぶセッションは始まりません。キーを環境変数で渡す場合は[代替手段](#代替手段モデルキーを環境変数で渡す)を参照します。
+
+設定ドキュメントは `/etc/werft/settings.json` に置きます。セッションが使う GitHub リポジトリを書きます。秘密は含みません。リポジトリの URL だけを実際の値に変えます。例は公開リポジトリを前提にしています。リポジトリの項目には `"auth": { "kind": "github_app" }` が必要です。ないと取り込みでそのリポジトリが落ちて `preflight` が設置を止めます。この値を入れると通ることを確認しました。非公開リポジトリの認証は [API サーバーのページ](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)(韓国語)に従います。
 
 migrate コンテナが読むため、ファイルは `0644` にします。先に空のファイルを作り、エディタで次の内容を書き込みます。
 
@@ -110,37 +169,15 @@ sudo install -m 644 -o "$USER" /dev/null /etc/werft/settings.json
 ```json
 {
   "version": 1,
-  "connections": {
-    "anthropic": {
-      "kind": "anthropic",
-      "endpoint": "https://api.anthropic.com",
-      "auth": { "kind": "api_key", "value_env": "ANTHROPIC_API_KEY" }
-    }
-  },
+  "connections": {},
   "repositories": {
     "sample-app": {
       "url": "https://github.com/<owner>/<repo>.git",
       "branch": "main",
-      "auth": { "kind": "github_app" },
-      "profiles": ["claude-coding"]
+      "auth": { "kind": "github_app" }
     }
   },
-  "mcp_servers": {},
-  "profiles": {
-    "claude-coding": {
-      "runtime_kind": "claude_agent_sdk",
-      "runtime_version": "0.3.270",
-      "model": "claude-sonnet-5",
-      "tools": ["Read", "Edit", "Write", "Glob", "Grep", "Bash"],
-      "permission_mode": "default",
-      "provider": {
-        "kind": "anthropic",
-        "endpoint": "https://api.anthropic.com",
-        "auth": { "kind": "api_key", "value_env": "ANTHROPIC_API_KEY" }
-      },
-      "project_settings": { "claude_md": true }
-    }
-  }
+  "mcp_servers": {}
 }
 ```
 
@@ -203,7 +240,7 @@ ssh -N -L 3000:127.0.0.1:3000 <user>@<server>
 
 ## 7. 最初の owner と API key
 
-ブラウザで `http://127.0.0.1:3000/bootstrap` を開き、env ファイルの `BOOTSTRAP_TOKEN`、owner の情報、workspace 名を入力します。env ファイルに入れていない場合は、API コンテナのログから `BOOTSTRAP_TOKEN` で始まる行を探し、その値を使います。このログを読める人は最初の owner ができるまで bootstrap できるので、閲覧権限を運用者に限ります。同じトークンをもう一度送ると `409 BOOTSTRAP_DONE` になります。続けて `/login` でログインします。この画面で owner を作ることは確認していません。
+ブラウザで `http://127.0.0.1:3000/bootstrap` を開き、env ファイルの `BOOTSTRAP_TOKEN`、owner の情報、workspace 名を入力します。env ファイルに入れていない場合は、API コンテナのログから `BOOTSTRAP_TOKEN` で始まる行を探し、その値を使います。このログを読める人は最初の owner ができるまで bootstrap できるので、閲覧権限を運用者に限ります。同じトークンをもう一度送ると `409 BOOTSTRAP_DONE` になります。続けて `/login` でログインします。この画面での owner の作成はオーナーが自分で行い、検証カードは画面を見ていません。ブラウザのログイン画面は確認していません。
 
 利用者ごとに owner と API key を別々に発行します。平文の key は一度しか出力されないので、変数に受けて直接渡します。
 
@@ -215,6 +252,48 @@ KEY="$(scripts/test-ops.sh key create <owner_id> \
 `<owner_id>` は、この key のセッションをまとめる名前です。利用者ごとに別の値を決めます。Web コンソールのアカウントとは別で、workspace id は使いません。
 
 SDK と HTTP API は、このサーバーのアドレスと key で接続します([SDK のインストール](/getting-started/install))。
+
+## 8. モデルキーを入れる
+
+セッションがモデルを呼ぶには、モデルキーと、そのキーを使うプロファイルが必要です。どちらも Web コンソールで作ります。owner でサインインした状態で、次の順に行います。
+
+1. **設定 > ワークスペース設定 > モデル接続**で**接続を追加**を押します。種類は `anthropic`、アドレスは既定値(`https://api.anthropic.com`)のままにし、Anthropic の key を貼り付けて保存します。キーは DB に封印して保存され、画面には末尾4文字だけが表示されます。
+2. **プロファイル > インストールのプロファイルを作成**で、いま作った接続を選び、モデルとリポジトリを決めて保存します。エージェントを作るときにこのプロファイルを選びます。
+
+キーを入れる前にこのプロファイルでセッションを始めると、プロファイルのモデル接続に使えるキーがないというエラーになり、エラーが1の画面の場所を示します。キーを変えるときも同じ画面の**値を変える**を使います。この画面でキーを入れる流れは、偽のモデルサーバーと実際の Anthropic の呼び出し(セッション1ターン)の両方で確認しました。
+
+### 代替手段:モデルキーを環境変数で渡す
+
+キーを DB ではなくサーバーの env ファイルに置きたい場合は、`/etc/werft/test-ops.env` の `ANTHROPIC_API_KEY` を埋め、ステップ3の設定ドキュメントに接続とプロファイルを環境変数の名前で書きます。ドキュメントには値ではなく名前だけを書くので、秘密は含みません。`connections` と `profiles` を次のように埋め、リポジトリの項目に `"profiles": ["claude-coding"]` を足して、ステップ4の digest を求め直します。
+
+```json
+{
+  "connections": {
+    "anthropic": {
+      "kind": "anthropic",
+      "endpoint": "https://api.anthropic.com",
+      "auth": { "kind": "api_key", "value_env": "ANTHROPIC_API_KEY" }
+    }
+  },
+  "profiles": {
+    "claude-coding": {
+      "runtime_kind": "claude_agent_sdk",
+      "runtime_version": "0.3.270",
+      "model": "claude-sonnet-5",
+      "tools": ["Read", "Edit", "Write", "Glob", "Grep", "Bash"],
+      "permission_mode": "default",
+      "provider": {
+        "kind": "anthropic",
+        "endpoint": "https://api.anthropic.com",
+        "auth": { "kind": "api_key", "value_env": "ANTHROPIC_API_KEY" }
+      },
+      "project_settings": { "claude_md": true }
+    }
+  }
+}
+```
+
+この方法で作った接続は、あとから画面に移せます。**モデル接続**の該当行で**画面でキーを入れる**を押してキーを貼り付け直すと、同じ接続とその上のプロファイルが、保存したキーのまま動きます。サーバーが env の値を読んで移すことはなく、キーは人が入れ直します。移したあとも設定ドキュメントに同じ接続が残っていれば、取り込みは DB の行をそのままにします。
 
 ## 片付ける
 

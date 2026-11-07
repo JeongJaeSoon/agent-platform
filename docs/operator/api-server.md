@@ -261,7 +261,7 @@ API가 App의 private key로 JWT를 서명해 설치 토큰을 받고, 그 토�
 - **redirect:** route는 3xx를 따라가지도 전달하지도 않고 502 `upstream redirected`로 끝낸다. clone은 `git clone failed (exit 128): remote: upstream redirected`로 실패하고 세션 attention은 `STARTUP_FAILED`다. GitHub가 git 요청에 301을 주는 경우로 확인한 것은 `http://` URL(→ `https://`)이다. 이름을 바꾼 저장소(`vuejs/vue-next` → `vuejs/core`)와 `.git`을 뺀 URL은 2026-10-13 실측에서 redirect 없이 200이었다. proxy 로그에 `Credential route`가 `status: 301`로 남으면 카탈로그 URL을 응답이 가리키는 주소로 고친다.
 - **401:** 로그인 없이 읽을 수 없는 저장소(없는 저장소, 설치 토큰이 닿지 않는 비공개 저장소)에 GitHub는 401을 준다. proxy 로그는 `Credential route`의 `status: 401`이고, clone은 `fatal: could not read Username for 'http://egress-proxy:3129': terminal prompts disabled`로 실패한다(attention `STARTUP_FAILED`, 2026-10-13 실측). App 설치의 권한이 모자란 경우의 응답은 아직 재지 않았다. 아래 절차에서 status를 확인한다.
 - **확인:** clone이 되면 proxy 로그에 세션 id와 함께 `"message":"Credential route"`, `"purpose":"repository"`, `"host":"github.com"`, `"status":200` 줄이 남는다(실측에서 clone 한 번에 세 줄). worker의 작업 트리에서 `git remote get-url origin`은 카탈로그 URL이고 로그인을 담지 않는다.
-- **LFS·submodule·Go 모듈:** 엔진의 git은 세션의 기본 저장소와 부착 저장소 URL을 저장소 route로 돌린다(`insteadOf`, 엔진 HOME의 `.config/git/config`). 그래서 그 저장소들을 가리키는 submodule, git URL 의존성, 사설 Go 모듈(`GOPRIVATE`, github.com 저장소만)은 route로 받는다. 세션에 붙지 않은 저장소는 받지 않는다. `GOPRIVATE`에는 route가 있는 저장소의 모듈 경로(`github.com/<owner>/<repo>`, 하위 경로 포함)만 들어가고, route를 쓰지 못한 claim에서는 비운다. 그래서 세션에 붙지 않은 사설 저장소의 모듈은 공개 프록시로 가서 `proxy.golang.org`가 찾지 못하고 실패한다. 이때 그 모듈 경로가 `proxy.golang.org` 요청에 드러나고(받기가 실패하므로 checksum 조회까지는 가지 않는다), 저장소 허용 집합을 확인하는 게이트를 거치지 않으므로 거절 receipt도 남지 않는다. 세션이 그런 저장소를 route로 직접 요청하면 게이트가 `repository_not_allowed` receipt를 남기고 `403`으로 거절한다. Git LFS 객체는 route가 batch를 대신 부르고 저장 위치에서 받아 준다. GitHub는 객체를 `github-cloud.githubusercontent.com`에 두므로(2026-11-02 실측) 이 호스트를 `EGRESS_PACKAGES_REDIRECT_ALLOWLIST`에 `github-cloud.githubusercontent.com:443`으로 더한다. 더하지 않으면 객체 GET이 `502`다. worker 이미지에는 `git-lfs`가 있고(시스템 범위 filter, smudge 끔) Go 툴체인은 없다(파생 이미지는 [이미지와 공급망](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/images-and-supply-chain/)의 "worker 안의 패키지 도구"). `git-lfs`는 worker Dockerfile의 build stage가 upstream 소스 릴리스에서 직접 빌드한다. upstream 릴리스 바이너리가 링크한 `golang.org/x/net`에 취약점이 있어 그 모듈을 올려 빌드하고, 소스·Go 툴체인·go.mod·go.sum을 모두 sha256으로 고정한다. 이 버전들은 매일의 Debian 보안 갱신으로 따라 올라가지 않으므로 worker Dockerfile의 `GIT_LFS_*` 값과 checksum을 손으로 올린다. 패치된 x/net을 쓰는 upstream 릴리스가 나오면 그 버전으로 올리고 모듈 변경을 뺄 수 있다. checkout은 pointer 파일을 남기므로 객체는 엔진이 `git lfs pull`로 받는다. 객체 호스트를 목록에 넣지 않은 배포에서 checkout이 실패하지 않게 하려는 것이다.
+- **LFS·submodule·Go 모듈:** 엔진의 git은 세션의 기본 저장소와 부착 저장소 URL을 저장소 route로 돌린다(`insteadOf`, 엔진 HOME의 `.config/git/config`). 그래서 그 저장소들을 가리키는 submodule, git URL 의존성, 사설 Go 모듈(`GOPRIVATE`, github.com 저장소만)은 route로 받는다. 세션에 붙지 않은 저장소는 받지 않는다. `GOPRIVATE`에는 route가 있는 저장소의 모듈 경로(`github.com/<owner>/<repo>`, 하위 경로 포함)만 들어가고, route를 쓰지 못한 claim에서는 비운다. 그래서 세션에 붙지 않은 사설 저장소의 모듈은 공개 프록시로 가서 `proxy.golang.org`가 찾지 못하고 실패한다. 이때 그 모듈 경로가 `proxy.golang.org` 요청에 드러나고(받기가 실패하므로 checksum 조회까지는 가지 않는다), 저장소 허용 집합을 확인하는 게이트를 거치지 않으므로 거절 receipt도 남지 않는다. 세션이 그런 저장소를 route로 직접 요청하면 게이트가 `repository_not_allowed` receipt를 남기고 `403`으로 거절한다. Git LFS 객체는 route가 batch를 대신 부르고 저장 위치에서 받아 준다. GitHub는 객체를 `github-cloud.githubusercontent.com`에 두므로(2026-11-02 실측) 이 호스트를 `EGRESS_PACKAGES_REDIRECT_ALLOWLIST`에 `github-cloud.githubusercontent.com:443`으로 더한다. 더하지 않으면 객체 GET이 `502`다. worker 이미지에는 `git-lfs`가 있고(시스템 범위 filter, smudge 끔) Go 툴체인은 없다(파생 이미지는 [이미지와 공급망](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/images-and-supply-chain/)의 "worker 안의 패키지 도구"). `git-lfs`는 worker Dockerfile의 build stage가 upstream 소스 릴리스에서 직접 빌드한다. upstream 릴리스 바이너리가 링크한 `golang.org/x/net`·`github.com/klauspost/compress`에 취약점이 있어 그 모듈들을 올려 빌드하고, 소스·Go 툴체인·go.mod·go.sum을 모두 sha256으로 고정한다. 이 버전들은 매일의 Debian 보안 갱신으로 따라 올라가지 않으므로 worker Dockerfile의 `GIT_LFS_*` 값과 checksum을 손으로 올린다. 패치된 x/net과 compress(1.20.2 이상)를 쓰는 upstream 릴리스가 나오면 그 버전으로 올리고 모듈 변경을 뺄 수 있다. checkout은 pointer 파일을 남기므로 객체는 엔진이 `git lfs pull`로 받는다. 객체 호스트를 목록에 넣지 않은 배포에서 checkout이 실패하지 않게 하려는 것이다.
 
 github.com의 비공개 저장소로 확인하는 절차다. `scripts/local.sh up --fake-model`로 띄운 스택에 저장소 예시 overlay를 겹친다.
 
@@ -284,6 +284,45 @@ github.com의 비공개 저장소로 확인하는 절차다. `scripts/local.sh u
 - **보존:** checkpoint GC는 열린 요청이 고정한 revision과 그 아래 fallback window를 지우지 않는다. 세션이 계속 checkpoint를 남겨 그 revision이 pointer의 window를 벗어나도, push할 manifest와 workspace bundle은 남는다.
 - **감사:** 요청·결정·거절된 시도마다 receipt가 남는다. operation은 `request_push`·`resolve_push`이고 push 결과는 `push`다. `actor`는 누가 했는지, `result`는 `{push_request_id, action, verdict, refusal, repository_id, checkpoint_revision, git_commit, target_branch}`다. 이름을 바꾸기 전에 남은 receipt는 operation `decide_push`, 값 `result.decision`, refusal `already_decided`, 오류 `PUSH_REQUEST_DECIDED`이고 그대로 읽힌다. 거절이면 status가 `failed`이고 `error`에 코드가 있다. 비밀 값은 담지 않는다. 인증되지 않은 시도(401)와 `AUTH_MODE=none`의 시도는 receipt 없이 요청 로그에만 남는다.
 
+### Workspace 소프트 상한 (`WORKSPACE_ENFORCE`)
+
+API의 `WORKSPACE_ENFORCE`는 `warn`(기본)·`fail`·`off` 중 하나다. 다른 값이나 빈 값이면 API가 시작하지 않는다. Compose에서는 같은 이름의 변수로, Helm에서는 `api.workspaceEnforce`로 설정한다.
+
+- `warn`: 소프트·미확인 축의 사용량이 상한을 넘으면 경고와 지표를 남기고 턴은 계속한다. 초과량에 제한이 없다.
+- `fail`: 턴 입력 전 측정값보다 사용량이 늘었고 상한을 엄격히 초과한 축이 있으면 그 턴을 중단한다. 바이트와 inode를 따로 판정하며 하드 상한이 확인된 축은 관찰만 한다. 완전한 측정은 한 번, 불완전한 측정은 같은 축의 연속 확인 뒤에 중단한다. 측정 실패만으로 턴을 실패시키지는 않는다.
+- `off`: 측정 결과를 턴 중단에 사용하지 않는다. 사용량 관찰은 계속한다.
+
+신뢰할 엔진 terminal을 받은 턴은 `failed`, reason `workspace_quota_exceeded`가 되고 receipt의 공개 오류 코드는 `WORKSPACE_QUOTA_EXCEEDED`다. 세션과 파일은 남는다. 엔진이 중단에 답하지 않아 결과를 확인할 수 없으면 `outcome_unknown`을 유지하며, 사용자 interrupt·owner 상실·이미 닫힌 턴·진행 중인 deadline을 quota보다 우선한다. 새 성공 응답이나 라우트는 추가하지 않는다.
+
+이미 초과한 세션도 정리할 수 있도록 시작 전 전면 거절은 하지 않는다. `fail`에서도 턴 시작보다 사용량이 줄거나 같은 측정값은 상한을 넘었어도 중단하지 않는다. 삭제 전용 모드는 아니며, 삭제만 허용하는 정리 모드와 90% 미만 복귀 시험을 갖추기 전에는 기본값을 `fail`로 올리지 않는다. `fail`의 입력 전 전체 스캔은 턴마다 비용이 들며, 짧은 턴이 이어질 때 관찰 스케줄러의 최소 간격과 같은 비용 목표를 보장하지 않는다. `workspace_quota_exceeded_total`은 초과를 발견한 표본 수이며 고유한 턴 수가 아니다.
+
+정책은 gateway가 worker claim의 선택 필드 `workspace_enforce`로 전달하며 **새 attempt부터** 적용된다. 설정 변경으로 실행 중 attempt가 즉시 바뀌지는 않는다. 즉시 적용이 필요하면 API 설정을 바꾼 뒤 진행 중 worker를 정상 drain하고 새 attempt로 재기동한다. 구버전 worker는 새 claim 필드를 버리며, 필드가 없는 claim을 받은 새 worker는 `warn`으로 동작한다. 구버전 client는 기본 설정에서 새 오류 코드를 그대로 읽지만 구버전 strict 응답 검증기는 새 enum을 `CLIENT_CONTRACT_MISMATCH`로 보고할 수 있다.
+
+소프트 상한은 사후 탐지이므로 측정과 interrupt 사이에 쓰기가 더 진행될 수 있고 유한한 초과량을 보장하지 않는다. 열린 채 unlink한 파일 같은 순회 측정의 한계도 있다. 큰 쓰기를 확실히 막아야 하면 스토리지의 하드 상한이 필요하다.
+
+세션 상세의 workspace 상한 줄은 최신 attempt가 기록한 `system/workspace_limit_mode` 이벤트의 바이트·inode 판별을 읽는다. 기록이 없으면 두 축 모두 미확인이다. `workspace_limit_mode` 응답 필드는 선택이며, 사용량이나 초과 횟수가 아니다. `workspace_quota_exceeded_total`은 계속 초과 표본 수를 세며 이 화면에서 세션 수로 표시하지 않는다.
+
+Kubernetes scheduler는 해당 PVC의 `status.capacity.storage`만 읽어 내부 전달값 `WORKER_WORKSPACE_PVC_CAPACITY_BYTES`를 만든다. 운영자가 직접 설정하는 값이 아니며 PVC가 아직 Bound가 아니거나 조회 권한이 없으면 생략한다. capacity가 요청과 같아도 강제의 증거는 아니므로 기본 판별은 미확인이다. StorageClass·PV 읽기와 ClusterRole은 추가하지 않는다.
+
+### 턴이 끝날 때 push하기 (`AGENT_ACTION_FLOWS`)
+
+기본은 꺼져 있다. 꺼져 있으면 `request_push`는 예전처럼 동작한다(요청을 만들고, 승인되면 이어 가는 턴이 따로 돈다). 켜면 실행 중인 턴 안의 `request_push`는 요청을 만들지 않고 "이 턴이 끝날 때의 결과를 push한다"는 의도(`push_intents`)만 남긴다. 이어 가는 턴은 없다.
+
+- **흐름:** 의도는 `deferred`로 시작한다. 턴이 끝나면 finalize가 그 턴의 마지막 checkpoint revision을 의도에 고정한다(`pinned`). API 안의 실행기가 3초마다 고정된 의도를 하나씩 잡아, 고정된 revision에서 `origin=intent`, `flow=actions`인 push 요청을 만든다(`requested`). 이후 승인과 push는 위 절들과 같다. 턴이 checkpoint 없이 끝나면 의도는 `cancelled`(`turn_ended_without_checkpoint`)다.
+- **고정한 revision:** 이 요청은 pointer가 그 revision을 지나가도 승인할 수 있다. 대신 승인 때 그 revision이 아직 검증되고 요청의 commit을 담고 있는지 다시 본다. 아니면 `pinned_source_invalid`로 거절하고, Slack 카드는 Reject만 남긴다. 고정한 revision은 요청이 열려 있는 동안, 그리고 의도가 `deferred`·`pinned`인 동안 checkpoint GC와 세션 이벤트 보관이 지우지 않는다.
+- **같은 대상은 순서대로:** 같은 세션·저장소·브랜치에 앞선 요청이 열려 있거나(`requested`·`approved`·`pushing`) 그 요청의 PR 단계가 `due`·`opening`이면 뒤의 의도는 `pinned`로 기다린다. 사람이 이미 거절한 commit이면 의도는 `failed`(`rejected_before`)다.
+- **켜기 전에 (barrier):** 새 빌드보다 오래된 checkpoint GC와 세션 이벤트 보관은 `push_intents`를 모르므로 고정한 revision을 지울 수 있다. 켜기 전에 api, `maintenance`(compose), `checkpointGc`·`sessionArchive` CronJob(Kubernetes)이 모두 이 빌드의 이미지로 돌고 있는지 확인하고, 옛 이미지로 시작한 Job이 끝났는지 본다. 그 뒤에 `AGENT_ACTION_FLOWS=true`로 api를 다시 띄운다. 값이 `true`·`false`가 아니면 api가 시작하지 않는다.
+- **플랫폼 프롬프트 문구:** 켠 뒤에 만든 세션(`SESSION_PROMPT_REVISION=1`일 때)은 프롬프트 리비전 3을 받아, 모델에게 "`request_push`는 이 턴이 끝난 commit을 push하고 이어 가는 턴은 없다, PR은 같은 턴에 `push_intent_id`로 예약한다, push는 턴마다 저장소 하나의 HEAD와 그 이전 이력이다"라고 안내한다. 켠 설치의 모든 worker 이미지가 리비전 3을 알아야 하므로 worker 이미지도 이 빌드로 올린 뒤에 켠다(옛 worker는 리비전 3의 claim을 읽지 못한다). 이미 있던 세션은 만들 때의 리비전(1 또는 2) 그대로라 옛 문구를 쓴다. 문구는 체크포인트 지문에 들어가므로 세션의 리비전은 바뀌지 않는다. 그 세션의 `request_push`도 새 흐름으로 돌므로 옛 문구를 따르는 모델이 다음 턴에 다시 부르면 의도가 하나 더 생긴다. 반대로 리비전 2·3 세션을 끈 뒤 이어 가면 `request_push`가 옛 방식(직전 checkpoint의 요청)으로 답한다. 프롬프트가 그 경우(의도 대신 push 요청이 돌아오면 다음 턴에 다시 부른다)를 안내한다. 끄기 전에 리비전 2·3 세션을 끝내 두는 편이 깔끔하다.
+- **끄기 (rollback):** `AGENT_ACTION_FLOWS=false`로 api를 다시 띄운다. 새 의도는 더 만들지 않는다. 이미 남은 의도와 요청은 실행기가 계속 처리한다(실행기는 이 설정과 무관하게 돈다). 모두 처리됐는지는 아래로 본다. 0행이면 끝이다.
+
+```sql
+SELECT status, count(*) FROM push_intents
+WHERE status IN ('deferred', 'pinned') GROUP BY status;
+```
+
+- **보는 곳:** 세션의 결과물 탭 "GitHub 작업"과 `GET /v1/sessions/{id}/push-requests`(`items`의 `origin`·`flow`·`pr_state`, `intents`)에서 의도의 상태와 끝난 이유를 읽는다. 열려 있는 동안 웹은 10초마다, 아니면 1분마다 다시 읽는다.
+- **아직 없는 것:** 실행기는 의도를 만든 사람의 세션 공유 권한을 다시 확인하지 않고, 릴리스 정책과 게이트만 다시 판정한다. `ceiling` 판정은 기존 push 실행기의 게이트가 맡는다. PR을 여는 단계는 다음 변경에서 붙는다.
+
 ### 승인된 요청의 push
 
 API 프로세스가 3초마다 `approved` 요청을 하나씩 잡아 push한다. replica가 여럿이면 같은 행을 둘이 잡지 않는다(`FOR UPDATE SKIP LOCKED`). 승인 뒤 보통 몇 초 안에 요청이 `pushing`을 거쳐 `pushed`나 `failed`가 된다. `requested`·`rejected`·이미 끝난 요청은 잡지 않으므로 push되지 않는다.
@@ -301,9 +340,9 @@ API 프로세스가 3초마다 `approved` 요청을 하나씩 잡아 push한다.
 
 ### push한 브랜치의 PR과 코멘트
 
-`pushed`가 된 요청의 `agent/<session-id>` 브랜치로 사람이 PR을 열고, 그 PR에 코멘트를 달거나 고칠 수 있다. 둘 다 API 호출로 한 번씩 하며, 플랫폼이 세션 이벤트마다 스스로 코멘트를 달지는 않는다. PR 승인·머지·리뷰어 지정·라벨은 하지 않는다.
+`pushed`가 된 요청의 `agent/<session-id>` 브랜치로 PR을 열고, 그 PR에 코멘트를 달거나 고칠 수 있다. PR은 두 가지 길로 열린다. 하나는 사람이나 key가 API 호출로 한 번 여는 것이고, 다른 하나는 push 요청에 PR 요청이 붙어 있을 때 push가 끝나면 control-host 안의 action-broker가 여는 것이다. 뒤쪽 길은 `AGENT_ACTION_FLOWS` 설정과 상관없이 control-host가 뜰 때 같이 시작하므로, 설정을 끈 채 다시 띄워도 이미 시작된 PR 단계는 끝까지 처리된다. 코멘트는 API 호출로 한 번씩 하며, 플랫폼이 세션 이벤트마다 스스로 코멘트를 달지는 않는다. PR 승인·머지·리뷰어 지정·라벨은 하지 않는다.
 
-- **열기:** `POST /v1/sessions/{id}/push-requests/{push_request_id}/pull-request`, body `{title?, body?}`. head는 요청의 `agent/<session-id>`, base는 카탈로그 항목의 `branch`다. 요청이 `pushed`가 아니면 409 `PUSH_NOT_PUSHED`, 카탈로그 항목의 binding이 요청 때와 다르면 push와 같이 409 `CATALOG_MISMATCH`다. 요청 하나에 PR은 하나다. 이미 기록된 PR이 있거나 GitHub에 그 브랜치의 열린 PR이 있으면 새로 열지 않고 그 PR을 200(`created: false`)으로 돌려준다. 같은 세션의 다음 push 요청은 같은 브랜치를 갱신하므로 열린 PR도 같고, 그 요청으로도 코멘트를 달 수 있다. PR 행은 그 PR을 연 push 요청에 묶인다. 그 요청의 호출은 PR이 닫혀도 기록된 PR을 그대로 돌려주고, 다른 push 요청의 호출은 GitHub에서 그 브랜치의 열린 PR을 다시 찾아 없으면(사람이 닫았으면) 새 PR을 연다.
+- **열기:** `POST /v1/sessions/{id}/push-requests/{push_request_id}/pull-request`, body `{title?, body?}`. head는 요청의 `agent/<session-id>`, base는 카탈로그 항목의 `branch`다. 요청이 `pushed`가 아니면 409 `PUSH_NOT_PUSHED`다. 다만 `?schedule=true`를 붙이면 409 대신 202와 `status: "scheduled"`를 받고, push가 끝나는 대로 action-broker가 PR을 연다(이미 `pushed`면 곧바로 열 차례가 된다). 카탈로그 항목의 binding이 요청 때와 다르면 push와 같이 409 `CATALOG_MISMATCH`다. 요청 하나에 PR은 하나다. 이미 기록된 PR이 있거나 GitHub에 그 브랜치의 열린 PR이 있으면 새로 열지 않고 그 PR을 200(`created: false`)으로 돌려준다. 같은 세션의 다음 push 요청은 같은 브랜치를 갱신하므로 열린 PR도 같고, 그 요청으로도 코멘트를 달 수 있다. PR 행은 그 PR을 연 push 요청에 묶인다. 그 요청의 호출은 PR이 닫혀도 기록된 PR을 그대로 돌려주고, 다른 push 요청의 호출은 GitHub에서 그 브랜치의 열린 PR을 다시 찾아 없으면(사람이 닫았으면) 새 PR을 연다.
 - **코멘트:** `POST .../pull-request/comments`, body `{body, marker?}`(`marker` 기본값 `status`). 코멘트 끝에 `<!-- werft:<session-id>:<marker> -->`를 붙이고, 플랫폼이 쓴(App이 작성자인) 같은 marker의 코멘트가 이미 있으면(오래된 순 처음 1000개 안에서) 새로 달지 않고 그 코멘트를 고친다. 다른 사람이 marker를 복사해 둔 코멘트는 건드리지 않는다. PR을 먼저 열지 않았으면 409 `PULL_REQUEST_MISSING`이다.
 - **누가:** push 결정과 같은 규칙이다. `sessions:approve`를 가진 API key나 로그인한 사용자만 부르고, scope는 서비스가 검사해 거절도 receipt로 남는다. worker 자격은 `/v1`에서 401이고 `AUTH_MODE=none`에서는 403(`unverified_principal`)이며 기록하지 않는다.
 - **본문 정리:** 제목·본문·코멘트는 GitHub에 보내기 전에 정리한다. 각 줄을 로그 마스킹과 같은 규칙(`sanitizeText`)에 넣어 비밀처럼 보이는 줄(`ghp_…`, `token:` 같은 줄)은 `[REDACTED]` 한 줄로 바꾼다. `@멘션`, 다른 저장소 참조(`owner/repo#N`), closing keyword(`Closes #N`, `fixes owner/repo#N`, `resolves <URL>` 등), HTML 주석(`<!--`)은 zero-width space를 끼워 알림·링크·자동 닫기·숨김이 일어나지 않게 한다. 제목은 한 줄 256자, 본문과 코멘트는 GitHub의 65536자 안으로 자르고 `…(truncated)`를 붙인다. PR 본문 끝에는 `<!-- werft:pr-tail -->`로 시작해 `<!-- /werft:pr-tail -->`로 끝나는 꼬리가 붙는다. 세션 id·commit, 세션 URL(콘솔 origin이 있을 때), 에이전트·release, push 요청, 시작 경로(`web`·`slack`·`personal_key`·`agent_key`·`operator_key`), 시작자의 GitHub 연결 여부, 연결돼 있으면 `Co-authored-by:` 줄이다. 이미 있는 PR을 돌려줄 때(`created: false`)도 그 PR 본문의 꼬리를 지금 commit으로 바꾼다. 바꾸는 것은 마지막 꼬리(시작 표시 줄부터 다음 끝 표시 줄까지, 표시는 각자 한 줄에 들여쓰기 없이 홀로, 코드 블록과 `<details>` 같은 HTML 요소 밖에 있고, 사이가 플랫폼이 쓰는 줄을 그 순서로 한 번씩 담을 때만 센다. 사람이 그 안에 줄을 더하면 사람 글이다)뿐이고, 앞뒤에 사람이 쓴 글은 줄바꿈까지 쓴 그대로, 문장·코드 블록·HTML 블록에 인용하거나 사이를 고친 표시는 글로 둔다. 그런 짝이 없으면(옛 PR, 사람이 꼬리를 지운 PR) 아무것도 지우지 않고 끝에 붙인다. 본문이 코드 블록이나 HTML 요소를 연 채 끝나면 닫는 줄을 더한 뒤 붙인다. 꼬리 갱신이 실패해도 PR 응답은 그대로이고 API 로그에 경고만 남는다. 아래 "GitHub 계정 연결"도 본다.

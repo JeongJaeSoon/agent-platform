@@ -215,12 +215,12 @@ type SessionGroup = {
   widened_non_app: string[];
 };
 
-/** What the migration would do to the allowed sets; reads only the snapshot. */
-export function buildReport(
-  snapshot: Snapshot,
-  confirmation: Confirmation | null,
-  generatedAt: Date,
-) {
+/**
+ * How the snapshot's repositories, profiles and ceilings read today. The
+ * write side (repository-migration-write.ts) judges with the same functions,
+ * so the plan and the report cannot disagree.
+ */
+export function repositoryContext(snapshot: Snapshot) {
   const kindOf = new Map<string, RepositoryKind>();
   const removed = new Set<string>();
   const appIds: string[] = [];
@@ -291,6 +291,33 @@ export function buildReport(
     }
     return ids;
   };
+  return {
+    kindOf,
+    removed,
+    appIds,
+    attributable,
+    profileSet,
+    profileScope,
+    ceilingOf,
+    ceilingBefore,
+  };
+}
+
+/** What the migration would do to the allowed sets; reads only the snapshot. */
+export function buildReport(
+  snapshot: Snapshot,
+  confirmation: Confirmation | null,
+  generatedAt: Date,
+) {
+  const {
+    kindOf,
+    appIds,
+    attributable,
+    profileSet,
+    profileScope,
+    ceilingOf,
+    ceilingBefore,
+  } = repositoryContext(snapshot);
 
   // Attribution (design 3.2): value -> why, per workspace.
   const attributed = new Map<string, Map<string, Set<string>>>();

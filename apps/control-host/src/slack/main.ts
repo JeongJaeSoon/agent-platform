@@ -57,6 +57,7 @@ import {
   platformPromptRevisionFromEnv,
   profileCatalog,
   releaseStartable,
+  repositoryView,
   resolveAgentRelease,
   type SecretKey,
   type SlackInboundEventStore,
@@ -77,6 +78,7 @@ import {
 } from "../api/catalog-config.ts";
 import { eventNeutralizer } from "../api/neutral-fields.ts";
 import { consoleOriginFrom, slackApiUrlFrom } from "../api/slack-config.ts";
+import { booleanFlag } from "../boolean-flag.ts";
 import { PASS_LOOP_ROLES, passLoopConfigFromEnv } from "../pass-loop/loop.ts";
 
 type Environment = Readonly<Record<string, string | undefined>>;
@@ -146,12 +148,18 @@ export function slackProfileCatalog(db: Database, environment: Environment) {
     }),
     // The api's catalog, so a release the console's repositories allow runs
     // here too.
-    (rows, settings) =>
-      Object.fromEntries(
-        Object.entries(
-          withConsoleRepositories(rows, settings?.repositories),
-        ).map(([id, { auth: _auth, ...repository }]) => [id, repository]),
-      ),
+    (rows, settings) => slackRepositoryViews(rows, settings?.repositories),
+  );
+}
+
+export function slackRepositoryViews(
+  ...args: Parameters<typeof withConsoleRepositories>
+) {
+  return Object.fromEntries(
+    Object.entries(withConsoleRepositories(...args)).map(([id, repository]) => [
+      id,
+      repositoryView(repository),
+    ]),
   );
 }
 
@@ -211,6 +219,14 @@ export function slackSessionHandler(deps: {
       ...newSessionGitHubReaders(db),
     },
     promptRevision: platformPromptRevisionFromEnv(environment),
+    // The API role validates the same variable at boot; this role only reads it.
+    actionFlows: (
+      (on) => () =>
+        on
+    )(
+      environment.AGENT_ACTION_FLOWS !== undefined &&
+        booleanFlag(environment.AGENT_ACTION_FLOWS, "AGENT_ACTION_FLOWS"),
+    ),
     credentials,
     limits: installationLimitsFromEnv(environment),
   });

@@ -96,6 +96,14 @@ describe("GitHub pull requests", () => {
 
     expect(await forge.findPullRequestForBranch(head)).toEqual(pull);
     expect(await forge.findPullRequestForBranch("agent/none")).toBeNull();
+    expect(await forge.findPullRequestsForBranch("agent/none")).toEqual([]);
+    expect(await forge.findPullRequestsForBranch(head)).toEqual([
+      expect.objectContaining({
+        ...pull,
+        body: "What the session did.",
+        headRepository: "acme/app",
+      }),
+    ]);
     // GitHub answers 422 for the open head; the one it names is answered,
     // as not created by this call.
     expect(
@@ -285,6 +293,48 @@ describe("GitHub pull requests", () => {
         forge.upsertComment(1, "<!-- werft:s:x -->", "Hi"),
       ).rejects.toBeInstanceOf(ForgeCredentialError);
       expect(seen).toEqual(Array(10).fill("GET"));
+    } finally {
+      await stub.stop(true);
+    }
+  });
+
+  test("isAncestor asks one compare and reads only ahead and identical as yes", async () => {
+    const statuses = ["ahead", "identical", "behind", "diverged"];
+    const paths: string[] = [];
+    const stub = Bun.serve({
+      port: 0,
+      fetch(request) {
+        const { pathname } = new URL(request.url);
+        if (!pathname.includes("/compare/")) return Response.json([]);
+        paths.push(decodeURIComponent(pathname));
+        return Response.json({ status: statuses[paths.length - 1] });
+      },
+    });
+    try {
+      const forge = await appForgeAt(stub.port);
+      const answers = [];
+      for (let index = 0; index < statuses.length; index += 1) {
+        answers.push(await forge.isAncestor("a".repeat(40), "b".repeat(40)));
+      }
+      expect(answers).toEqual([true, true, false, false]);
+      expect(paths[0]).toBe(
+        `/repos/acme/app/compare/${"a".repeat(40)}...${"b".repeat(40)}`,
+      );
+    } finally {
+      await stub.stop(true);
+    }
+  });
+
+  test("isAncestor throws when GitHub does not know a commit", async () => {
+    const stub = Bun.serve({
+      port: 0,
+      fetch: () => Response.json({ message: "Not Found" }, { status: 404 }),
+    });
+    try {
+      const forge = await appForgeAt(stub.port);
+      await expect(
+        forge.isAncestor("a".repeat(40), "b".repeat(40)),
+      ).rejects.toBeInstanceOf(ForgeCredentialError);
     } finally {
       await stub.stop(true);
     }

@@ -2,6 +2,8 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { SessionDetail } from "@werft-ai/react/blocks";
 import { Button, EmptyState, Section, Text } from "@werft-ai/ui";
 import { ArrowLeft } from "lucide-react";
+import { I18nProvider } from "../../../web/src/i18n/i18n.tsx";
+import { SessionWorkspaceLimit } from "../../../web/src/routes/session-workspace-limit.tsx";
 
 import { type FakeRoutes, json } from "../../.storybook/fake-client.ts";
 import {
@@ -71,12 +73,19 @@ function SessionDetailPage({
         id={SESSION.id}
         {...shared(host)}
         unavailable={scoped ? undefined : host.unavailable}
-        controls={() => (
-          <Section titleAs="h3" title="공유 범위">
-            <Text as="div" className="text-body">
-              {SHARE_TEXT[share]}
-            </Text>
-          </Section>
+        controls={(session) => (
+          <>
+            <I18nProvider
+              locale={locale === "en" ? "en" : locale === "ja" ? "ja" : "ko"}
+            >
+              <SessionWorkspaceLimit mode={session.workspace_limit_mode} />
+            </I18nProvider>
+            <Section titleAs="h3" title="공유 범위">
+              <Text as="div" className="text-body">
+                {SHARE_TEXT[share]}
+              </Text>
+            </Section>
+          </>
         )}
         back={
           <Button asChild variant="outline">
@@ -132,6 +141,21 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Owner: Story = { name: "시작한 사람: 권한 요청 대기" };
+
+export const WorkspaceHard: Story = {
+  parameters: {
+    api: routes({
+      detail: {
+        ...TITLED,
+        workspace_limit_mode: {
+          bytes: "hard",
+          inodes: "hard",
+          reason: "local_quota_preflight",
+        },
+      },
+    }),
+  },
+};
 
 export const OwnerIdle: Story = {
   name: "시작한 사람: 기다리는 요청 없음",

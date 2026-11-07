@@ -20,7 +20,10 @@
 import { createHash, randomUUID } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import { resolve, sep } from "node:path";
-import type { CheckpointObjectCollector } from "@werft-ai/platform";
+import {
+  type CheckpointObjectCollector,
+  parseSeedDocument,
+} from "@werft-ai/platform";
 import type { CheckpointObjectStore } from "@werft-ai/runtime-core";
 import {
   createCheckpointObjectCollector,
@@ -169,11 +172,26 @@ async function repositoriesWithoutGitHubApp(file: string): Promise<string[]> {
   }
   if (document === null || typeof document !== "object") return [];
   const skipped: string[] = [];
-  withoutLegacyRepositories(
+  const notes: string[] = [];
+  const repositories = withoutLegacyRepositories(
     (document as { repositories?: unknown }).repositories,
-    [],
+    notes,
     skipped,
   );
+  // migrate parses the document the same way; a refusal there only shows up
+  // after the images are pulled and the stack is half up.
+  try {
+    parseSeedDocument(
+      Array.isArray(document) || !("repositories" in document)
+        ? document
+        : { ...document, repositories },
+      notes.length > 0,
+    );
+  } catch (error) {
+    return [
+      `settings document ${file}: ${error instanceof Error ? error.message : String(error)}`,
+    ];
+  }
   return skipped.map(
     (id) =>
       `settings document ${file}: repository ${id} names no GitHub App, so the import would leave it out; add "auth": {"kind": "github_app"}. If the database already holds a repository ${id}, that edit conflicts with the row: remove the entry or give it a new id. If it is the only repository and every top-level profile requires a repository, removing it also needs the top-level "profiles" removed (or use a new id instead), or the import fails with "at least one repository is required". If a run already stopped with pending.json left behind, copy the fixed manifest over it (docs/operator/test-ops.md)`,
@@ -312,6 +330,12 @@ export async function checkRender(
     if (!URL_SAFE.test(env("postgres", name) ?? ""))
       problems.push(
         `${name} may hold only letters, digits and . _ ~ - (it goes into DATABASE_URL unescaped)`,
+      );
+  // The egress proxy exits on a shorter token and restarts forever.
+  for (const service of ["api", "egress-proxy"])
+    if ((env(service, "EGRESS_AUTHORIZER_TOKEN") ?? "").length < 32)
+      problems.push(
+        `${service} EGRESS_AUTHORIZER_TOKEN must be at least 32 characters (the egress proxy refuses to start)`,
       );
   const installation = env("scheduler", "EXECUTION_INSTALLATION_ID") ?? "";
   if (!/^[a-z0-9][a-z0-9_.-]*$/.test(installation) || installation === "local")

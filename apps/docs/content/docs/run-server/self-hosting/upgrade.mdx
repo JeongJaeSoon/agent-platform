@@ -6,7 +6,7 @@ description: 설치한 Werft를 새 게시 버전으로 올리고, 올리기 전
 이미 설치한 Werft를 새 게시 버전으로 올린다. 처음 설치는 [Kubernetes 설치](/run-server/self-hosting/kubernetes)나 [단일 서버 설치](/run-server/self-hosting/single-server)를 읽는다.
 
 <Callout type="warn">
-첫 `v` 태그가 아직 없다. 지금은 `main`에 머지될 때마다 게시되는 chart `0.1.0-main-<12>`와 이미지 태그 `main-<12>`로 올린다. 이 버전은 릴리스가 아니다. 첫 `v` 태그가 생기면 `VERSION`을 태그의 버전(`v1.2.3`이면 `1.2.3`)으로 바꾸고, 명령은 같다. 올리기 전에 저장소의 [변경 기록](https://github.com/JeongJaeSoon/werft/blob/main/CHANGELOG.md)에서 운영자가 직접 해야 할 일을 읽는다.
+첫 릴리스 `v0.1.0`이 게시됐다. 릴리스로 올리려면 `VERSION`을 태그의 버전(`v0.1.0`이면 `0.1.0`)으로 바꾸고, 명령은 같다. 아래 확인은 main 버전끼리 올린 것이고, 릴리스 버전으로 올리는 업그레이드는 실행해 확인하지 않았다. `0.1.0-main-<12>`와 `main-<12>`는 릴리스가 아니다. 올리기 전에 저장소의 [변경 기록](https://github.com/JeongJaeSoon/werft/blob/main/CHANGELOG.md)에서 운영자가 직접 해야 할 일을 읽는다.
 </Callout>
 
 ## Kubernetes

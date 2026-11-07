@@ -1,3 +1,4 @@
+import type { PushRequestFlow } from "@werft-ai/contracts";
 import type { PushFollowUpStore } from "@werft-ai/platform";
 import { and, eq, max, or, sql } from "drizzle-orm";
 import { enqueueWithin } from "./enqueue.ts";
@@ -132,5 +133,20 @@ export async function queuePushFollowUps(
 export function createPostgresPushFollowUpStore(
   db: Database,
 ): PushFollowUpStore {
-  return { hold: (input) => holdPushFollowUp(db, input) };
+  return {
+    hold: (input) => holdPushFollowUp(db, input),
+    async flowOf({ sessionId, pushRequestId }) {
+      const [row] = await db
+        .select({ flow: pushRequests.flow })
+        .from(pushRequests)
+        .where(
+          and(
+            eq(pushRequests.id, pushRequestId),
+            eq(pushRequests.sessionId, sessionId),
+          ),
+        )
+        .limit(1);
+      return row === undefined ? null : (row.flow as PushRequestFlow);
+    },
+  };
 }

@@ -72,6 +72,7 @@ const LINKED: SessionAttributionRecord = {
 const TAIL = [
   "---",
   PULL_REQUEST_TAIL_MARKER,
+  `<!-- agent-platform:push-request ${PUSH} -->`,
   `Opened in a Werft session · [session](<https://console.example.com/sessions/${SESSION}>) · commit \`aaaaaaa\``,
   "",
   "<details><summary>Details</summary>",
@@ -110,6 +111,8 @@ function harness(
     failUpdate?: boolean;
     /** Someone opened #9 for the head between the find and the create. */
     raced?: boolean;
+    /** The head the forge reports for a pull request this call creates or races. */
+    madeHead?: string;
     /** The repository's default branch, as the tree and blob reads see it. */
     repository?: ReturnType<typeof fakeRepositoryReads>;
     maxBodyLength?: number;
@@ -140,8 +143,21 @@ function harness(
     state: options.state ?? "pushed",
     targetBranch: HEAD,
     gitCommit: "a".repeat(40),
+    prState: null,
+    prError: null,
+    prErrorDetails: null,
   };
+  const failed: Array<Record<string, unknown>> = [];
   const store: PullRequestStore = {
+    failHeadMoved: async ({ details }) => {
+      failed.push(details);
+      source.prState = "failed";
+      source.prError = "head_moved";
+      source.prErrorDetails = details;
+    },
+    schedule: async () => {
+      throw new Error("not used");
+    },
     findSource: async (_owner, session, push) => {
       sourceReads.push(session);
       return session === SESSION && push === PUSH ? source : null;
@@ -158,7 +174,7 @@ function harness(
             entry.head === head,
         ) ?? null,
     recordReceipt: async (input) => {
-      receipts.push(input);
+      receipts.push(input as PullRequestReceipt);
       return `receipt-${receipts.length}`;
     },
     recordStateChange: async ({ url, ...input }) => {
@@ -196,6 +212,8 @@ function harness(
   }> = [];
   const comments: Array<{ marker: string; body: string }> = [];
   let failing = false;
+  let compareFails = false;
+  const ancestors = new Set<string>();
   let readStatus: number | null = null;
   let patchAnswer: ForgePullRequest["state"] | null = null;
   let gateRefusal = options.gateRefusal ?? null;
@@ -214,6 +232,12 @@ function harness(
     getWorkflowRun: unused,
     rerunWorkflow: unused,
     submitReview: unused,
+    findPullRequestsForBranch: unused,
+    isAncestor: async (ancestor, descendant) => {
+      calls.push(`ancestor ${ancestor.slice(0, 1)} ${descendant.slice(0, 1)}`);
+      if (compareFails) throw new ForgeCredentialError("compare failed (502)");
+      return ancestors.has(ancestor);
+    },
     findPullRequestForBranch: async (branch) => {
       calls.push(`find ${branch}`);
       fail();
@@ -228,7 +252,7 @@ function harness(
           url: "https://github.com/acme/app/pull/9",
           state: "open",
           head: input.head,
-          headSha: "a".repeat(40),
+          headSha: options.madeHead ?? "a".repeat(40),
           base: input.base,
           mergedAt: null,
           closedAt: null,
@@ -242,7 +266,7 @@ function harness(
         url: "https://github.com/acme/app/pull/7",
         state: "open",
         head: input.head,
-        headSha: "a".repeat(40),
+        headSha: options.madeHead ?? "a".repeat(40),
         base: input.base,
         mergedAt: null,
         closedAt: null,
@@ -374,12 +398,19 @@ function harness(
     works,
     created,
     comments,
+    /** Commits the forge reports as ancestors of the pushed one. */
+    ancestors,
+    failCompare: () => {
+      compareFails = true;
+    },
+    failed,
     setOpen: (
       pull: Omit<ForgePullRequest, "mergedAt" | "closedAt" | "headSha">,
+      headSha = "a".repeat(40),
     ) => {
       open = {
         ...pull,
-        headSha: "a".repeat(40),
+        headSha,
         mergedAt: null,
         closedAt: null,
       };
@@ -523,6 +554,106 @@ describe("opening a pull request", () => {
       pull_request: { number: 3 },
     });
     expect(calls).toEqual([`find ${HEAD}`, "update 3"]);
+  });
+
+  describe("an open pull request on another commit than the pushed one", () => {
+    const BRANCH_PR = {
+      number: 3,
+      url: "https://github.com/acme/app/pull/3",
+      state: "open" as const,
+      head: HEAD,
+      base: "develop",
+    };
+    const MOVED = "b".repeat(40);
+
+    test("a head that is not an ancestor ends head_moved, with both commits; nothing is adopted or recorded", async () => {
+      const { service, setOpen, calls, saved, receipts } = harness();
+      setOpen(BRANCH_PR, MOVED);
+      const caught = await refusal(
+        service.open(actor, SESSION, PUSH, { readBody: async () => ({}) }),
+      );
+      expect(caught.code).toBe("PUSH_REQUEST_RESOLVED");
+      expect(caught.details).toMatchObject({
+        refusal: "head_moved",
+        number: 3,
+        expected_sha: "a".repeat(40),
+        actual_sha: MOVED,
+      });
+      expect(calls).toEqual([`find ${HEAD}`, "ancestor b a"]);
+      expect(saved).toEqual([]);
+      expect(receipts.at(-1)).toMatchObject({
+        result: { verdict: "refuse", refusal: "head_moved", number: 3 },
+      });
+    });
+
+    test("a head that is an ancestor is GitHub's lag: a retryable forge_failed, nothing recorded", async () => {
+      const { service, setOpen, ancestors, saved, calls } = harness();
+      setOpen(BRANCH_PR, MOVED);
+      ancestors.add(MOVED);
+      const caught = await refusal(
+        service.open(actor, SESSION, PUSH, { readBody: async () => ({}) }),
+      );
+      expect(caught.code).toBe("BACKEND_UNAVAILABLE");
+      expect(saved).toEqual([]);
+      expect(calls).not.toContain("update 3");
+    });
+
+    test("a pull request answered to a 422 on a moved head is not recorded either", async () => {
+      const { service, saved } = harness({ madeHead: MOVED, raced: true });
+      const caught = await refusal(
+        service.open(actor, SESSION, PUSH, { readBody: async () => ({}) }),
+      );
+      expect(caught.details).toMatchObject({ refusal: "head_moved" });
+      expect(saved).toEqual([]);
+    });
+
+    test("a pull request this call created on a moved head ends the stage head_moved for good: its number is kept, nothing is recorded, and no later call creates another", async () => {
+      const { service, saved, failed, calls, ancestors, forgePullRequest } =
+        harness({ madeHead: MOVED });
+      // Even a head that only lags is final here: the pull request exists.
+      ancestors.add(MOVED);
+      const first = await refusal(
+        service.open(actor, SESSION, PUSH, { readBody: async () => ({}) }),
+      );
+      expect(first.details).toMatchObject({
+        refusal: "head_moved",
+        number: 7,
+        expected_sha: "a".repeat(40),
+        actual_sha: MOVED,
+      });
+      expect(failed).toEqual([
+        {
+          number: 7,
+          url: "https://github.com/acme/app/pull/7",
+          expected_sha: "a".repeat(40),
+          actual_sha: MOVED,
+        },
+      ]);
+      expect(saved).toEqual([]);
+      // A person closes it; the next call must not reach the forge at all.
+      const before = calls.length;
+      expect(forgePullRequest()).not.toBeNull();
+      const again = await refusal(
+        service.open(actor, SESSION, PUSH, { readBody: async () => ({}) }),
+      );
+      expect(again.details).toMatchObject({
+        refusal: "head_moved",
+        number: 7,
+      });
+      expect(calls.length).toBe(before);
+      expect(saved).toEqual([]);
+    });
+
+    test("a compare GitHub fails closes the same way as a head that is not an ancestor", async () => {
+      const { service, setOpen, failCompare, saved } = harness();
+      setOpen(BRANCH_PR, MOVED);
+      failCompare();
+      const caught = await refusal(
+        service.open(actor, SESSION, PUSH, { readBody: async () => ({}) }),
+      );
+      expect(caught.details).toMatchObject({ refusal: "head_moved" });
+      expect(saved).toEqual([]);
+    });
   });
 
   test("a pull request the forge did not create is saved as not created on both paths: found open, and GitHub's 422", async () => {

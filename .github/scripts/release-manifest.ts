@@ -12,7 +12,11 @@ import { spawnSync } from "node:child_process";
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { chartVersion, publishedImages } from "./chart-package.ts";
+import {
+  chartVersion,
+  effectiveRef,
+  publishedImages,
+} from "./chart-package.ts";
 
 export const MANIFEST_SCHEMA = 1;
 export const MANIFEST_ASSET = "release-manifest.json";
@@ -167,11 +171,8 @@ function readChart(dir: string): ChartFiles {
 
 if (import.meta.main) {
   const [publishedDir, chartDir, outFile] = process.argv.slice(2);
-  const {
-    GITHUB_REF: ref,
-    GITHUB_SHA: sha,
-    GITHUB_REPOSITORY_OWNER: owner,
-  } = process.env;
+  const { GITHUB_SHA: sha, GITHUB_REPOSITORY_OWNER: owner } = process.env;
+  const ref = effectiveRef(process.env);
   if (!publishedDir || !chartDir || !outFile || !ref || !sha || !owner) {
     console.error(
       "usage: release-manifest.ts <published dir> <chart dir> <out file>, with GITHUB_REF, GITHUB_SHA and GITHUB_REPOSITORY_OWNER set",

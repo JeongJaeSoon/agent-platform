@@ -113,10 +113,12 @@ import {
   receiptAcceptedResponseSchema,
   rejudgeSessionResponseSchema,
   rerunWorkflowResponseSchema,
+  retryProfileRolloutResponseSchema,
   reviewAchievementResponseSchema,
   revokeAgentIdentityResponseSchema,
   revokeApiKeyResponseSchema,
   revokeCredentialBindingResponseSchema,
+  saveAgentResponseSchema,
   searchSlackChannelsResponseSchema,
   sessionGitHubAttributionSchema,
   sessionShareSchema,
@@ -318,9 +320,9 @@ export const responseSchemas = {
   "DELETE /v1/linked-accounts/{id}": receiptAcceptedResponseSchema,
   "GET /v1/agents": listAgentsResponseSchema,
   "GET /v1/agents/counts": countAgentsResponseSchema,
-  "POST /v1/agents": agentDetailSchema,
+  "POST /v1/agents": saveAgentResponseSchema,
   "GET /v1/agents/{id}": agentDetailSchema,
-  "PATCH /v1/agents/{id}": agentDetailSchema,
+  "PATCH /v1/agents/{id}": saveAgentResponseSchema,
   "POST /v1/agents/{id}/releases": createAgentReleaseResponseSchema,
   "POST /v1/agents/{id}/activate": activateAgentResponseSchema,
   "GET /v1/agents/{id}/credential-bindings":
@@ -385,6 +387,8 @@ export const responseSchemas = {
   "POST /v1/installation-profiles": installationProfileChangeResponseSchema,
   "POST /v1/installation-profiles/{profile_id}/retire":
     installationProfileChangeResponseSchema,
+  "POST /v1/installation-profiles/{profile_id}/rollout/retry":
+    retryProfileRolloutResponseSchema,
   "POST /v1/installation-profiles/{profile_id}/block":
     installationProfileChangeResponseSchema,
   "POST /v1/installation-profiles/{profile_id}/unblock":
@@ -395,6 +399,8 @@ export const responseSchemas = {
     listSettingsConnectionsResponseSchema,
   "POST /v1/installation/settings/connections": settingsChangeResponseSchema,
   "POST /v1/installation/settings/connections/{id}/credential":
+    settingsChangeResponseSchema,
+  "POST /v1/installation/settings/connections/{id}/convert":
     settingsChangeResponseSchema,
   "POST /v1/installation/settings/connections/{id}/disable":
     settingsChangeResponseSchema,

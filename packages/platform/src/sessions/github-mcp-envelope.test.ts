@@ -72,6 +72,12 @@ const pushRequest: PushRequest = {
   resolution_receipt_id: null,
   finished_at: null,
   push_receipt_id: null,
+  origin: "direct",
+  flow: "legacy",
+  pr_state: null,
+  pr_error: null,
+  pr_number: null,
+  pr_url: null,
 };
 
 const run = {
@@ -92,8 +98,33 @@ function server(failure: SessionServiceError | null) {
       return value;
     };
   const services = (): GitHubMcpServices => ({
-    pushRequests: { create: answer(pushRequest), get: answer(pushRequest) },
+    pushRequests: {
+      create: answer(pushRequest),
+      get: answer(pushRequest),
+      snapshot: answer({
+        push_intent_id: null,
+        intent_status: null,
+        intent_refusal: null,
+        push_request_id: ID,
+        push_state: "pushed" as const,
+        repository_id: "app",
+        target_branch: "agent/s",
+        pull_request_scheduled: false,
+        pull_request_stage: null,
+        pull_request_error: null,
+        pull_request: null,
+      }),
+      requestIntent: async () => {
+        throw new Error("not used");
+      },
+    },
     pullRequests: {
+      schedule: answer({
+        pull_request: pullRequest,
+        created: true,
+        body_source: { kind: "platform" as const },
+        receipt_id: RECEIPT,
+      }),
       open: answer({
         pull_request: pullRequest,
         created: true,
@@ -178,6 +209,7 @@ function server(failure: SessionServiceError | null) {
 const ARGUMENTS: Record<GitHubMcpTool, unknown> = {
   request_push: {},
   open_pull_request: { push_request_id: ID, title: "Fix" },
+  get_push_request: { push_request_id: ID },
   update_pull_request: { push_request_id: ID, title: "Fix" },
   comment_pull_request: { push_request_id: ID, body: "Note" },
   close_pull_request: { push_request_id: ID },

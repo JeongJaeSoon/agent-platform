@@ -25,17 +25,52 @@ import {
   commentPullRequestRequestSchema,
   commentPullRequestResponseSchema,
   openPullRequestRequestSchema,
-  openPullRequestResponseSchema,
+  openPullRequestResultSchema,
   setPullRequestStateResponseSchema,
   updatePullRequestRequestSchema,
   updatePullRequestResponseSchema,
 } from "./pull-request.ts";
 import {
   createPushRequestRequestSchema,
+  pullRequestStageSchema,
+  pushIntentRefusalSchema,
+  pushIntentStatusSchema,
   pushRequestIdSchema,
   pushRequestSchema,
+  pushRequestStateSchema,
 } from "./push-request.ts";
 import { githubPolicyReceiptFieldsSchema } from "./receipt.ts";
+
+/** Exactly one of the two ids names the push the call is about. */
+const hasOneOfPushIds = (a: {
+  push_request_id?: string | undefined;
+  push_intent_id?: string | undefined;
+}) => (a.push_request_id === undefined) !== (a.push_intent_id === undefined);
+const ONE_PUSH_ID_MESSAGE =
+  "give exactly one of push_request_id and push_intent_id";
+
+/**
+ * What `get_push_request` answers: the intent, the push request and the pull
+ * request stage of one push, read together. Public codes only.
+ */
+export const pushRequestSnapshotSchema = z
+  .object({
+    push_intent_id: z.uuid().nullable(),
+    intent_status: pushIntentStatusSchema.nullable(),
+    intent_refusal: pushIntentRefusalSchema.nullable(),
+    push_request_id: pushRequestIdSchema.nullable(),
+    push_state: pushRequestStateSchema.nullable(),
+    repository_id: z.string(),
+    target_branch: z.string(),
+    pull_request_scheduled: z.boolean(),
+    pull_request_stage: pullRequestStageSchema.nullable(),
+    pull_request_error: z.string().nullable(),
+    pull_request: z
+      .object({ number: z.number().int(), url: z.string() })
+      .nullable(),
+  })
+  .strict();
+export type PushRequestSnapshot = z.infer<typeof pushRequestSnapshotSchema>;
 
 /**
  * The built-in MCP server a session's agent reaches GitHub through (design
@@ -76,10 +111,29 @@ export const LIST_REPOSITORIES_LIMIT_MAX = 500;
  * from the path. Never a session id: the attempt token names the session.
  */
 export const GITHUB_MCP_TOOL_ARGUMENTS = {
-  request_push: createPushRequestRequestSchema,
-  open_pull_request: openPullRequestRequestSchema.safeExtend({
-    push_request_id: pushRequestIdSchema,
-  }),
+  // The REST body plus `source_ref`, which only the tool takes. Until the
+  // multi-branch stage it is answered `source_ref_unsupported`.
+  request_push: createPushRequestRequestSchema
+    .safeExtend({
+      source_ref: z.string().min(1).max(255).optional(),
+      // Accepted only where the PR tool is trusted; elsewhere
+      // `pull_request_needs_tool_call` (nothing is created).
+      pull_request: openPullRequestRequestSchema.optional(),
+    })
+    .strict(),
+  open_pull_request: openPullRequestRequestSchema
+    .safeExtend({
+      push_request_id: pushRequestIdSchema.optional(),
+      push_intent_id: z.uuid().optional(),
+    })
+    .refine(hasOneOfPushIds, { message: ONE_PUSH_ID_MESSAGE }),
+  get_push_request: z
+    .object({
+      push_request_id: pushRequestIdSchema.optional(),
+      push_intent_id: z.uuid().optional(),
+    })
+    .strict()
+    .refine(hasOneOfPushIds, { message: ONE_PUSH_ID_MESSAGE }),
   update_pull_request: updatePullRequestRequestSchema.safeExtend({
     push_request_id: pushRequestIdSchema,
   }),
@@ -129,6 +183,7 @@ export const GITHUB_MCP_TOOL_FEATURES: Record<
 > = {
   request_push: null,
   open_pull_request: null,
+  get_push_request: null,
   update_pull_request: null,
   comment_pull_request: null,
   close_pull_request: null,
@@ -288,6 +343,8 @@ export type ActionClass = (typeof ACTION_CLASS_VALUES)[number];
 export const GITHUB_MCP_TOOL_CLASSES: Record<GitHubMcpTool, ActionClass> = {
   request_push: "push",
   open_pull_request: "pull_request.write",
+  // A read of the push the model asked for; its class is the push's.
+  get_push_request: "push",
   update_pull_request: "pull_request.write",
   comment_pull_request: "pull_request.write",
   close_pull_request: "pull_request.write",
@@ -382,9 +439,11 @@ export const GITHUB_MCP_FIXED_TOOLS = listedGitHubMcpTools(
  */
 export const GITHUB_MCP_TOOL_DESCRIPTIONS: Record<GitHubMcpTool, string> = {
   request_push:
-    "Request a push of the session's last checkpoint (the state at the end of the previous turn) to branch agent/<session-id>, or agent/<session-id>-<branch> when `branch` is given. `repository_id` names an attached repository; omitted, the session's own. Returns the push request, which waits for a person when the release requires approval, or `deferred` when no checkpoint exists yet.",
+    "Request a push to branch agent/<session-id>, or agent/<session-id>-<branch> when `branch` is given. `repository_id` names an attached repository; omitted, the session's own. With the installation's agent action flows on, a call inside a running turn pushes the state this turn ends with, and the answer is `deferred` with `push_intent_id` and `waits_for: turn_end`; the platform makes the push request when the turn ends, and no later turn starts for the pull request: call `open_pull_request` with that `push_intent_id` in the same turn, also when the push needs approval. Otherwise (the flows off, or no running turn) the last checkpoint is pushed and the push request is returned, which waits for a person when the release requires approval, or `deferred` when no checkpoint exists yet. A push carries the workspace HEAD of the checkpoint it is made from, and the history before it: for an attached repository that is its branch checked out in the workspace (a git worktree or clone elsewhere is not captured), with `repository_id` naming that repository. With the flows on, that checkpoint is the one taken when the turn ends, and every push request of the turn is pinned to it, whichever repository it names; a push request for a repository other than the one checked out does not select that repository's state, and a new target branch whose history shares nothing with the target's default branch is refused as `unrelated_history` (an existing target branch gives `non_fast_forward` instead). The platform does not hold a second repository's request for a later turn. `source_ref` is not supported yet, and with the flows on a turn takes one target per repository: a second `branch` in the same turn is refused with `source_ref_unsupported`, so say what is left and push it in the next turn. `pull_request` is not accepted yet: a call that carries it is refused with `pull_request_needs_tool_call` and nothing is created; open the pull request with `open_pull_request` (in a running turn with the flows on, with the `push_intent_id` this call returns).",
+  get_push_request:
+    "Read where one push stands: the intent (`intent_status`, `intent_refusal`), the push request (`push_state`) and its pull request stage (`pull_request_stage`, `pull_request_error`, `pull_request`). Give `push_request_id` or `push_intent_id`, never both; both ids answer the same push once the intent became a push request.",
   open_pull_request:
-    "Open, or return the already open, pull request from the branch and commit of a pushed push request (`push_request_id`). Content fields: `title`; `summary` (what changed and why, a few sentences); `changes` (one change per item); `rationale` (the reason for the change); `testing` (how it was checked); `notes` (what a reviewer needs to know); `related` (issues: `number`, optional `repository_id`, `closes` to close it on merge). `body` is the legacy single text and cannot be combined with the fields above.",
+    "Open, or return the already open, pull request from the branch and commit of a pushed push request (`push_request_id`), or, with the installation's agent action flows on, schedule it with `push_intent_id` (or a push request that is not pushed yet): `scheduled` means the platform opens it once the push finishes, with the content of the first call. With the flows off, a push request that is not pushed yet is refused with `not_pushed`. A pull request already open for the branch on another commit than the pushed one is refused with `head_moved` and not adopted. Content fields: `title`; `summary` (what changed and why, a few sentences); `changes` (one change per item); `rationale` (the reason for the change); `testing` (how it was checked); `notes` (what a reviewer needs to know); `related` (issues: `number`, optional `repository_id`, `closes` to close it on merge). `body` is the legacy single text and cannot be combined with the fields above.",
   update_pull_request:
     "Set the title or the content of the pull request that the push request's branch has open. Given any of `summary`, `changes`, `rationale`, `testing`, `notes` or `related`, the body is written again from those fields (a field left out is empty); `body` (legacy) replaces the body as text; `title` alone leaves the body. The platform's closing lines stay, naming the push request's commit.",
   comment_pull_request:
@@ -401,7 +460,7 @@ export const GITHUB_MCP_TOOL_DESCRIPTIONS: Record<GitHubMcpTool, string> = {
   submit_review:
     "Submit a review of a pull request as the reviewer App, on the commit named by `commit_id`.",
   list_repositories: `List the repositories the session can work on, ${LIST_REPOSITORIES_LIMIT_DEFAULT} a page. The session's own comes first on the first page and is not counted in \`limit\` (1 to ${LIST_REPOSITORIES_LIMIT_MAX}); the others are in id order. \`next_cursor\` is non-null when more follow: send it back as \`cursor\`. \`query\` keeps those whose id or name contains it. \`status\` is \`primary\` (the session's own), \`attached\`, \`pending\` or \`failed\` (fetch in progress or failed), \`available\` (attach_repository would add it) or \`allowed_in_newer_release\` (only the agent's current release allows it).`,
-  attach_repository: `Attach a repository the release allows to the session as a git remote named \`repository_id\`, with its default branch fetched to \`<repository_id>/<branch>\`. \`status\` is \`pending\` while the fetch runs. \`wait_seconds\` (0 to ${GITHUB_MCP_WAIT_SECONDS_MAX}, default 0) holds the answer until the fetch ends or the seconds have passed; \`final\` is false when the fetch was still running at the end of the wait. Attaching an attached repository changes nothing.`,
+  attach_repository: `Attach a repository the release allows to the session as a git remote named \`repository_id\`, with its default branch fetched to \`<repository_id>/<branch>\`. \`status\` is \`pending\` while the fetch runs. \`wait_seconds\` (0 to ${GITHUB_MCP_WAIT_SECONDS_MAX}, default 0) holds the answer until the fetch ends or the seconds have passed; \`final\` is false when the fetch was still running at the end of the wait. Attaching an attached repository changes nothing. Changes to it are pushed from a branch of \`<repository_id>/<branch>\` checked out in the workspace; a git worktree or clone elsewhere is not captured, and a push carries the workspace HEAD of its checkpoint (with the flows on, the checkpoint taken when the turn ends, shared by every push request of that turn).`,
 };
 
 const requestPushResultSchema = z.union([
@@ -414,12 +473,26 @@ const requestPushResultSchema = z.union([
       continuation: z.literal("after_turn"),
     })
     .strict(),
+  // Inside a running turn with AGENT_ACTION_FLOWS on: "push what this turn
+  // ends with". The platform makes the push request after the turn ends.
+  z
+    .object({
+      status: z.literal("deferred"),
+      push_intent_id: z.uuid(),
+      waits_for: z.literal("turn_end"),
+      repository_id: z.string(),
+      target_branch: z.string(),
+      pull_request: z.enum(["scheduled", "none"]),
+      next: z.string(),
+    })
+    .strict(),
 ]);
 
 /** The envelope each tool answers with, as `outputSchema` states it. */
 export const GITHUB_MCP_TOOL_OUTPUTS = {
   request_push: actionResultSchema(requestPushResultSchema),
-  open_pull_request: actionResultSchema(openPullRequestResponseSchema),
+  open_pull_request: actionResultSchema(openPullRequestResultSchema),
+  get_push_request: actionResultSchema(pushRequestSnapshotSchema),
   update_pull_request: actionResultSchema(updatePullRequestResponseSchema),
   comment_pull_request: actionResultSchema(commentPullRequestResponseSchema),
   close_pull_request: actionResultSchema(setPullRequestStateResponseSchema),
@@ -448,6 +521,9 @@ const PULL_REQUEST_REFUSALS = [
   "not_pushed",
   "push_rejected",
   "push_failed",
+  "superseded",
+  "intent_ended",
+  "head_moved",
   "catalog_changed",
   "no_forge",
   "github_settings_unsupported",
@@ -488,11 +564,21 @@ export const GITHUB_MCP_TOOL_REFUSALS: Record<
     "target_refused",
     "attribution_mismatch",
     "uncommitted_changes",
+    "pull_request_needs_tool_call",
     "github_settings_unsupported",
     "github_refused",
     "backend_unavailable",
+    "source_ref_unsupported",
+    "no_running_turn",
   ],
   open_pull_request: PULL_REQUEST_REFUSALS,
+  get_push_request: [
+    ...COMMON_REFUSALS,
+    "missing_scope",
+    "unverified_principal",
+    "not_found",
+    "backend_unavailable",
+  ],
   update_pull_request: [...PULL_REQUEST_REFUSALS, "no_pull_request"],
   comment_pull_request: [...PULL_REQUEST_REFUSALS, "no_pull_request"],
   close_pull_request: [

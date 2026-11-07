@@ -11,6 +11,7 @@ import {
   events,
   neutralFieldProgress,
   pendingRequests,
+  pushIntents,
   pushRequests,
   sessionEventArchives,
   sessions,
@@ -271,6 +272,8 @@ function settled(sessionId: SQL, cap: number): SQL {
       WHERE r.session_id = ${sessionId} AND r.resolved_at IS NULL)
     AND NOT EXISTS (SELECT 1 FROM ${pushRequests} p
       WHERE p.session_id = ${sessionId} AND p.state IN (${openPush}))
+    AND NOT EXISTS (SELECT 1 FROM ${pushIntents} i
+      WHERE i.session_id = ${sessionId} AND i.status IN ('deferred', 'pinned'))
     AND NOT EXISTS (SELECT 1 FROM ${events} e
       WHERE e.session_id = ${sessionId} AND e.id > ${cap})`;
 }

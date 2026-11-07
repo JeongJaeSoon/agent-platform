@@ -1,12 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import {
-  type AgentDetail,
   type AgentGitHub,
   type AgentRelease,
   agentCardSchema,
 } from "@werft-ai/contracts";
 import { callerFor, createAuthorizationPolicy } from "../musterrolle/policy.ts";
-import type { AgentReader, AgentStore } from "../ports/agent-store.ts";
+import type {
+  AgentReader,
+  AgentRecord,
+  AgentStore,
+} from "../ports/agent-store.ts";
 import {
   type CatalogProfile,
   profileFingerprint,
@@ -75,7 +78,10 @@ function cardWith(tools: string[]) {
   });
 }
 
-const detail: AgentDetail = {
+const detail: AgentRecord = {
+  behavior_revision: 0,
+  model_source: "fixed",
+  draft: null,
   agent: {
     id: AGENT,
     workspace_id: WORKSPACE,
@@ -129,8 +135,10 @@ function memoryStore(
     findRelease: async (_workspace, id) => releases.get(id) ?? null,
     releaseSuperseded: async () => false,
     create: async () => ({ outcome: "created", detail }),
-    update: async () => ({ outcome: "updated", detail }),
+    update: async () => ({ outcome: "updated", detail, saved: null }),
+    recordDraftFailure: async () => true,
     hasGitHubSettings: async () => settingsRow,
+    followProfile: async () => ({ outcome: "updated" as const }),
     insertRelease: async ({ release, refuseGitHubWhenSettings }) => {
       if (
         refuseGitHubWhenSettings === true &&

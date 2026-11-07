@@ -127,7 +127,7 @@ export const agentsKo = {
   "agent.versionLabel": "버전 {version}",
   "agent.versionShort": "v{version}",
   "agent.saved":
-    "저장했습니다 — 버전 {version}. 아직 활성화되지 않았습니다. 릴리스 탭에서 릴리스를 만들고 활성화해야 반영됩니다.",
+    "저장했습니다 — 버전 {version}. 새 세션이 쓰는 값은 바뀌지 않았습니다.",
   "agent.savedExisting":
     "저장했습니다. 같은 카드가 이미 있어(버전 {version}) 새 버전은 생기지 않았습니다.",
   "agent.savedNoChange":
@@ -145,18 +145,64 @@ export const agentsKo = {
     "보던 화면의 활성 릴리스: {seen}. 지금 활성 릴리스: {now}. 아래 차이를 확인하고 필요하면 다시 활성화하세요.",
   "agent.card.title": "상세 설정",
   "agent.card.intro":
-    "이름과 설명은 저장하면 바로 바뀝니다. 실행 설정은 새 버전으로 저장되고, 활성 릴리스는 그대로입니다.",
+    "이름과 설명은 저장하면 바로 바뀝니다. 실행 설정은 새 버전으로 저장되고, 에이전트가 쓰는 값이 달라지면 릴리스를 만들어 바로 적용합니다.",
   "agent.card.identity": "이름과 설명",
   "agent.card.identityHint":
     "새 버전이나 릴리스 없이 바로 바뀝니다. 설치에서 플랫폼 안내를 켜 두었다면 새 세션부터 모델도 이 값을 에이전트의 이름과 설명으로 읽습니다. 맡을 일과 행동 방식은 에이전트 지시문에 적으세요.",
   "agent.card.run": "실행 설정",
   "agent.card.runHint":
-    "저장하면 새 버전이 생깁니다. 그 버전으로 릴리스를 만들어 켜야 새 세션에 쓰입니다.",
+    "저장하면 새 버전이 생기고, 에이전트가 쓰는 값이 달라지면 릴리스를 만들어 바로 적용합니다. 값이 같으면 릴리스는 만들지 않습니다.",
   "agent.card.save": "저장",
   "agent.card.saving": "저장하는 중…",
   "agent.card.stale":
     "다른 곳에서 카드를 저장해 최신이 버전 {version}입니다. 고치던 내용은 그대로 두었습니다. 이대로 저장하면 이 내용이 다음 버전이 됩니다.",
   "agent.card.takeLatest": "최신 카드 불러오기",
+  "agent.save.applied":
+    "저장하고 새 세션에 적용했습니다. 카드는 버전 {version}입니다.",
+  "agent.save.failed": "저장했지만 적용하지 못했습니다: {reason}",
+  "agent.save.failedVersion":
+    "저장했습니다 — 버전 {version}. 새 세션에는 적용하지 못했습니다: {reason}",
+  "agent.save.superseded":
+    "더 나중의 저장이 먼저 적용되어 이 저장은 반영되지 않았습니다. 카드는 저장되어 있습니다.",
+  "agent.save.reason.model_not_in_profile": "프로필이 허용하지 않는 모델입니다",
+  "agent.save.reason.tool_not_in_profile":
+    "프로필이 허용하지 않는 도구가 있습니다",
+  "agent.save.reason.credential_unbound": "자격 증명이 연결되지 않았습니다",
+  "agent.save.reason.release_refused":
+    "프로필이나 저장소 조건을 만족하지 못했습니다",
+  "agent.save.reason.profile_unknown": "프로필을 찾을 수 없습니다",
+  "agent.save.reason.retries_exhausted":
+    "여러 번 시도했지만 적용하지 못했습니다",
+  "agent.profileFollow.pinnedTitle": "프로필의 옛 버전을 쓰는 중",
+  "agent.profileFollow.pinnedText":
+    "이 에이전트는 프로필의 새 버전을 따라가지 않고 있습니다. 최신으로 올리면 새 버전이 적용되고 다시 따라갑니다.",
+  "agent.profileFollow.failedTitle": "프로필 새 버전을 적용하지 못했습니다",
+  "agent.profileFollow.failedText": "이유: {reason}",
+  "agent.profileFollow.pendingText":
+    "프로필의 새 버전을 곧 적용합니다. 기다리지 않고 지금 올릴 수도 있습니다.",
+  "agent.profileFollow.raise": "최신으로 올리기",
+  "agent.profileFollow.raising": "올리는 중…",
+  "agent.profileFollow.retry": "다시 시도",
+  "agent.profileFollow.done": "프로필의 최신 버전을 적용했습니다.",
+  "agent.profileFollow.failed": "최신으로 올리지 못했습니다: {reason}",
+  "agent.save.reason.blocked": "운영자가 막은 프로필입니다",
+  "agent.save.reason.revision_conflict": "다른 저장과 겹쳐 적용하지 못했습니다",
+  "agent.save.reason.other": "이유를 알 수 없습니다",
+  "agent.effective.title": "새 세션에 적용되는 값",
+  "agent.effective.hint":
+    "지금 활성 릴리스 기준입니다. 이미 시작한 세션은 시작할 때의 값을 그대로 씁니다.",
+  "agent.effective.none": "아직 릴리스가 없어 적용되는 값이 없습니다.",
+  "agent.effective.profile": "프로필",
+  "agent.effective.titleModel": "제목 모델",
+  "agent.effective.followsProfile": "프로필 기본 모델 따름",
+  "agent.effective.chosen": "직접 선택",
+  "agent.draft.pendingTitle": "적용 대기",
+  "agent.draft.failedTitle": "적용 실패",
+  "agent.draft.pending":
+    "저장했지만 아직 적용되지 않은 내용입니다. 다시 시도하면 이어서 적용합니다.",
+  "agent.draft.retry": "다시 시도",
+  "agent.draft.discard": "버리기",
+  "agent.draft.done": "적용했습니다.",
   "agent.versions.title": "버전 기록",
   "agent.versions.active": "활성",
   "agent.versions.before": "비교 기준",
@@ -568,7 +614,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.versionLabel": "Version {version}",
   "agent.versionShort": "v{version}",
   "agent.saved":
-    "Saved as version {version}. It is not in use yet — create a release on the Release tab and activate it.",
+    "Saved as version {version}. The values new sessions run with did not change.",
   "agent.savedExisting":
     "Saved. This card matches version {version}, so no new version was created.",
   "agent.savedNoChange":
@@ -585,18 +631,66 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
     "This page showed {seen} as active; it is now {now}. Check the difference below and activate again if you still want to.",
   "agent.card.title": "Settings",
   "agent.card.intro":
-    "Name and description change as soon as you save. Run settings are saved as a new version; the active release does not change.",
+    "Name and description change as soon as you save. Run settings are saved as a new version, and when the values the agent runs with change, a release is made and applied at once.",
   "agent.card.identity": "Name and description",
   "agent.card.identityHint":
     "They change at once, with no new version or release. If platform guidance is turned on for this installation, the model also reads them as the agent's name and description, starting with the next new session. Put what it does and how it behaves in Agent instructions.",
   "agent.card.run": "Run settings",
   "agent.card.runHint":
-    "Saving creates a new version. New sessions use it once a release of that version is turned on.",
+    "Saving creates a new version, and when the values the agent runs with change, a release is made and applied at once. If they are the same, no release is made.",
   "agent.card.save": "Save",
   "agent.card.saving": "Saving…",
   "agent.card.stale":
     "Someone else saved this card; the latest is now version {version}. Your edits are kept, and saving now makes them the next version.",
   "agent.card.takeLatest": "Load the latest card",
+  "agent.save.applied":
+    "Saved and applied to new sessions. The card is version {version}.",
+  "agent.save.failed": "Saved, but it could not be applied: {reason}",
+  "agent.save.failedVersion":
+    "Saved as version {version}. Not applied to new sessions: {reason}",
+  "agent.save.superseded":
+    "A later save was applied first, so this one did not take effect. The card is saved.",
+  "agent.save.reason.model_not_in_profile":
+    "the profile does not allow this model",
+  "agent.save.reason.tool_not_in_profile":
+    "the card uses a tool the profile does not allow",
+  "agent.save.reason.credential_unbound": "a credential is not connected",
+  "agent.save.reason.release_refused":
+    "the profile or repository conditions are not met",
+  "agent.save.reason.profile_unknown": "the profile was not found",
+  "agent.save.reason.retries_exhausted":
+    "it was tried several times and could not be applied",
+  "agent.profileFollow.pinnedTitle": "Running an older version of the profile",
+  "agent.profileFollow.pinnedText":
+    "This agent is not following new versions of its profile. Bring it to the latest to apply the new version and follow it again.",
+  "agent.profileFollow.failedTitle":
+    "The new profile version could not be applied",
+  "agent.profileFollow.failedText": "Reason: {reason}",
+  "agent.profileFollow.pendingText":
+    "The new profile version will be applied shortly. You can also bring it up now instead of waiting.",
+  "agent.profileFollow.raise": "Bring to latest",
+  "agent.profileFollow.raising": "Updating…",
+  "agent.profileFollow.retry": "Try again",
+  "agent.profileFollow.done": "The latest profile version is now applied.",
+  "agent.profileFollow.failed": "Could not bring it to the latest: {reason}",
+  "agent.save.reason.blocked": "the operator blocked this profile",
+  "agent.save.reason.revision_conflict": "it overlapped with another save",
+  "agent.save.reason.other": "the reason is unknown",
+  "agent.effective.title": "Values for new sessions",
+  "agent.effective.hint":
+    "Read from the active release. Sessions already started keep the values they started with.",
+  "agent.effective.none": "There is no release yet, so no values apply.",
+  "agent.effective.profile": "Profile",
+  "agent.effective.titleModel": "Title model",
+  "agent.effective.followsProfile": "Follows the profile's default model",
+  "agent.effective.chosen": "Chosen by hand",
+  "agent.draft.pendingTitle": "Waiting to apply",
+  "agent.draft.failedTitle": "Could not apply",
+  "agent.draft.pending":
+    "This was saved but is not applied yet. Try again to finish applying it.",
+  "agent.draft.retry": "Try again",
+  "agent.draft.discard": "Discard",
+  "agent.draft.done": "Applied.",
   "agent.versions.title": "Version history",
   "agent.versions.active": "Active",
   "agent.versions.before": "Compare from",
@@ -1001,7 +1095,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.versionLabel": "バージョン {version}",
   "agent.versionShort": "v{version}",
   "agent.saved":
-    "バージョン {version} として保存しました。まだ使われていません。「リリース」タブでリリースを作成して有効化してください。",
+    "バージョン {version} として保存しました。新しいセッションが使う値は変わっていません。",
   "agent.savedExisting":
     "保存しました。このカードはバージョン {version} と同じため、新しいバージョンは作成していません。",
   "agent.savedNoChange":
@@ -1019,18 +1113,67 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
     "このページでは {seen} が有効と表示されていましたが、現在は {now} です。下の差分を確認し、必要であれば再度有効化してください。",
   "agent.card.title": "詳細設定",
   "agent.card.intro":
-    "名前と説明は保存するとすぐに変わります。実行設定は新しいバージョンとして保存され、有効なリリースは変わりません。",
+    "名前と説明は保存するとすぐに変わります。実行設定は新しいバージョンとして保存され、エージェントが使う値が変わるときはリリースを作成してすぐに適用します。",
   "agent.card.identity": "名前と説明",
   "agent.card.identityHint":
     "新しいバージョンやリリースなしですぐに変わります。インストールでプラットフォーム案内を有効にしている場合は、新しいセッションからモデルもこの値をエージェントの名前と説明として読みます。任せる仕事と振る舞い方はエージェント指示文に書いてください。",
   "agent.card.run": "実行設定",
   "agent.card.runHint":
-    "保存すると新しいバージョンが作成されます。そのバージョンのリリースを有効にすると、新しいセッションで使われます。",
+    "保存すると新しいバージョンが作成され、エージェントが使う値が変わるときはリリースを作成してすぐに適用します。値が同じなら、リリースは作成しません。",
   "agent.card.save": "保存",
   "agent.card.saving": "保存中…",
   "agent.card.stale":
     "ほかの人がこのカードを保存し、最新はバージョン {version} になりました。編集内容は残っており、このまま保存すると次のバージョンになります。",
   "agent.card.takeLatest": "最新のカードを読み込む",
+  "agent.save.applied":
+    "保存し、新しいセッションに適用しました。カードはバージョン {version} です。",
+  "agent.save.failed": "保存しましたが適用できませんでした: {reason}",
+  "agent.save.failedVersion":
+    "バージョン {version} として保存しました。新しいセッションには適用できませんでした: {reason}",
+  "agent.save.superseded":
+    "後の保存が先に適用されたため、この保存は反映されていません。カードは保存されています。",
+  "agent.save.reason.model_not_in_profile":
+    "プロファイルが許可していないモデルです",
+  "agent.save.reason.tool_not_in_profile":
+    "プロファイルが許可していないツールがあります",
+  "agent.save.reason.credential_unbound": "認証情報が接続されていません",
+  "agent.save.reason.release_refused":
+    "プロファイルまたはリポジトリの条件を満たしていません",
+  "agent.save.reason.profile_unknown": "プロファイルが見つかりません",
+  "agent.save.reason.retries_exhausted":
+    "何度か試しましたが適用できませんでした",
+  "agent.profileFollow.pinnedTitle": "プロファイルの古いバージョンを使用中",
+  "agent.profileFollow.pinnedText":
+    "このエージェントはプロファイルの新しいバージョンに追従していません。最新にすると新しいバージョンが適用され、再び追従します。",
+  "agent.profileFollow.failedTitle":
+    "プロファイルの新しいバージョンを適用できませんでした",
+  "agent.profileFollow.failedText": "理由: {reason}",
+  "agent.profileFollow.pendingText":
+    "プロファイルの新しいバージョンをまもなく適用します。待たずに今すぐ最新にすることもできます。",
+  "agent.profileFollow.raise": "最新にする",
+  "agent.profileFollow.raising": "更新中…",
+  "agent.profileFollow.retry": "再試行",
+  "agent.profileFollow.done": "プロファイルの最新バージョンを適用しました。",
+  "agent.profileFollow.failed": "最新にできませんでした: {reason}",
+  "agent.save.reason.blocked": "運用者がブロックしているプロファイルです",
+  "agent.save.reason.revision_conflict":
+    "ほかの保存と重なって適用できませんでした",
+  "agent.save.reason.other": "理由は不明です",
+  "agent.effective.title": "新しいセッションに適用される値",
+  "agent.effective.hint":
+    "有効なリリースの値です。すでに開始したセッションは開始時の値のまま動きます。",
+  "agent.effective.none": "まだリリースがないため、適用される値はありません。",
+  "agent.effective.profile": "プロファイル",
+  "agent.effective.titleModel": "タイトルモデル",
+  "agent.effective.followsProfile": "プロファイルの既定モデルに従う",
+  "agent.effective.chosen": "手動で選択",
+  "agent.draft.pendingTitle": "適用待ち",
+  "agent.draft.failedTitle": "適用失敗",
+  "agent.draft.pending":
+    "保存しましたが、まだ適用されていない内容です。再試行すると続きから適用します。",
+  "agent.draft.retry": "再試行",
+  "agent.draft.discard": "破棄",
+  "agent.draft.done": "適用しました。",
   "agent.versions.title": "バージョン履歴",
   "agent.versions.active": "有効",
   "agent.versions.before": "比較元",

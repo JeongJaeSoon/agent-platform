@@ -119,6 +119,12 @@ const PINNED: PushRequest = {
   resolution_receipt_id: null,
   finished_at: null,
   push_receipt_id: null,
+  origin: "direct",
+  flow: "legacy",
+  pr_state: null,
+  pr_error: null,
+  pr_number: null,
+  pr_url: null,
 };
 
 const CATALOG = {
@@ -170,6 +176,7 @@ function app(
     },
     list: async (ownerId, sessionId) =>
       ownerId === "owner-a" && sessionId === SESSION ? [PINNED] : null,
+    snapshot: async () => null,
     get: async (ownerId, _sessionId, id) =>
       ownerId === "owner-a" && id === PUSH ? PINNED : null,
     decide: async (input) => {
@@ -196,8 +203,11 @@ function app(
     }),
     store,
     catalog: CATALOG,
+    intents: { list: async () => [] } as never,
     source: {
       readPushSource: async () =>
+        options.source ?? { status: "ready", revision: 2, gitCommit: COMMIT },
+      readPushSourceAt: async () =>
         options.source ?? { status: "ready", revision: 2, gitCommit: COMMIT },
     },
   });

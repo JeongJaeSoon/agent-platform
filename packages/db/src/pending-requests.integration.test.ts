@@ -37,6 +37,7 @@ import {
   createPostgresSessionReader,
   createPostgresSessionUnitOfWork,
 } from "./postgres-unit-of-work.ts";
+import { createPostgresPushIntents } from "./push-intents.ts";
 import { createPostgresPushRequests } from "./push-requests.ts";
 import * as schema from "./schema.ts";
 import {
@@ -790,6 +791,7 @@ integration("pending requests and answers on PostgreSQL", () => {
       const service = createPushRequestService({
         authorization: createAuthorizationPolicy(),
         store: pushes,
+        intents: createPostgresPushIntents(db),
         catalog: {
           profiles: {},
           repositories: {
@@ -807,6 +809,7 @@ integration("pending requests and answers on PostgreSQL", () => {
             revision: 2,
             gitCommit: "b".repeat(40),
           }),
+          readPushSourceAt: async () => ({ status: "none" }),
         },
       });
       const created = await service.create(

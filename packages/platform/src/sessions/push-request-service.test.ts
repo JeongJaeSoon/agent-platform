@@ -59,8 +59,10 @@ function service() {
       authorization: createAuthorizationPolicy(),
       store,
       catalog: CATALOG,
+      intents: {} as never,
       source: {
         readPushSource: async () => ({ status: "none" }),
+        readPushSourceAt: async () => ({ status: "none" }),
       },
     }),
   };
@@ -155,11 +157,13 @@ describe("push request decisions", () => {
         },
       } as unknown as PushRequestStore,
       catalog: CATALOG,
+      intents: {} as never,
       source: {
         readPushSource: async (sessionId) => {
           read.push(sessionId);
           return { status: "none" };
         },
+        readPushSourceAt: async () => ({ status: "none" }),
       },
     });
     const actor = {
@@ -203,13 +207,15 @@ describe("push request decisions", () => {
           sessions: { visibleTo: async () => true, originOf: async () => null },
         }),
         store: {
+          get: async () => null,
           decide: async (input: { latest?: unknown }) => {
             decided.push(input);
             return { outcome: "conflict" };
           },
         } as unknown as PushRequestStore,
         catalog: CATALOG,
-        source: { readPushSource },
+        intents: {} as never,
+        source: { readPushSource, readPushSourceAt: readPushSource },
       })
         .decide(
           {
@@ -283,13 +289,18 @@ describe("push request decisions", () => {
           refusals.push(input);
           return "receipt-self";
         },
+        get: async () => null,
         decide: async (input: { deciderKey?: unknown; actor?: unknown }) => {
           decided.push(input);
           return { outcome: "conflict" };
         },
       } as unknown as PushRequestStore,
       catalog: CATALOG,
-      source: { readPushSource: async () => ({ status: "none" }) },
+      intents: {} as never,
+      source: {
+        readPushSource: async () => ({ status: "none" }),
+        readPushSourceAt: async () => ({ status: "none" }),
+      },
     });
     const actorOf = (id: string) => {
       const principal: Principal = {
@@ -378,9 +389,14 @@ describe("push request decisions", () => {
     const push = createPushRequestService({
       authorization: hidden,
       store,
+      intents: {} as never,
       source: {
         readPushSource: async () => {
           touched.push("readPushSource");
+          return { status: "none" };
+        },
+        readPushSourceAt: async () => {
+          touched.push("readPushSourceAt");
           return { status: "none" };
         },
       },
@@ -499,7 +515,11 @@ describe("a push to another repository", () => {
         },
       } as unknown as PushRequestStore,
       catalog: MULTI,
-      source: { readPushSource: async () => pinned },
+      intents: {} as never,
+      source: {
+        readPushSource: async () => pinned,
+        readPushSourceAt: async () => pinned,
+      },
     });
     const actor = {
       caller: testCaller("owner-a"),
@@ -836,12 +856,20 @@ describe("a release with push_approval off", () => {
             request_receipt_id: "019a0000-0000-7000-8000-0000000000e1",
             finished_at: null,
             push_receipt_id: null,
+            origin: "direct" as const,
+            flow: "legacy" as const,
+            pr_state: null,
+            pr_error: null,
+            pr_number: null,
+            pr_url: null,
           };
           return { outcome: "written", request };
         },
       } as unknown as PushRequestStore,
       catalog: CATALOG,
+      intents: {} as never,
       source: {
+        readPushSourceAt: async () => ({ status: "none" }),
         readPushSource: async () => ({
           status: "ready",
           revision: 3,

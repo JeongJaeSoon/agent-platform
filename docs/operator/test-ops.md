@@ -34,6 +34,7 @@ Kubernetes 설치는 `scripts/test-ops.sh`를 쓰지 않는다. 같은 일을 �
 ### LocalStack의 한계
 
 - **LocalStack은 S3를 메모리에만 둔다.** LocalStack 컨테이너나 Docker, 호스트가 재시작되면 checkpoint object가 모두 사라진다. DB는 volume에 있으므로 남는다.
+- `upgrade`는 LocalStack의 최종 렌더링된 서비스 정의(이미지 digest, 환경 변수, 포트, `restart` 정책 등)가 그대로면 컨테이너를 다시 만들지 않아 object가 남는다. LocalStack만 띄워 같은 compose 파일로 `up -d`를 다시 불렀을 때 컨테이너 id가 같았고 object 2개가 그대로였다. 정의가 달라지면 compose가 컨테이너를 다시 만들어 object가 사라진다. 같은 실험에서 `restart: unless-stopped`만 더해도 다시 만들어지고 object가 0개가 됐다. 정의에 닿는 것은 새 release의 `source_commit`에서 바뀐 compose 파일뿐 아니라 env 파일의 `AWS_REGION`·AWS 자격 증명·`TEST_OPS_LOCALSTACK_PORT`도 있다. 업그레이드 전에 `git diff <배포한 commit> <새 source_commit> -- infra/compose.core.yml infra/compose.test-ops.yml infra/compose.localstack.yml infra/compose.test-ops.localstack.yml scripts/test-ops.sh`와 env 파일의 변경을 확인한다. 달라졌으면 "계획 재시작"처럼 백업한 뒤 `reseed`로 복구한다.
 - 그러면 DB에는 미수거 checkpoint가 있는데 bucket에는 object version이 하나도 없는 상태가 된다. 이때 API가 기동을 거부한다(로그 `Checkpoint bucket claude-sessions holds no object version, …`). 로그의 `scripts/local.sh reset` 안내는 로컬 스택용이고, test-ops에서는 아래 "재시작"의 `reseed`나 `reset`으로 푼다.
 - 복구할 수 있는 것은 마지막 백업까지다. 백업 뒤에 생긴 checkpoint가 있으면 `reseed`가 거부하므로 `reset`밖에 없다. 초기화하면 세션·checkpoint·API key가 모두 지워진다.
 - 그래서 **장기 보관이 필요한 세션을 두지 않는다.** 사용자에게도 언제든 초기화될 수 있는 환경이라고 알린다.
@@ -50,6 +51,69 @@ Kubernetes 설치는 `scripts/test-ops.sh`를 쓰지 않는다. 같은 일을 �
 | checkout | 배포할 release의 `source_commit`에 있고 로컬 변경이 없는 이 저장소 | `preflight`가 거부한다 |
 
 compose 파일(`infra/compose.core.yml` + `infra/compose.test-ops.yml` + object store layer)과 postgres 초기 SQL, LocalStack 초기화 스크립트를 checkout에서 읽으므로, 업그레이드 사이에는 checkout을 배포한 commit에 그대로 둔다.
+
+### 디스크: xfs `prjquota`가 필수인 이유와 ext4 서버 준비
+
+세션마다 workspace volume이 생기고 같은 디스크의 postgres, LocalStack, 다른 세션과 공간을 나눈다. 용량(`EXECUTION_WORKSPACE_QUOTA_MB`, 기본 4096MiB)과 inode(`EXECUTION_WORKSPACE_QUOTA_INODES`, 기본 1,000,000) 상한은 xfs project quota가 강제한다. `prjquota`가 없으면(ext4 포함) Docker가 `size` 옵션을 거절해 scheduler의 quota probe가 실패한다. `EXECUTION_WORKSPACE_QUOTA=off`는 `scripts/lib/test-ops.ts`의 렌더 검사가 거부하므로 이 설치에서는 쓰지 않는다. ext4를 허용하지 않고 xfs `prjquota`를 필수로 유지하기로 했다.
+
+확인:
+
+```bash
+findmnt -no FSTYPE,OPTIONS -T "$(docker info -f '{{.DockerRootDir}}')"   # xfs, 옵션에 prjquota
+P="quota-probe-$(date +%s)"; docker volume create --driver local --opt size=64m "$P" && docker volume rm "$P"
+```
+
+ext4 서버는 xfs 이미지 파일을 `/var/lib/docker`에 `loop,prjquota`로 mount한다. 아래는 한 줄로 이어져 있어 어느 단계든 실패하면 Docker 시작까지 가지 않는다. 기존 `/var/lib/docker`는 `.old`로 옮겼다가 mount 뒤 `rsync`로 되돌리고, 처음 쓰는 서버면 그 두 단계는 건너뛴다.
+
+```bash
+[ ! -e /var/lib/docker.old ] &&
+sudo apt-get install -y xfsprogs rsync &&
+sudo systemctl stop docker docker.socket &&
+{ [ ! -e /var/lib/docker ] || sudo mv /var/lib/docker /var/lib/docker.old; } &&
+sudo truncate -s 60G /var/lib/docker.xfs.img &&
+sudo mkfs.xfs -q /var/lib/docker.xfs.img &&
+sudo mkdir -p /var/lib/docker &&
+echo '/var/lib/docker.xfs.img /var/lib/docker xfs loop,prjquota 0 0' | sudo tee -a /etc/fstab &&
+sudo mount /var/lib/docker &&
+mount | grep 'on /var/lib/docker .*prjquota' &&
+{ [ ! -e /var/lib/docker.old ] || sudo rsync -aHAX /var/lib/docker.old/ /var/lib/docker/; } &&
+sudo systemctl start docker
+```
+
+`/var/lib/docker.old`가 이미 있으면 첫 단계에서 멈추니 내용을 치운 뒤 다시 한다. 중간에 멈추면 Docker는 멈춘 채로 두고 원인을 고친다. 이미 옮겼다면 `/var/lib/docker.old`가 원본이다. 60G는 Docker 전체의 천장이고, sparse 파일은 줄어들지 않는다. CI의 `workspace-quota` job이 `truncate`·`mkfs.xfs`·`mount -o loop,prjquota`를 8G 이미지로 돌린다. `/etc/fstab` 줄과 `rsync` 이전은 실행해 보지 않았다(미검증).
+
+Kubernetes 경로(chart)에는 이 조건이 없다. workspace는 세션마다 PVC이고 상한은 `worker.workspace.quotaMb`(기본 4096MiB) 요청이 전부다. 실제로 막는 것은 StorageClass이고 inode 상한은 없다. 표는 `apps/docs/content/docs/run-server/self-hosting/kubernetes.mdx`의 "workspace 저장소와 상한"에 있다.
+
+checkout과 호스트 bun 없이 설치하려면 [릴리스 번들](#릴리스-번들로-설치)을 쓴다. 그 경우 위 "도구"와 "checkout" 줄은 아래 번들 표가 대신한다.
+
+## 릴리스 번들로 설치
+
+`v*` 릴리스의 GitHub Release에는 `release-manifest.json` 말고 `werft-test-ops-<tag>.tar.gz`와 `.sha256`이 붙는다. 번들은 compose 파일, `scripts/test-ops.sh`와 그 헬퍼, postgres 초기 SQL, LocalStack 초기화 스크립트, 예시 설정, 그 릴리스의 `release-manifest.json`을 checkout과 같은 배치로 담는다. 이미지는 담지 않는다. 이미지는 GHCR에 이미 게시된 digest 그대로 `deploy`가 받는다. 번들은 태그를 찍은 run에서만 만들어 올린다.
+
+| | checkout 설치 | 번들 설치 |
+|---|---|---|
+| 필요한 것 | git, jq, curl, bun 1.3.14(`bun install` 완료), 배포 commit의 checkout | docker, jq, curl. git·bun·checkout 없음 |
+| 헬퍼(`scripts/lib/test-ops.ts`) | 호스트 bun | 릴리스의 control-host 이미지(digest 고정)에서 실행. 첫 실행에 그 이미지를 받는다 |
+| 진입점 | `scripts/test-ops.sh <동사>` | 번들을 푼 디렉터리의 `scripts/test-ops.sh <동사>` |
+| 릴리스 확인 | git의 `HEAD`가 `source_commit`이고 로컬 변경 없음 | `SHA256SUMS`와 파일 목록이 맞고, manifest의 commit과 이미지 3개가 번들의 `release-manifest.json`과 같음 |
+| `preflight` `deploy` `start` `stop` `status` `key` `reset` `manifest` | 지원 | 지원 |
+| `upgrade` `backup` `reseed` `restore-drill` | 지원 | 거부. checkout에서 한다 |
+
+`upgrade`·`backup`·`reseed`·`restore-drill`은 업그레이드 게이트와 복원 도구(`scripts/verify-restore.sh` 등)를 쓰므로 번들에 없다. 번들에서 이 동사를 부르면 거부하고 checkout 경로를 안내한다. 같은 env 파일과 상태 디렉터리를 쓰므로, 번들로 설치한 설치를 나중에 `git checkout <source_commit>` 한 저장소에서 이어서 다룰 수 있다. LocalStack 설치는 컨테이너가 내려가면 객체를 잃으므로(아래 `reseed`) 체크포인트가 쌓인 설치는 checkout 경로를 권한다.
+
+```bash
+TAG=v0.1.0   # 쓸 릴리스 태그
+mkdir "$TAG" && cd "$TAG"
+gh release download "$TAG" -R JeongJaeSoon/werft -p 'werft-test-ops-*' -p release-manifest.json
+sha256sum -c "werft-test-ops-$TAG.tar.gz.sha256"
+tar -xzf "werft-test-ops-$TAG.tar.gz" && cd "werft-test-ops-$TAG"
+# env 파일(infra/test-ops.env.example)과 설정 문서를 준비한 뒤
+scripts/test-ops.sh manifest release-manifest.json /etc/werft/settings.json > ../release.json
+scripts/test-ops.sh preflight ../release.json
+scripts/test-ops.sh deploy ../release.json
+```
+
+`sha256`은 내려받다 깨진 파일과 빠진 파일을 잡는다. 릴리스 출처를 증명하지는 않으므로, `gh release download`(GitHub, TLS)로 받은 파일만 쓴다. `manifest` 동사는 릴리스 manifest와 설정 문서의 sha256으로 `deploy`가 받는 manifest를 만든다. 번들의 `preflight`·`deploy`는 그 manifest의 이미지 3개와 commit이 번들 안 `release-manifest.json`과 다르면 거부한다.
 
 ## AWS 준비(`s3`에서만)
 
@@ -132,7 +196,7 @@ sudo install -d -m 700 -o "$USER" /var/lib/werft/test-ops   # TEST_OPS_STATE_DIR
 | `EXECUTION_INSTALLATION_ID` | `test-ops`. scheduler가 띄운 worker 컨테이너와 egress proxy의 label이다. `local`(로컬 스택)이거나 이 daemon의 컨테이너가 이미 같은 값을 달고 있으면 `deploy`가 거부하고, 배포한 뒤에는 바꿀 수 없다 |
 | `POSTGRES_PASSWORD` | 무작위 값. `DATABASE_URL`에 escape 없이 들어가므로 영문·숫자·`.` `_` `~` `-`만 쓴다. `preflight`가 다른 문자를 거부한다 |
 | `EGRESS_AUTHORIZER_TOKEN` | 32자 이상 무작위 값. API와 egress proxy가 같은 값을 쓴다 |
-| `ANTHROPIC_API_KEY` | 운영자 공유 provider key. API에만 간다(아래 "provider key") |
+| `ANTHROPIC_API_KEY` | 선택. 비워도 렌더되고 시작된다. 기본은 콘솔 모델 연결 화면에서 넣는다(아래 "provider key"). 연결이 `value_env: ANTHROPIC_API_KEY`로 이름을 가리킬 때만 채운다. API에만 간다 |
 | `PLATFORM_SETTINGS_DOCUMENT` | 설정 문서 파일. 기본 예시는 `/etc/werft/settings.json`. checkout 안이면 거부한다 |
 | `PLATFORM_SECRET_KEY` | 64자 hex(`openssl rand -hex 32`). 저장한 자격 증명을 봉인하는 master key다. API와 slack 역할에만 가고, 없으면 `preflight`가 거부한다. 잃으면 저장한 값을 읽지 못한다 |
 | `EGRESS_CREDENTIAL_ALLOWLIST` | `localstack`: `api.anthropic.com:443,github.com:443`. `s3`: `api.anthropic.com:443,github.com:443,<bucket>.s3.ap-northeast-1.amazonaws.com:443`. `github.com:443`이 없으면 worker가 카탈로그의 GitHub 저장소를 clone하지 못한다. bucket 호스트가 없으면 worker가 checkpoint를 쓰지 못하므로 `preflight`가 거부한다. 이름에 `.`이 든 bucket은 `s3.ap-northeast-1.amazonaws.com:443`이다 |
@@ -164,7 +228,7 @@ sudo install -d -m 700 -o "$USER" /var/lib/werft/test-ops   # TEST_OPS_STATE_DIR
 
 콘솔에서 GitHub App을 새로 만들려면 env 파일에 `CONSOLE_ORIGIN=<브라우저가 콘솔을 여는 origin>`도 넣는다([api-server.md](api-server.md)의 env 표). 없으면 콘솔의 "GitHub에서 만들기" 버튼이 꺼진다. 예시 파일에는 이 줄이 없다. 단일 서버에서 SSH tunnel로 열면 `http://127.0.0.1:<터널 포트>`다. 바꾼 뒤에는 위와 같이 `upgrade`로 적용했고(api 컨테이너가 다시 만들어지고 `/readyz`가 ready), `start`가 새 값을 읽는지는 확인하지 못했다.
 
-`TEST_OPS_LOCALSTACK_PORT`는 `upgrade`로 바꾸지 못한다. compose가 LocalStack 컨테이너를 다시 만들어 object가 모두 사라지므로(위 "LocalStack의 한계") `preflight`가 실행 중인 포트와 다른 값을 거부한다. "계획 재시작"처럼 `scripts/test-ops.sh backup --stop`으로 백업하고, env 파일을 고치고, 그 백업으로 `reseed`를 부른다. `reseed`가 렌더를 검사한 뒤 LocalStack을 새 포트로 띄우고 object를 되살린다.
+`TEST_OPS_LOCALSTACK_PORT`는 `upgrade`로 바꾸지 못한다. 포트가 바뀌면 compose가 LocalStack 컨테이너를 다시 만들어 object가 모두 사라지므로(위 "LocalStack의 한계") `preflight`가 실행 중인 포트와 다른 값을 거부한다. "계획 재시작"처럼 `scripts/test-ops.sh backup --stop`으로 백업하고, env 파일을 고치고, 그 백업으로 `reseed`를 부른다. `reseed`가 렌더를 검사한 뒤 LocalStack을 새 포트로 띄우고 object를 되살린다.
 
 스크립트 자체의 설정은 셸 변수 넷이다. 기본값을 쓰면 아무것도 설정하지 않아도 된다.
 
@@ -179,7 +243,7 @@ sudo install -d -m 700 -o "$USER" /var/lib/werft/test-ops   # TEST_OPS_STATE_DIR
 
 ## 카탈로그
 
-`PLATFORM_SETTINGS_DOCUMENT`에 설정 문서 하나를 둔다. migrate가 `deploy`·`upgrade`마다 이 문서를 가져온다. 가져오기는 더하기만 하므로 이미 있는 항목은 그대로이고, 같은 id를 다른 내용으로 고치면 migrate가 실패해 새 release가 뜨지 않는다. 최상위 `profiles`와 저장소의 `profiles` 배열은 표가 빈 첫 `deploy` 때만 상한과 저장소 허용으로 들어가고, 그 뒤로는 고쳐도 DB가 바뀌지 않는다. migrate 컨테이너(uid 1000)가 읽을 수 있게 파일은 `0644`로 둔다. 문서에는 값이 아니라 참조만 적으므로 비밀이 없다. test-ops에서는 provider를 실제 Messages API로, key를 `value_env: ANTHROPIC_API_KEY`로 적는다. profile의 `provider`는 연결 하나와 똑같아야 돈다.
+`PLATFORM_SETTINGS_DOCUMENT`에 설정 문서 하나를 둔다. migrate가 `deploy`·`upgrade`마다 이 문서를 가져온다. 가져오기는 더하기만 하므로 이미 있는 항목은 그대로이고, 같은 id를 다른 내용으로 고치면 migrate가 실패해 새 release가 뜨지 않는다. 최상위 `profiles`와 저장소의 `profiles` 배열은 표가 빈 첫 `deploy` 때만 상한과 저장소 허용으로 들어가고, 그 뒤로는 고쳐도 DB가 바뀌지 않는다. migrate 컨테이너(uid 1000)가 읽을 수 있게 파일은 `0644`로 둔다. 문서에는 값이 아니라 참조만 적으므로 비밀이 없다. 기본 안내는 문서에 연결과 profile을 적지 않고 콘솔에서 만드는 것이다. 문서에 적는다면 provider는 실제 Messages API로, key는 `value_env: ANTHROPIC_API_KEY`로 적고, profile의 `provider`는 연결 하나와 똑같아야 돈다. 그런 연결을 콘솔에서 키를 넣는 방식(stored)으로 옮기면(모델 연결 행의 "화면에서 키 넣기") 연결 행은 stored로 바뀌고 옛 참조는 `provider_connections.replaces_auth`에 남는다. 그 위의 profile은 지문이 그대로라 계속 돌고, 문서가 옛 항목을 그대로 적고 있어도 가져오기는 DB 행을 둔다(`kept`). 옮긴 뒤에는 `ANTHROPIC_API_KEY`가 그 연결에 쓰이지 않는다. 이 열은 추가형이라 앞 이미지로 되돌려도 무시되지만, 되돌린 이미지는 옮긴 연결의 stored 정의를 `stored` 참조로 읽을 뿐 옛 env 참조로 돌아가지 않는다.
 
 ```json
 {
@@ -341,9 +405,10 @@ docker exec werft-test-ops-api-1 bun run apps/control-host/src/api/grants.ts rev
 
 test-ops는 운영자의 Anthropic key 하나를 모든 세션이 같이 쓴다.
 
-- key는 env 파일의 `ANTHROPIC_API_KEY`에만 둔다. compose는 이 값을 API 컨테이너에만 넘기고, 연결은 `value_env`로 이름만 가리킨다. worker는 key를 받지 않는다. egress proxy의 provider route가 요청마다 API에 물어 key를 붙인다.
+- key는 콘솔의 모델 연결 화면(설정 > 워크스페이스 설정 > 모델 연결)에서 넣는 것이 기본이다. DB에 봉인돼 저장되고(`PLATFORM_SECRET_KEY`로 연다), 키를 넣기 전에는 그 연결 위 profile로 세션이 시작되지 않고 화면 경로를 알려 주는 오류가 난다. env로 두려면 env 파일의 `ANTHROPIC_API_KEY`를 채우고 연결이 `value_env`로 이름만 가리키게 한다. compose는 이 값을 API 컨테이너에만 넘긴다. worker는 key를 받지 않는다. egress proxy의 provider route가 요청마다 API에 물어 key를 붙인다.
 - 비용은 세션별 `SESSION_COST_LIMIT_USD`(기본 25)로 막는다. Anthropic 콘솔에도 월 한도를 건다.
-- 교체: 콘솔에서 새 key를 만든다 → env 파일 값을 바꾼다 → `scripts/test-ops.sh upgrade /var/lib/werft/test-ops/current.json`으로 같은 release를 다시 적용한다(바뀐 설정만 컨테이너를 새로 만든다) → `/readyz`와 세션 한 턴을 확인한다 → 옛 key를 폐기한다. 참조 이름이 같으므로 profile fingerprint는 바뀌지 않고 진행 중인 세션도 그대로 이어진다.
+- 교체(화면에서 넣은 key): 콘솔에서 새 key를 만든다 → 모델 연결 화면에서 그 연결의 "값 바꾸기"로 새 key를 넣는다 → 세션 한 턴을 확인한다 → 옛 key를 폐기한다. env 파일은 건드리지 않는다. 저장형 연결은 env 값을 읽지 않으므로 env만 바꾸면 계속 옛 key로 돈다.
+- 교체(env 참조 연결): 콘솔에서 새 key를 만든다 → env 파일 값을 바꾼다 → `scripts/test-ops.sh upgrade /var/lib/werft/test-ops/current.json`으로 같은 release를 다시 적용한다(바뀐 설정만 컨테이너를 새로 만든다) → `/readyz`와 세션 한 턴을 확인한다 → 옛 key를 폐기한다. 참조 이름이 같으므로 profile fingerprint는 바뀌지 않고 진행 중인 세션도 그대로 이어진다.
 
 env 파일의 다른 값을 바꿀 때도 같은 명령을 쓴다.
 

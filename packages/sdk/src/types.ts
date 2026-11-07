@@ -92,6 +92,7 @@ export type PermissionRequest = Extract<PendingRequest, { kind: "permission" }>;
 export type QuestionRequest = Extract<PendingRequest, { kind: "question" }>;
 export type AnswerAccepted = Opened<Schemas["PostSessionAnswerResponse"]>;
 export type PushRequest = Opened<Schemas["PushRequest"]>;
+// `openPullRequest` never sends `?schedule=true`, so it answers the opened form.
 export type PullRequestResult = Opened<Schemas["OpenPullRequestResponse"]>;
 export type PullRequestCommentResult = Opened<
   Schemas["CommentPullRequestResponse"]

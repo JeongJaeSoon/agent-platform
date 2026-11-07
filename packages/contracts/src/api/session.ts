@@ -17,6 +17,7 @@ import {
   timestampSchema,
   turnIdSchema,
   userIdSchema,
+  workspaceLimitModeSchema,
 } from "../shared/index.ts";
 import {
   ADDITIONAL_REPOSITORY_ID_PATTERN,
@@ -548,6 +549,10 @@ export const sessionSummarySchema = z.object({
   updated_at: timestampSchema,
 });
 export const sessionDetailSchema = sessionSummarySchema.extend({
+  workspace_limit_mode: workspaceLimitModeSchema.optional().meta({
+    description:
+      "The current attempt's workspace limit classification, recorded by the worker as a system event. Hard is storage enforcement, soft is best effort, unknown is unverified. Absent when no classification was recorded or on older servers; absence means unknown on both axes. This is not usage or an exceedance count.",
+  }),
   execution: executionObservationSchema.nullable(),
   checkpoint_revision: revisionSchema.nullable(),
   input_wait: inputWaitSchema.nullable().optional().meta({

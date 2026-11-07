@@ -76,6 +76,71 @@ export const outputsKo = {
   "session.outcomes.usageUnmetered":
     "이 세션이 쓴 토큰 {tokens} · 토큰별 과금 없음",
   "session.refusals.title": "최근 GitHub 거절",
+  "session.github.title": "GitHub 작업",
+  "session.github.description":
+    "이 세션의 push 요청과, 턴이 끝날 때 push하도록 남긴 요청입니다.",
+  "session.github.state.requested": "승인 대기",
+  "session.github.state.approved": "승인됨",
+  "session.github.state.rejected": "거절됨",
+  "session.github.state.pushing": "push 중",
+  "session.github.state.pushed": "push됨",
+  "session.github.state.failed": "push 실패",
+  "session.github.intent.deferred": "턴이 끝나기를 기다리는 중",
+  "session.github.intent.requested": "요청 생성됨",
+  "session.github.intent.pinned": "요청을 만드는 중",
+  "session.github.intent.failed": "요청을 만들지 못함",
+  "session.github.intent.cancelled": "취소됨",
+  "session.github.prState.due": "PR 대기",
+  "session.github.prState.opening": "PR 여는 중",
+  "session.github.prState.opened": "PR 열림",
+  "session.github.prState.closed_unrecorded": "PR 닫힘",
+  "session.github.prState.uncertain": "PR 확인 필요",
+  "session.github.prState.failed": "PR 실패",
+  "session.github.prState.cancelled": "PR 취소됨",
+  "session.github.prError.head_moved":
+    "브랜치가 push한 commit이 아닌 곳을 가리켜 PR을 기록하지 않았습니다.",
+  "session.github.prError.closed_unrecorded":
+    "이 push의 PR이 기록되기 전에 닫혔거나 머지됐습니다.",
+  "session.github.prError.duplicate_pull_request":
+    "맞는 PR이 둘 이상이라 고르지 않았습니다. GitHub에서 확인해 주세요.",
+  "session.github.prError.catalog_changed":
+    "저장소 설정이 요청 때와 달라졌습니다.",
+  "session.github.prError.target_refused": "이 브랜치로는 PR을 열 수 없습니다.",
+  "session.github.prError.github_refused":
+    "GitHub 설정이 PR 열기를 막았습니다.",
+  "session.github.prError.no_forge": "GitHub에 연결할 수 없습니다.",
+  "session.github.prError.forge_failed": "GitHub 호출이 실패했습니다.",
+  "session.github.prError.lookup_failed":
+    "PR이 이미 있는지 확인하지 못했습니다.",
+  "session.github.prError.lease_expired": "PR 열기가 제때 끝나지 않았습니다.",
+  "session.github.prError.intent_invalid":
+    "저장된 PR 요청 내용을 읽을 수 없습니다.",
+  "session.github.prNumber": "PR #{number}",
+  "session.github.reason.turn_ended_without_checkpoint":
+    "턴이 체크포인트 없이 끝났습니다.",
+  "session.github.reason.turn_finalized_without_pin":
+    "턴이 끝났지만 push할 체크포인트를 고정하지 못했습니다.",
+  "session.github.reason.superseded_by_turn":
+    "답변을 기다리는 사이 다른 턴이 먼저 실행돼 push를 취소했습니다.",
+  "session.github.reason.session_closed": "세션이 닫혔습니다.",
+  "session.github.reason.rejected_before": "같은 커밋을 이미 거절했습니다.",
+  "session.github.reason.request_open":
+    "같은 대상의 앞선 요청이 아직 열려 있습니다.",
+  "session.github.reason.github_disabled":
+    "에이전트의 GitHub 설정이 꺼져 있습니다.",
+  "session.github.reason.over_workspace_ceiling":
+    "워크스페이스 상한을 넘는 요청입니다.",
+  "session.github.reason.repository_not_allowed":
+    "이 저장소는 릴리스가 허용하지 않습니다.",
+  "session.github.reason.checkpoint_unavailable":
+    "고정한 체크포인트를 읽을 수 없습니다.",
+  "session.github.reason.source_missing": "push할 소스가 없습니다.",
+  "session.github.reason.attribution_mismatch":
+    "commit 작성자 표기가 세션과 맞지 않습니다.",
+  "session.github.reason.uncommitted_changes":
+    "commit되지 않은 변경이 남아 있습니다.",
+  "session.github.reason.pinned_source_invalid":
+    "고정한 체크포인트를 더는 확인할 수 없습니다.",
   "session.attribution.coAuthor": "commit 공동 작성자: {login}",
   "session.attribution.unlinked":
     "시작한 사람의 GitHub 계정이 연결되지 않아 commit에 공동 작성자가 없습니다.",
@@ -168,6 +233,74 @@ export const outputsJa: Record<keyof typeof outputsKo, string> = {
   "session.outcomes.usageUnmetered":
     "このセッションのトークン {tokens} · トークン課金なし",
   "session.refusals.title": "最近の GitHub 拒否",
+  "session.github.title": "GitHub 作業",
+  "session.github.description":
+    "このセッションの push リクエストと、ターン終了時に push するよう残したリクエストです。",
+  "session.github.state.requested": "承認待ち",
+  "session.github.state.approved": "承認済み",
+  "session.github.state.rejected": "却下済み",
+  "session.github.state.pushing": "push 中",
+  "session.github.state.pushed": "push 済み",
+  "session.github.state.failed": "push 失敗",
+  "session.github.intent.deferred": "ターンの終了を待っています",
+  "session.github.intent.requested": "リクエスト作成済み",
+  "session.github.intent.pinned": "リクエストを作成中",
+  "session.github.intent.failed": "リクエストを作れませんでした",
+  "session.github.intent.cancelled": "キャンセル済み",
+  "session.github.prState.due": "PR 待ち",
+  "session.github.prState.opening": "PR を作成中",
+  "session.github.prState.opened": "PR 作成済み",
+  "session.github.prState.closed_unrecorded": "PR クローズ",
+  "session.github.prState.uncertain": "PR 要確認",
+  "session.github.prState.failed": "PR 失敗",
+  "session.github.prState.cancelled": "PR キャンセル",
+  "session.github.prError.head_moved":
+    "ブランチが push した commit を指していないため、PR を記録しませんでした。",
+  "session.github.prError.closed_unrecorded":
+    "この push の PR は、記録される前にクローズまたはマージされました。",
+  "session.github.prError.duplicate_pull_request":
+    "当てはまる PR が複数あるため選びませんでした。GitHub で確認してください。",
+  "session.github.prError.catalog_changed":
+    "リポジトリの設定がリクエスト時と変わりました。",
+  "session.github.prError.target_refused":
+    "このブランチでは PR を作成できません。",
+  "session.github.prError.github_refused":
+    "GitHub の設定により PR の作成が拒否されました。",
+  "session.github.prError.no_forge": "GitHub に接続できません。",
+  "session.github.prError.forge_failed": "GitHub の呼び出しに失敗しました。",
+  "session.github.prError.lookup_failed":
+    "PR がすでにあるか確認できませんでした。",
+  "session.github.prError.lease_expired":
+    "PR の作成が時間内に終わりませんでした。",
+  "session.github.prError.intent_invalid":
+    "保存された PR のリクエスト内容を読み取れません。",
+  "session.github.prNumber": "PR #{number}",
+  "session.github.reason.turn_ended_without_checkpoint":
+    "ターンがチェックポイントなしで終了しました。",
+  "session.github.reason.turn_finalized_without_pin":
+    "ターンは終了しましたが、push するチェックポイントを固定できませんでした。",
+  "session.github.reason.superseded_by_turn":
+    "回答待ちの間に別のターンが先に実行されたため、push を取り消しました。",
+  "session.github.reason.session_closed": "セッションが閉じられました。",
+  "session.github.reason.rejected_before":
+    "同じコミットをすでに却下しています。",
+  "session.github.reason.request_open":
+    "同じ対象の前のリクエストがまだ開いています。",
+  "session.github.reason.github_disabled":
+    "エージェントの GitHub 設定が無効です。",
+  "session.github.reason.over_workspace_ceiling":
+    "ワークスペースの上限を超えるリクエストです。",
+  "session.github.reason.repository_not_allowed":
+    "このリポジトリはリリースで許可されていません。",
+  "session.github.reason.checkpoint_unavailable":
+    "固定したチェックポイントを読み取れません。",
+  "session.github.reason.source_missing": "push するソースがありません。",
+  "session.github.reason.attribution_mismatch":
+    "コミットの作成者表記がセッションと一致しません。",
+  "session.github.reason.uncommitted_changes":
+    "コミットされていない変更が残っています。",
+  "session.github.reason.pinned_source_invalid":
+    "固定したチェックポイントをもう確認できません。",
   "session.attribution.coAuthor": "コミットの共同作成者: {login}",
   "session.attribution.unlinked":
     "開始した人の GitHub アカウントが連携されていないため、コミットに共同作成者はいません。",
@@ -260,6 +393,71 @@ export const outputsEn: Record<keyof typeof outputsKo, string> = {
   "session.outcomes.usageUnmetered":
     "This session used {tokens} tokens · not billed per token",
   "session.refusals.title": "Recent GitHub refusals",
+  "session.github.title": "GitHub work",
+  "session.github.description":
+    "This session's push requests, and the pushes it asked for to happen when a turn ends.",
+  "session.github.state.requested": "Awaiting approval",
+  "session.github.state.approved": "Approved",
+  "session.github.state.rejected": "Rejected",
+  "session.github.state.pushing": "Pushing",
+  "session.github.state.pushed": "Pushed",
+  "session.github.state.failed": "Push failed",
+  "session.github.intent.deferred": "Waiting for the turn to end",
+  "session.github.intent.requested": "Request created",
+  "session.github.intent.pinned": "Creating the request",
+  "session.github.intent.failed": "Could not create the request",
+  "session.github.intent.cancelled": "Cancelled",
+  "session.github.prState.due": "PR pending",
+  "session.github.prState.opening": "Opening PR",
+  "session.github.prState.opened": "PR opened",
+  "session.github.prState.closed_unrecorded": "PR closed",
+  "session.github.prState.uncertain": "PR needs a check",
+  "session.github.prState.failed": "PR failed",
+  "session.github.prState.cancelled": "PR cancelled",
+  "session.github.prError.head_moved":
+    "The branch no longer points at the pushed commit, so the PR was not recorded.",
+  "session.github.prError.closed_unrecorded":
+    "This push's PR was closed or merged before it was recorded.",
+  "session.github.prError.duplicate_pull_request":
+    "More than one PR fits, so none was chosen. Check GitHub.",
+  "session.github.prError.catalog_changed":
+    "The repository settings changed since the request.",
+  "session.github.prError.target_refused":
+    "A PR cannot be opened from this branch.",
+  "session.github.prError.github_refused":
+    "The GitHub settings refused opening a PR.",
+  "session.github.prError.no_forge": "GitHub could not be reached.",
+  "session.github.prError.forge_failed": "The GitHub call failed.",
+  "session.github.prError.lookup_failed":
+    "Could not check whether a PR already exists.",
+  "session.github.prError.lease_expired":
+    "Opening the PR did not finish in time.",
+  "session.github.prError.intent_invalid":
+    "The stored PR request could not be read.",
+  "session.github.prNumber": "PR #{number}",
+  "session.github.reason.turn_ended_without_checkpoint":
+    "The turn ended without a checkpoint.",
+  "session.github.reason.turn_finalized_without_pin":
+    "The turn ended but no checkpoint could be pinned to push.",
+  "session.github.reason.superseded_by_turn":
+    "Another turn ran while the answer was pending, so the push was cancelled.",
+  "session.github.reason.session_closed": "The session was closed.",
+  "session.github.reason.rejected_before": "This commit was already rejected.",
+  "session.github.reason.request_open":
+    "An earlier request for the same target is still open.",
+  "session.github.reason.github_disabled": "The agent's GitHub setting is off.",
+  "session.github.reason.over_workspace_ceiling":
+    "The request exceeds the workspace ceiling.",
+  "session.github.reason.repository_not_allowed":
+    "The release does not allow this repository.",
+  "session.github.reason.checkpoint_unavailable":
+    "The pinned checkpoint cannot be read.",
+  "session.github.reason.source_missing": "There is no source to push.",
+  "session.github.reason.attribution_mismatch":
+    "A commit's author does not match the session.",
+  "session.github.reason.uncommitted_changes": "Uncommitted changes remain.",
+  "session.github.reason.pinned_source_invalid":
+    "The pinned checkpoint can no longer be verified.",
   "session.attribution.coAuthor": "Commit co-author: {login}",
   "session.attribution.unlinked":
     "The person who started it has not linked a GitHub account, so commits have no co-author.",

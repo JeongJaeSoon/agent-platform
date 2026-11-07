@@ -10,13 +10,46 @@ import {
 } from "./api-settings.ts";
 
 describe("apiSettingsFromEnv", () => {
+  test("workspace policy defaults to warn and rejects unsupported values", () => {
+    for (const workspaceEnforce of ["warn", "fail", "off"] as const) {
+      expect(
+        apiSettingsFromEnv({ WORKSPACE_ENFORCE: workspaceEnforce })
+          .workspaceEnforce,
+      ).toBe(workspaceEnforce);
+    }
+    expect(() => apiSettingsFromEnv({ WORKSPACE_ENFORCE: "force" })).toThrow(
+      "WORKSPACE_ENFORCE",
+    );
+    expect(() => apiSettingsFromEnv({ WORKSPACE_ENFORCE: "" })).toThrow(
+      "WORKSPACE_ENFORCE",
+    );
+  });
   test("unset keeps every default", () => {
     expect(apiSettingsFromEnv({})).toEqual({
       leaseTtlMs: 30_000,
       logLevel: "info",
       pendingTtlMs: 1_800_000,
       sse: {},
+      actionFlows: false,
+      workspaceEnforce: "warn",
     });
+  });
+
+  test("AGENT_ACTION_FLOWS is off unless set, and a typo stops startup", () => {
+    expect(apiSettingsFromEnv({}).actionFlows).toBe(false);
+    for (const on of ["1", "true"]) {
+      expect(apiSettingsFromEnv({ AGENT_ACTION_FLOWS: on }).actionFlows).toBe(
+        true,
+      );
+    }
+    for (const off of ["0", "false"]) {
+      expect(apiSettingsFromEnv({ AGENT_ACTION_FLOWS: off }).actionFlows).toBe(
+        false,
+      );
+    }
+    expect(() => apiSettingsFromEnv({ AGENT_ACTION_FLOWS: "yes" })).toThrow(
+      /AGENT_ACTION_FLOWS must be true, false, 1, or 0/,
+    );
   });
 
   test("reads what is set", () => {
@@ -34,6 +67,8 @@ describe("apiSettingsFromEnv", () => {
       logLevel: "debug",
       pendingTtlMs: 3_600_000,
       sse: { batchMaxBytes: 65_536, maxStreams: 512, maxStreamsPerOwner: 16 },
+      actionFlows: false,
+      workspaceEnforce: "warn",
     });
   });
 

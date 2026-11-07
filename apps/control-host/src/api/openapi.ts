@@ -168,6 +168,7 @@ import {
   memberParamsSchema,
   memberUserParamsSchema,
   memberViewSchema,
+  openPullRequestQuerySchema,
   openPullRequestRequestSchema,
   openPullRequestResponseSchema,
   passwordResetRequestSchema,
@@ -218,6 +219,8 @@ import {
   rerunWorkflowResponseSchema,
   resolvePushRequestRequestSchema,
   resumeSessionRequestSchema,
+  retryProfileRolloutRequestSchema,
+  retryProfileRolloutResponseSchema,
   reviewAchievementRequestSchema,
   reviewAchievementResponseSchema,
   revokeAgentIdentityResponseSchema,
@@ -225,6 +228,8 @@ import {
   revokeCredentialBindingResponseSchema,
   type SessionScope,
   SLACK_INSTALL_STATE_TTL_SECONDS,
+  saveAgentResponseSchema,
+  scheduledPullRequestResponseSchema,
   searchSlackChannelsQuerySchema,
   searchSlackChannelsResponseSchema,
   sessionCredentialUnboundDetailsSchema,
@@ -362,6 +367,7 @@ const requestComponents = {
   CreatePushRequestRequest: createPushRequestRequestSchema,
   ResolvePushRequestRequest: resolvePushRequestRequestSchema,
   OpenPullRequestRequest: openPullRequestRequestSchema,
+  OpenPullRequestQuery: openPullRequestQuerySchema,
   CommentPullRequestRequest: commentPullRequestRequestSchema,
   DispatchWorkflowRequest: dispatchWorkflowRequestSchema,
   RerunWorkflowRequest: rerunWorkflowRequestSchema,
@@ -419,6 +425,7 @@ const requestComponents = {
   CreateTeamRequest: createTeamRequestSchema,
   CreateWorkspaceProfileRequest: createWorkspaceProfileRequestSchema,
   CreateInstallationProfileRequest: createInstallationProfileRequestSchema,
+  RetryProfileRolloutRequest: retryProfileRolloutRequestSchema,
   SetSessionShareRequest: setSessionShareRequestSchema,
   AuditReadRequest: auditReadRequestSchema,
   AdminTerminateSessionRequest: adminTerminateSessionRequestSchema,
@@ -466,6 +473,7 @@ const responseComponents = {
   PushRequest: pushRequestSchema,
   ListPushRequestsResponse: listPushRequestsResponseSchema,
   OpenPullRequestResponse: openPullRequestResponseSchema,
+  ScheduledPullRequestResponse: scheduledPullRequestResponseSchema,
   CommentPullRequestResponse: commentPullRequestResponseSchema,
   DispatchWorkflowResponse: dispatchWorkflowResponseSchema,
   GitHubWorkflowRun: githubWorkflowRunSchema,
@@ -554,6 +562,7 @@ const responseComponents = {
   CountAgentsResponse: countAgentsResponseSchema,
   ListProfilesResponse: listProfilesResponseSchema,
   WorkspaceProfileChangeResponse: workspaceProfileChangeResponseSchema,
+  RetryProfileRolloutResponse: retryProfileRolloutResponseSchema,
   ListAchievementCategoriesResponse: listAchievementCategoriesResponseSchema,
   AchievementCategoryChangeResponse: achievementCategoryChangeResponseSchema,
   ListAchievementTypesResponse: listAchievementTypesResponseSchema,
@@ -575,6 +584,7 @@ const responseComponents = {
   SetSettingsMcpServerRequest: setSettingsMcpServerRequestSchema,
   SettingsChangeResponse: settingsChangeResponseSchema,
   AgentDetail: agentDetailSchema,
+  SaveAgentResponse: saveAgentResponseSchema,
   CreateAgentReleaseResponse: createAgentReleaseResponseSchema,
   ActivateAgentResponse: activateAgentResponseSchema,
   SessionCredentialUnboundDetails: sessionCredentialUnboundDetailsSchema,
@@ -756,6 +766,13 @@ export type RouteDeclaration = {
     // A file download: the body is the file's bytes, not JSON.
     | { status: 200; download: true; description: string }
     | { status: 204; description?: string };
+  // A second success status the route can answer, with its own body.
+  alsoSucceeds?: {
+    status: 202;
+    schema: ComponentName;
+    description: string;
+    example?: unknown;
+  };
   errors: number[];
   errorCodes?: Partial<Record<number, readonly ApiErrorCode[]>>;
   // Appended to ERROR_CODE_WHEN's sentence where a code is narrower here.
@@ -1052,6 +1069,8 @@ const SETTINGS_CREATE =
   "The credential is the value in the request, sealed under this row alone in the same transaction as the row; a reference to the deployment's env or Secrets Manager is the operator's settings CLI's. The destination never changes after: another one is a new id. An id ever used (disabled rows count) is 409 `already_exists`; an entry the catalog's rules refuse is 400 `invalid_entry`. With the secret store off (no `PLATFORM_SECRET_KEY`) a credential is 503.";
 const SETTINGS_CREDENTIAL =
   "Seals a new value for a row that stores its own: rotating it or giving a `needs_value` row its first. Running sessions are not stopped. A row whose credential comes from the operator's deployment is 409 `not_stored`, a disabled one 409 `disabled`, the secret store off 503. Writes a `set_settings_credential` receipt naming the last four characters.";
+const SETTINGS_CONVERT =
+  "For a connection whose key comes from the operator's deployment (an env or Secrets Manager reference): the person types the key, it is sealed under the same id, and the row is stored from then on. The server does not read the referenced value. Ceilings made before keep running on the stored key and their pins do not change. A settings document that still names the old entry leaves the row as it is. A connection that already keeps its own value is 409 `not_external`, a disabled one 409 `disabled`, one that another connection is or was exactly 409 `alias_taken`, the secret store off 503. Writes a `set_settings_credential` receipt naming the last four characters and which reference it replaced.";
 const SETTINGS_DISABLE =
   "Never undone and nothing is deleted: the id stays taken and the stored value stays sealed. Ceilings over it stop running anything. Disabling one already disabled is 409 `disabled`.";
 const SETTINGS_CHANGE_EXAMPLE = (id: string) => ({
@@ -3576,10 +3595,11 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Push requests",
     summary: "Open a pull request from a pushed request",
     description:
-      "Opens a pull request on the request's repository's forge (GitHub or GHES) from the request's branch (`agent/<session-id>` or `agent/<session-id>-<branch>`) into that catalog entry's `branch`. Only a `pushed` request opens one, and only while the catalog entry is still the one the request pinned. The platform calls GitHub with its own credential: an installation token of the catalog's GitHub App, scoped to this repository with `contents: read` and `pull_requests: write`.\n\nThe content is the structured fields `summary`, `changes`, `rationale`, `testing`, `notes` and `related`, or the legacy `body` text, never both. The platform lays the fields out on the repository's pull request template when its default branch has one (`.github/`, the repository root or `docs/`, a `pull_request_template.md` or the one file of a `PULL_REQUEST_TEMPLATE/` directory; read at the default branch's commit as it is when the request is handled, never from the pull request's own branch), under the template's headings or at its `<!-- werft:slot summary -->` lines, keeping the template's own text, comments and checkboxes; otherwise on its default template, a heading per field that has content, in Korean. A template that is over 16 KiB, not a plain UTF-8 file, ambiguous (several in a directory), unreadable, or written with HTML, tables, reference definitions or comments that share a row with text is passed over for the default template, and the pull request still opens; `body_source.kind` is `repository` with the template's `path`, or `platform` with `skipped` saying why, and the receipt's `template` records the commit, path and blob read. The template's own mentions, closing keywords and references are broken like the fields', a line that looks like a secret is replaced like theirs, and it cannot pass for the platform's tail. On either layout, `related` items become `Closes #N` (an issue of the pull request's own repository, when `closes` is true) or `Refs owner/repo#N`, written by the platform from the catalog, and an item whose `repository_id` the session's catalog does not have is left out (`body_source.related_dropped` counts them). A legacy `body` is used as written. `body_source` says which one the platform wrote, and is null when the pull request was already open and its body was left alone.\n\n`title` (default `Agent session <session-id>`) and the text are cleaned before GitHub sees them: `@` mentions, cross-repository references (`owner/repo#N`), closing keywords (`Closes #N` and the like) and HTML comments are broken with a zero-width space, a line that looks like a secret is replaced by `[REDACTED]`, an engine's own signature line (Claude Code's `Generated with` link) is removed, and the body is cut to GitHub's limit, the last fields first. The body ends with a line naming the session and the commit. The platform never approves, merges or asks for reviews.\n\nSafe to retry: a request opens at most one pull request. When one is already recorded, or GitHub already has an open one for the branch, it is answered with `created: false` (200). Every attempt, refused ones included, leaves an `open_pull_request` receipt; `receipt_id` names this one, and a refusal's `error.details.receipt_id` names it.\n\nA verified credential that holds `sessions:approve` opens one, as for a push decision. One that may only submit to the session (an agent's key without `sessions:approve`, or the key that started the session) opens one too, since the request was already pushed. The token is issued through the agent's GitHub settings: with GitHub off for the agent, or the repository outside its release, the call is refused with `GITHUB_REFUSED`. Worker credentials are not accepted on `/v1` (401).",
+      "Opens a pull request on the request's repository's forge (GitHub or GHES) from the request's branch (`agent/<session-id>` or `agent/<session-id>-<branch>`) into that catalog entry's `branch`. Only a `pushed` request opens one (without `?schedule=true`; a request that is not pushed yet is refused with `PUSH_NOT_PUSHED`, as before; with `?schedule=true` the call is held until the push finishes for a push request made with the agent action flows on, and refused with `PUSH_NOT_PUSHED` for one made with them off (the legacy flow), and `PUSH_REQUEST_RESOLVED` answers a request a later one superseded), and only while the catalog entry is still the one the request pinned. The platform calls GitHub with its own credential: an installation token of the catalog's GitHub App, scoped to this repository with `contents: read` and `pull_requests: write`.\n\nThe content is the structured fields `summary`, `changes`, `rationale`, `testing`, `notes` and `related`, or the legacy `body` text, never both. The platform lays the fields out on the repository's pull request template when its default branch has one (`.github/`, the repository root or `docs/`, a `pull_request_template.md` or the one file of a `PULL_REQUEST_TEMPLATE/` directory; read at the default branch's commit as it is when the request is handled, never from the pull request's own branch), under the template's headings or at its `<!-- werft:slot summary -->` lines, keeping the template's own text, comments and checkboxes; otherwise on its default template, a heading per field that has content, in Korean. A template that is over 16 KiB, not a plain UTF-8 file, ambiguous (several in a directory), unreadable, or written with HTML, tables, reference definitions or comments that share a row with text is passed over for the default template, and the pull request still opens; `body_source.kind` is `repository` with the template's `path`, or `platform` with `skipped` saying why, and the receipt's `template` records the commit, path and blob read. The template's own mentions, closing keywords and references are broken like the fields', a line that looks like a secret is replaced like theirs, and it cannot pass for the platform's tail. On either layout, `related` items become `Closes #N` (an issue of the pull request's own repository, when `closes` is true) or `Refs owner/repo#N`, written by the platform from the catalog, and an item whose `repository_id` the session's catalog does not have is left out (`body_source.related_dropped` counts them). A legacy `body` is used as written. `body_source` says which one the platform wrote, and is null when the pull request was already open and its body was left alone.\n\n`title` (default `Agent session <session-id>`) and the text are cleaned before GitHub sees them: `@` mentions, cross-repository references (`owner/repo#N`), closing keywords (`Closes #N` and the like) and HTML comments are broken with a zero-width space, a line that looks like a secret is replaced by `[REDACTED]`, an engine's own signature line (Claude Code's `Generated with` link) is removed, and the body is cut to GitHub's limit, the last fields first. The body ends with a line naming the session and the commit. The platform never approves, merges or asks for reviews.\n\nSafe to retry: a request opens at most one pull request. When one is already recorded, or GitHub already has an open one for the branch on the pushed commit, it is answered with `created: false` (200). An open one on another commit is not adopted: `PUSH_REQUEST_RESOLVED` with `refusal: head_moved` (`expected_sha`, `actual_sha`), or `BACKEND_UNAVAILABLE` when GitHub only lags behind the push. A pull request this call created on a moved head ends the stage for good: later calls answer the same `head_moved` without asking GitHub. Every attempt, refused ones included, leaves an `open_pull_request` receipt; `receipt_id` names this one, and a refusal's `error.details.receipt_id` names it.\n\nA verified credential that holds `sessions:approve` opens one, as for a push decision. One that may only submit to the session (an agent's key without `sessions:approve`, or the key that started the session) opens one too, since the request was already pushed. The token is issued through the agent's GitHub settings: with GitHub off for the agent, or the repository outside its release, the call is refused with `GITHUB_REFUSED`. Worker credentials are not accepted on `/v1` (401).",
     scope: "approve",
     scopeCheckedBy: "service",
     idempotent: false,
+    query: "OpenPullRequestQuery",
     body: "OpenPullRequestRequest",
     requestExample: { title: "Add retry to the sync job" },
     success: {
@@ -3594,10 +3614,21 @@ export const API_ROUTE_DECLARATIONS = [
         receipt_id: EXAMPLE_PULL_REQUEST.receipt_id,
       },
     },
+    alsoSucceeds: {
+      status: 202,
+      schema: "ScheduledPullRequestResponse",
+      description:
+        'Only with `?schedule=true` and a push that is not finished: `status: "scheduled"`. The platform keeps the content of the first call and opens the pull request once the push is done (a repeated call answers `scheduled` again and changes nothing).',
+    },
     errors: [...CONFLICTS, 403, 413, 503],
     errorCodes: {
       403: ["FORBIDDEN", "GITHUB_REFUSED"],
-      409: ["PUSH_NOT_PUSHED", "CATALOG_MISMATCH", "GITHUB_REFUSED"],
+      409: [
+        "PUSH_NOT_PUSHED",
+        "PUSH_REQUEST_RESOLVED",
+        "CATALOG_MISMATCH",
+        "GITHUB_REFUSED",
+      ],
     },
     errorNotes: {
       FORBIDDEN:
@@ -4707,10 +4738,10 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "Create an agent and its first card version",
     description:
-      "Nothing is released or activated. The creator administers the agent. `managing_team_id` is required (400 BAD_REQUEST with a `details.issues` entry at `managing_team_id` when absent): an owner or admin names any live team (404 when there is none by that id), anyone else only a team they are in (403 FORBIDDEN, `details.reason_code` `team_not_allowed`). A slug already used in the workspace answers 409 ALREADY_EXISTS. API keys are refused.",
+      "Without `runtime_profile_id` nothing is released or activated. With it the save makes the first release on that profile and activates it, as `PATCH /v1/agents/{id}` does; `model_source` defaults to `profile`, which runs the profile's default model. The agent and its card are kept when the release is refused: `release.status` is then `failed` with the reason, and the agent's `draft` holds the request until a new save. The creator administers the agent. `managing_team_id` is required (400 BAD_REQUEST with a `details.issues` entry at `managing_team_id` when absent): an owner or admin names any live team (404 when there is none by that id), anyone else only a team they are in (403 FORBIDDEN, `details.reason_code` `team_not_allowed`). A slug already used in the workspace answers 409 ALREADY_EXISTS. API keys are refused.",
     auth: "session",
     body: "CreateAgentRequest",
-    success: { status: 201, schema: "AgentDetail" },
+    success: { status: 201, schema: "SaveAgentResponse" },
     errors: [400, 401, 403, 404, 409, 413, 503],
     errorCodes: { 409: ["ALREADY_EXISTS"] },
     idempotent: false,
@@ -4732,13 +4763,14 @@ export const API_ROUTE_DECLARATIONS = [
     path: "/v1/agents/{id}",
     operationId: "updateAgent",
     tag: "Agents",
-    summary: "Rename or describe an agent, or add a card version",
+    summary: "Rename or describe an agent, or save its card and profile",
     description:
-      "`name` and `description` change the agent itself: no version is made, and `description: null` clears it. Neither reaches a run. A `card` becomes a new version; existing versions never change. A card equal to one the agent already has adds nothing.",
+      "`name` and `description` change the agent itself: no version is made, and `description: null` clears it. Neither reaches a run. A `card` becomes a new version; existing versions never change, and a card equal to one the agent already has reuses it. A card, `runtime_profile_id` or `model_source` changes what the agent does: unless it equals what the agent runs (`release.status: unchanged`, nothing released), the save makes a release of it and activates it (`applied`). `runtime_profile_id` alone saves the card the agent runs now on that profile; without a card or profile the agent's current ones are used. `model_source: profile` runs the profile's default model and writes it into the card; `fixed` keeps the card's model; absent, the current source is kept while the card's model is the one running. A refused release (`failed`, with its `reason`) keeps the card version and leaves the request as the agent's `draft`; a save a newer one replaced answers `superseded` and changes nothing.",
     auth: "session",
     body: "UpdateAgentRequest",
-    success: { status: 200, schema: "AgentDetail" },
-    errors: [400, 401, 403, 404, 413, 503],
+    success: { status: 200, schema: "SaveAgentResponse" },
+    errors: [400, 401, 403, 404, 409, 413, 503],
+    errorCodes: { 409: ["REVISION_CONFLICT"] },
     idempotent: false,
   },
   {
@@ -6491,6 +6523,26 @@ export const API_ROUTE_DECLARATIONS = [
     idempotent: false,
   },
   {
+    method: "post",
+    path: "/v1/installation-profiles/{profile_id}/rollout/retry",
+    operationId: "retryProfileRollout",
+    tag: "Agents",
+    summary: "Retry one agent of a profile rollout",
+    description:
+      "The operator (`profile.installation.manage`, the workspace owner), signed in. A new version of a profile moves the agents that follow it onto the version; one the move failed for stays on its release, with the reason in `installation.rollout.failed_agents` of `GET /v1/profiles` and in `profile_rollout` of the agent. A failed agent is never tried again by itself; this call is the one way to do it. The agent is judged afresh: its current release, whether it still follows, and the profile's newest version. `retried: false` when none of its steps for this version was failed (retried already, say).",
+    auth: "session",
+    body: "RetryProfileRolloutRequest",
+    requestExample: { agent_id: "019a0000-0000-7000-8000-0000000000a1" },
+    success: {
+      status: 200,
+      schema: "RetryProfileRolloutResponse",
+      description: "Whether a failed step was put back to wait.",
+      example: { retried: true },
+    },
+    errors: [400, 401, 403, 503],
+    idempotent: false,
+  },
+  {
     method: "get",
     path: "/v1/installation/settings/export",
     operationId: "exportInstallationSettings",
@@ -6603,6 +6655,26 @@ export const API_ROUTE_DECLARATIONS = [
       schema: "SettingsChangeResponse",
       description: "The entry's id and the change's receipt.",
       example: SETTINGS_CHANGE_EXAMPLE("anthropic-console"),
+    },
+    errors: [400, 401, 403, 404, 409, 503],
+    errorCodes: { 409: ["REVISION_CONFLICT"] },
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/installation/settings/connections/{id}/convert",
+    operationId: "convertSettingsConnection",
+    tag: "Agents",
+    summary: "Move a connection's key from the deployment to a stored value",
+    description: `${SETTINGS_OWNER} ${SETTINGS_CONVERT}`,
+    auth: "session",
+    body: "SetSettingsCredentialRequest",
+    requestExample: { value: "example-key" },
+    success: {
+      status: 200,
+      schema: "SettingsChangeResponse",
+      description: "The entry's id and the change's receipt.",
+      example: SETTINGS_CHANGE_EXAMPLE("anthropic-main"),
     },
     errors: [400, 401, 403, 404, 409, 503],
     errorCodes: { 409: ["REVISION_CONFLICT"] },
@@ -7538,6 +7610,16 @@ function createApiRouteConfig(route: RouteDeclaration): ApiRouteConfig {
                 : jsonContent(success.schema, success.example),
             },
   };
+  if (route.alsoSucceeds !== undefined) {
+    responses[route.alsoSucceeds.status] = {
+      description: route.alsoSucceeds.description,
+      headers: responseHeaders(),
+      content: jsonContent(
+        route.alsoSucceeds.schema,
+        route.alsoSucceeds.example,
+      ),
+    };
+  }
   const errors = new Set<number>(route.errors);
   if (csrf || route.scope) errors.add(403);
   if (route.method !== "get") errors.add(408);

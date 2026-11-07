@@ -261,6 +261,7 @@ jobs:
               - tests/checkpoint-pins.
               - tests/object-store-cli.
               - tests/object-store-route.
+              - tests/test-ops-bundle.
               - tests/test-ops.
               - tests/worker-checkpoint-publish.
             skips:
@@ -338,6 +339,7 @@ jobs:
               - tests/integration-jobs.
               - tests/local-sh.
               - tests/preview-reap.
+              - tests/release-auto.
               - tests/sdk-release.
               - tests/supply-chain.
               - tests/test-files.
@@ -1034,7 +1036,11 @@ jobs:
       CRD_SCHEMAS: https://raw.githubusercontent.com/datreeio/CRDs-catalog/63669a570e231d4f1f8396d229a1de512bcf0a34/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Installs nothing; render-check.ts imports only node: built-ins and
+      # files of this repository: no cache to restore.
       - uses: ./.github/actions/bun-setup
+        with:
+          restore-cache: "false"
       - name: helm and kubeconform
         run: |
           mkdir -p "$RUNNER_TEMP/bin"

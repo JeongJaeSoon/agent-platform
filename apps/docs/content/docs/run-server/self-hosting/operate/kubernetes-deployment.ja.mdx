@@ -5,7 +5,7 @@ description: Helm chartでKubernetesにインストールし、healthを確認�
 
 Helm chartでKubernetesにWerftをインストールする手順です。chartのソースは`deploy/helm/werft`にあり、`main`のマージと`v*`タグのたびに`oci://ghcr.io/jeongjaesoon/werft`へ公開されます。既定値は一般的なKubernetes(kind含む)で動きます。AWS専用の値(ALB Ingress、IRSA、ECR、External Secrets)はchartの`values-aws.example.yaml`にだけあります。各コンポーネントの動作と環境変数は[Kubernetes実行backend](/run-server/self-hosting/operate/kubernetes-backend)、バックアップは[backup-restore.md § Kubernetesインストール](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/backup-restore.md#kubernetes-설치)にあります。
 
-**現在の状態:** 公式リリース(`v*`タグ)はまだありません。`main`のマージごとに公開されるchartには、そのrunのイメージdigestとworker runtimeが入っているので、リポジトリのcheckoutなしで[公開chartでインストール](#公開chartでインストール)します。リポジトリの`values.yaml`はdigestが空なので、checkoutのパスでインストールするときはdigestを自分で入れます。そのままではrenderが失敗します。
+**現在の状態:** 最初の公式リリース`v0.1.0`が公開され、chart `0.1.0`も一緒に公開されました。`main`のマージごとに公開されるchartには、そのrunのイメージdigestとworker runtimeが入っているので、リポジトリのcheckoutなしで[公開chartでインストール](#公開chartでインストール)します。リポジトリの`values.yaml`はdigestが空なので、checkoutのパスでインストールするときはdigestを自分で入れます。そのままではrenderが失敗します。
 
 Docker単一サーバーのインストール(`local-docker`実行基盤、compose)も引き続きサポートします。公開イメージでインストールする順序は[単一サーバーの設置](/run-server/self-hosting/single-server)に、運用手順の全体はリポジトリの[単一サーバーのデプロイ文書](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/server-deployment.md)にあります。このページはその隣にある2つ目のインストール経路です。
 
@@ -46,7 +46,7 @@ chartはGitサーバーも作りません。設定ドキュメントのリポジ
 | `DATABASE_URL` | api、scheduler、reconciler、slack、migrate、checkpoint GC |
 | `EGRESS_AUTHORIZER_TOKEN` | api、egress-proxy(同じ値) |
 | `AWS_ACCESS_KEY_ID`、`AWS_SECRET_ACCESS_KEY` | api、checkpoint GC。`secrets.objectStoreKeys: true`のときだけ。`false`ならAWSの既定credential chain(IRSA)で署名します |
-| `secrets.catalogEnv`の名前(既定`ANTHROPIC_API_KEY`) | apiだけ。設定ドキュメントが`value_env`で指すproviderとリポジトリの認証情報。slackは受け取りません |
+| `secrets.catalogEnv`の名前(既定`ANTHROPIC_API_KEY`) | apiだけ。設定ドキュメントが`value_env`で指すproviderとリポジトリの認証情報を環境変数で渡す代替手段です。モデルのkeyの基本の経路は、インストール後にコンソールの**設定 > ワークスペース設定 > モデル接続 > 接続を追加**で入れる方法で、その場合は`secrets.catalogEnv: []`で空にして、Secretにこのキーを置きません。既定のままだと、Secretにそのキーがないときpodが起動しません。slackは受け取りません |
 | `PLATFORM_SECRET_KEY` | api、slack。必須。64文字のhex master key。コンソールで保存した認証情報を封印します。Secretになければ、Podは起動しません |
 
 ## インストール順序

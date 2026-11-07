@@ -6,7 +6,7 @@ description: 設置済みの Werft を新しい公開バージョンに上げ、
 設置済みの Werft を新しい公開バージョンに上げます。初めての設置は [Kubernetes の設置](/run-server/self-hosting/kubernetes) か [単一サーバーの設置](/run-server/self-hosting/single-server) を読んでください。
 
 <Callout type="warn">
-`v` タグはまだありません。今は `main` にマージされるたびに公開される chart `0.1.0-main-<12>` とイメージタグ `main-<12>` に上げます。これらはリリースではありません。最初の `v` タグができると、`VERSION` は `v` を除いたタグ(`v1.2.3` なら `1.2.3`)にし、コマンドは同じです。上げる前に、リポジトリの [変更履歴](https://github.com/JeongJaeSoon/werft/blob/main/CHANGELOG.md) で運用担当者が手で行うことを読んでください。
+最初のリリース `v0.1.0` が公開されました。リリースに上げるには、`VERSION` を `v` を除いたタグ(`v0.1.0` なら `0.1.0`)にし、コマンドは同じです。下の確認は main バージョン同士で上げたもので、リリースのバージョンへ上げるアップグレードは実行していません。`0.1.0-main-<12>` と `main-<12>` はリリースではありません。上げる前に、リポジトリの [変更履歴](https://github.com/JeongJaeSoon/werft/blob/main/CHANGELOG.md) で運用担当者が手で行うことを読んでください。
 </Callout>
 
 ## Kubernetes

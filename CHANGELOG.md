@@ -1,17 +1,59 @@
 # 변경 기록
 
-Werft의 사용자와 운영자에게 보이는 변경을 적는다. 게시 패키지(이미지, Helm chart, SDK)를 설치하거나 올리는 사람이 읽는 글이다. 내부 리팩터링과 테스트 변경은 적지 않는다.
+Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하는 것만 적는다. 변경 목록 전체는 GitHub Release의 자동 생성 노트(`.github/release.yml`로 분류)에 있고, 이 파일에 옮겨 쓰지 않는다.
 
 ## 쓰는 방식
 
-- 가장 위의 "미출시" 절에 변경을 쌓는다. 릴리스 태그를 만드는 사람이 그 절의 제목을 태그와 날짜로 바꾸고, 새 "미출시" 절을 위에 더한다.
-- 각 항목은 PR 링크(`JeongJaeSoon/werft#123`)를 붙인다.
-- 이미 설치한 곳이 직접 해야 하는 일은 "운영자가 할 일"에 모은다. 안 하면 조용히 깨지는 변경이 먼저 온다.
+- 절은 두 가지만 쓴다. "보안"(수정한 취약점과 영향받는 버전)과 "운영자가 할 일"(올릴 때 직접 해야 하는 일. 안 하면 조용히 깨지는 변경이 먼저 온다). 해당 없는 절은 쓰지 않는다.
+- 가장 위의 "미출시" 절에 쌓는다. 릴리스 태그를 만드는 사람이 그 절의 제목을 태그로 바꾸고, 새 "미출시" 절을 위에 더한다.
+- 각 항목은 PR 링크(`JeongJaeSoon/werft#123`)를 붙이고 한국어로 서술한다.
 - 이 파일은 사람이 쓴다. 태그가 있다고 전제하고 쓰지 않는다.
+- `v0.1.1`·`v0.1.0` 절은 이 형식 이전에 쓴 것이라 다른 절(GitHub 작업, 게시 패키지 등)이 남아 있다.
 
 ## 미출시
 
-첫 `v` 태그는 아직 없다. 추천 번호는 `v0.1.0`이고, 태그는 사람이 만든다. 지금 게시되는 것은 `main`에 머지될 때마다 나오는 `main-<12>` 이미지 태그와 `0.1.0-main-<12>` chart이고, 릴리스가 아니다. SDK `@werft-ai/sdk`는 npm에 올라 있다(현재 `latest`는 `0.1.2`).
+## v0.1.1
+
+`v0.1.0` 뒤 `main`에 들어간 변경이다. 보안 수정이 있으므로 `v0.1.0`을 쓰는 곳은 올리기를 권한다. `v0.1.1` 태그로 게시하면 이미지 태그는 `v0.1.1`, chart 버전은 `0.1.1`이고 둘 다 태그에서 정해진다(`Chart.yaml`의 `version`은 태그 릴리스에 쓰이지 않는다).
+
+### 보안
+
+- **worker 이미지의 git-lfs가 링크한 `github.com/klauspost/compress`를 1.19.1에서 1.20.2로 올렸다**(JeongJaeSoon/werft#1277). 취약점 번호는 GO-2026-6865이고, 수정 버전은 1.20.2다. 영향은 `werft-worker` 이미지 안의 git-lfs 바이너리다. 이미지 스캔이 이 취약점을 잡은 것은 worker 이미지뿐이고, 이미지에 들어가는 변경도 worker의 Dockerfile 하나다. `v0.1.0`의 worker 이미지는 이 취약 버전을 담고 있고, 이미지 스캔(`supply-chain`)이 수정 가능한 high로 잡는다.
+
+### 운영자가 할 일
+
+`v0.1.0`에서 올릴 때 직접 해야 하는 일이다. 업그레이드 명령은 [업그레이드](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/upgrade/)를 따른다.
+
+1. **DB 마이그레이션 네 개(`0236`~`0239`)가 `migrate`에서 적용된다.** 모두 추가형이다(열·테이블·인덱스 추가). `0239_connection_replaces_auth`는 `provider_connections.replaces_auth`를 더하고, 앞 이미지로 돌아가도 새 열은 무시된다(JeongJaeSoon/werft#1262).
+2. **control-host를 먼저, worker를 나중에 올린다**(JeongJaeSoon/werft#1254). 새 worker는 claim과 poll에 `platform_tool_trust`를 싣고, 이 칸을 모르는 옛 control-host는 본문을 거절한다. worker는 그 거절을 받으면 `platform_tool_trust`를 빼고 다시 보내므로 순서가 어긋나도 통신이 끊기지는 않지만, 그 동안 이 도구는 엔진 권한 단계를 지난다.
+3. **턴이 끝날 때 push하는 흐름은 `AGENT_ACTION_FLOWS`가 기본 off다**(JeongJaeSoon/werft#1252). 켜려면 먼저 api, `maintenance`(compose), `checkpointGc`·`sessionArchive` CronJob(Kubernetes)이 모두 이 버전 이미지로 돌고 있고, 옛 이미지로 시작한 Job이 끝났어야 한다. 옛 이미지의 checkpoint 정리가 고정한 revision을 지울 수 있기 때문이다. worker 이미지도 이 버전으로 올린 뒤에 켠다. 켠 뒤에 만든 세션은 프롬프트 리비전 2를 받는데, 옛 worker는 그 claim을 읽지 못한다. 값은 `true`·`false`·`1`·`0`만 받고, 다른 값이면 api가 시작하지 않는다. 절차와 되돌리기는 `docs/operator/api-server.md`의 "턴이 끝날 때 push하기"를 따른다.
+
+### GitHub 작업
+
+- 에이전트가 이번 턴의 commit을 이어 가는 턴 없이 push한다. `request_push`가 push 의도만 남기고, 턴이 끝나면 finalize가 revision을 고정해 control-host 안의 실행기가 push 요청을 만든다. `AGENT_ACTION_FLOWS`가 켜진 곳에서만 쓴다(JeongJaeSoon/werft#1252).
+- PR을 예약한 push는 push가 끝나면 플랫폼이 PR을 연다. 모든 push가 PR을 여는 것은 아니고, PR 내용을 맡긴 요청에만 적용된다. control-host 안의 action-broker가 저장소·head·base를 forge에서 다시 대조해 만들거나 이어받고, 결과마다 알림(ko·ja·en)이 간다(JeongJaeSoon/werft#1253). PR 내용은 push가 끝나기 전에 REST `?schedule=true`와 MCP `open_pull_request({ push_intent_id })`로 맡기고, MCP `get_push_request`로 요청 상태를 읽는다(JeongJaeSoon/werft#1259).
+- **`request_push({ pull_request: … })`는 `AGENT_ACTION_FLOWS` 값과 상관없이 `pull_request_needs_tool_call`로 거절되고 아무것도 만들지 않는다.** PR은 `open_pull_request`를 따로 불러 연다(JeongJaeSoon/werft#1259).
+- 세션 화면이 PR 단계(`due`부터 `cancelled`까지)와 끝난 사유, PR 번호 링크를 보여 준다. `PushRequest`에 `pr_error`·`pr_number`·`pr_url`이 기본 null로 더해졌다(가산)(JeongJaeSoon/werft#1257).
+- PR 본문 서식(저장소 템플릿 선택, 서식 끄기, 에이전트별 템플릿, 세션 링크 표기)을 워크스페이스와 에이전트 설정에서 바꾼다. 새 API 경로 두 개가 더해졌다(JeongJaeSoon/werft#1245).
+- push·PR·저장소 읽기 도구는 서버 정책이 이미 판정하므로 엔진 권한 단계(사람 허용 카드, auto 분류기)에서 뺐다. 리뷰와 workflow 도구는 그대로 엔진을 지나고, `plan` 모드에서는 이 도구도 기존대로 엔진이 판정한다(JeongJaeSoon/werft#1254).
+
+### 모델 연결
+
+- 모델 키를 콘솔의 모델 연결 화면에서 넣는 것이 기본이다. 단일 서버는 `ANTHROPIC_API_KEY` 없이도 기동한다. 키 없는 연결의 프로필로 세션을 시작하면 화면 경로를 알리는 거부 메시지(`connection_missing`)가 나온다(JeongJaeSoon/werft#1262).
+- env 참조로 만든 모델 연결을 화면에서 stored로 바꿀 수 있다(`POST /v1/installation/settings/connections/{id}/convert`). 서버는 env 값을 읽어 옮기지 않고 사람이 입력한 값만 봉인한다(JeongJaeSoon/werft#1262).
+
+### 단일 서버
+
+- 저장소 값을 에이전트 설정 행과 워크스페이스 상한으로 옮기는 이행 스크립트에 쓰기(`apply`), before-image, 되돌리기(`revert`)가 더해졌다. 자동으로 실행되지 않고, 실행은 운영자가 정한다(JeongJaeSoon/werft#1244).
+
+### 게시와 문서
+
+- `v` 태그의 `release` 환경 승인이 `publish` 앞 한 번으로 줄었다(JeongJaeSoon/werft#1275).
+- 셀프 호스팅 문서가 첫 `v` 태그 없음·미확인 문구를 `v0.1.0`과 실측 결과에 맞췄다(JeongJaeSoon/werft#1276). PR 단계 문서가 ko·ja·en으로 더해졌다(JeongJaeSoon/werft#1257).
+
+## v0.1.0
+
+첫 릴리스 `v0.1.0`이 `9e2098e5`에 게시됐다(GitHub Release, 이미지 태그 `v0.1.0`, chart `0.1.0`). `main`에 머지될 때마다 나오는 `main-<12>` 이미지 태그와 `0.1.0-main-<12>` chart는 릴리스가 아니다. SDK `@werft-ai/sdk`는 npm에 올라 있다(현재 `latest`는 `0.1.2`).
 
 이름이 `agent-platform`에서 `werft`로 바뀌었고 옛 이름과의 호환은 없다. 이전 스냅샷으로 만든 설치는 제자리로 올릴 수 없으므로 새로 설치한다.
 
@@ -64,8 +106,8 @@ Werft의 사용자와 운영자에게 보이는 변경을 적는다. 게시 패�
 
 ### 문서
 
-- 셀프 호스팅 문서를 단일 서버 설치와 Kubernetes 설치로 나눴다(JeongJaeSoon/werft#1193). Kubernetes 설치는 게시 chart로 kind에서 확인했으나 DB Secret 단계는 문서 블록 그대로가 아니었고, 고친 kind Secret 블록은 실행하지 않았다. **단일 서버 설치는 게시 이미지로 처음부터 끝까지 실행해 확인하지 않았다.**
-- 업그레이드 문서를 한국어, 영어, 일본어로 문서 사이트에 더했다. **Kubernetes와 단일 서버 업그레이드 절차는 실행해 확인하지 않았다.**
+- 셀프 호스팅 문서를 단일 서버 설치와 Kubernetes 설치로 나눴다(JeongJaeSoon/werft#1193). Kubernetes 설치는 게시 chart로 kind에서 확인했으나 DB Secret 단계는 문서 블록 그대로가 아니었고, 고친 kind Secret 블록은 실행하지 않았다. 이후 `v0.1.0`과 같은 commit(`9e2098e5`)에서 `main-<12>` 게시물로 확인했다(Kubernetes: chart 설치부터 rollout, readyz·docs 200, bootstrap 201과 재요청 409, 키 있음 200·없음 401. 단일 서버: 3~7단계에서 readyz·docs 200, bootstrap 201, 키 있음 200·없음 401). 실제 AWS S3·IAM과 실제 DNS·공인 인증서에서의 실행은 아직 실측하지 않았다.
+- 업그레이드 문서를 한국어, 영어, 일본어로 문서 사이트에 더했다. 업그레이드 문서가 적은 범위 밖의 절차와 **릴리스 버전(`v0.1.0`)으로 올리는 업그레이드는 실행해 확인하지 않았다.**
 
 ### 라이선스
 

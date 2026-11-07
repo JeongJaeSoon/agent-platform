@@ -53,12 +53,16 @@ let answerError: Error | null;
 let outcome: Awaited<ReturnType<SlackInteractionDeps["pending"]["outcome"]>>;
 let listed: unknown[];
 let pushState: "requested" | "approved" | "rejected" | null;
+// undefined: a stored request that carries no flow, so flowOf is asked.
+let pushFlow: "legacy" | "actions" | undefined;
 let decideError: SessionServiceError | null;
 let getError: Error | null;
 let deferred: Promise<void>[];
 let results: string[];
 let userDelayMs: number;
 let hold: "now" | "held" | "pull_request" | Error;
+// The flow the stored push request was made under; an Error: it cannot be read.
+let flow: "legacy" | "actions" | Error | null;
 let viewUpdateError: Error | null;
 // null: derived from the request id; undefined: no card row found.
 let posted: SlackPromptCard["display"] | null | undefined;
@@ -71,12 +75,14 @@ beforeEach(() => {
   outcome = { state: "open", kind: "permission" };
   listed = [];
   pushState = "requested";
+  pushFlow = "legacy";
   decideError = null;
   getError = null;
   deferred = [];
   results = [];
   userDelayMs = 0;
   hold = "now";
+  flow = "legacy";
   posted = null;
 });
 
@@ -275,6 +281,7 @@ function deps(): SlackInteractionDeps {
           git_commit: "a".repeat(40),
           repository_id: "repo-1",
           target_branch: "agent/x",
+          flow: pushFlow,
         } as never;
       },
       async decide(...args) {
@@ -289,6 +296,10 @@ function deps(): SlackInteractionDeps {
         calls.push({ method: "hold", args: [input] });
         if (hold instanceof Error) throw hold;
         return hold;
+      },
+      async flowOf() {
+        if (flow instanceof Error) throw flow;
+        return flow;
       },
     },
     slack: {
@@ -997,6 +1008,23 @@ describe("Slack interactions", () => {
     expect(settledText()).toContain(`<@${LINKED}>`);
   });
 
+  test("a push of the actions flow is decided and its card settled, with no follow-up turn", async () => {
+    pushFlow = "actions";
+    for (const [action, result] of [
+      [SLACK_INTERACTION_ACTIONS.pushApprove, "approved"],
+      [SLACK_INTERACTION_ACTIONS.pushReject, "rejected"],
+    ] as const) {
+      calls = [];
+      expect(
+        await send(press(action, { s: SESSION, r: "push-1" })),
+      ).toMatchObject({ result });
+      expect(called("decide")).toHaveLength(1);
+      expect(called("append")).toEqual([]);
+      expect(called("hold")).toEqual([]);
+      expect(called("update")).toHaveLength(1);
+    }
+  });
+
   test("an approval while a turn runs, or with the branch's pull request recorded, queues no turn now", async () => {
     for (const answer of ["held", "pull_request"] as const) {
       calls = [];
@@ -1016,6 +1044,66 @@ describe("Slack interactions", () => {
       expect(called("append")).toEqual([]);
       expect(settledText()).toContain(`<@${LINKED}>`);
     }
+  });
+
+  test("a request that carries its flow never asks flowOf", async () => {
+    flow = new Error("flowOf must not be called");
+    await send(
+      press(SLACK_INTERACTION_ACTIONS.pushApprove, {
+        s: SESSION,
+        r: "push-1",
+      }),
+    );
+    expect(called("decide")).toHaveLength(1);
+    expect(called("append")).toHaveLength(1);
+  });
+
+  test("an actions request queues and holds no turn, on approval or rejection, and still settles the card", async () => {
+    pushFlow = undefined;
+    flow = "actions";
+    for (const action of [
+      SLACK_INTERACTION_ACTIONS.pushApprove,
+      SLACK_INTERACTION_ACTIONS.pushReject,
+    ]) {
+      calls = [];
+      const result = await send(press(action, { s: SESSION, r: "push-1" }));
+      expect(result).toMatchObject({
+        result:
+          action === SLACK_INTERACTION_ACTIONS.pushApprove
+            ? "approved"
+            : "rejected",
+      });
+      expect(called("decide")).toHaveLength(1);
+      expect(called("hold")).toEqual([]);
+      expect(called("append")).toEqual([]);
+      expect(settledText()).toContain(`<@${LINKED}>`);
+    }
+  });
+
+  test("a request with no stored flow row is treated as legacy", async () => {
+    pushFlow = undefined;
+    flow = null;
+    await send(
+      press(SLACK_INTERACTION_ACTIONS.pushApprove, {
+        s: SESSION,
+        r: "push-1",
+      }),
+    );
+    expect(called("append")).toHaveLength(1);
+  });
+
+  test("a flow read that errors fails the press: no decision, no follow-up turn", async () => {
+    pushFlow = undefined;
+    flow = new Error("db down");
+    await send(
+      press(SLACK_INTERACTION_ACTIONS.pushApprove, {
+        s: SESSION,
+        r: "push-1",
+      }),
+    );
+    expect(called("decide")).toEqual([]);
+    expect(called("append")).toEqual([]);
+    expect(called("hold")).toEqual([]);
   });
 
   test("a hold that fails queues the turn now, and a rejection is never held", async () => {

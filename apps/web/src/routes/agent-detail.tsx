@@ -60,6 +60,7 @@ import {
   CredentialUnbound,
   unboundRefs,
 } from "./agent-detail/credentials.tsx";
+import { EffectiveBehavior } from "./agent-detail/effective-behavior.tsx";
 import {
   NewSessionButton,
   NewSessionReason,
@@ -78,9 +79,10 @@ import {
   PlacedOutcome,
   TakesFocus,
 } from "./agent-detail/placement.tsx";
+import { ProfileFollow } from "./agent-detail/profile-follow.tsx";
 import { Releases } from "./agent-detail/releases.tsx";
 import { VersionHistory } from "./agent-detail/version-history.tsx";
-import { latestVersion } from "./agent-detail/versions.tsx";
+import { shownVersion } from "./agent-detail/versions.tsx";
 import { agentRefusal } from "./agents.tsx";
 
 // Console v4: 24px under the tabs, sections 32px apart.
@@ -441,10 +443,12 @@ function AgentView({
       </div>
       <TabsContent {...tabPanel("overview")}>
         <AgentGlance detail={detail} />
+        <ProfileFollow detail={detail} manages={manages} />
         <AgentReadiness detail={detail} toRelease={toRelease} />
         <AgentRecentSessions agentId={detail.agent.id} />
       </TabsContent>
       <TabsContent {...tabPanel("card")}>
+        <EffectiveBehavior detail={detail} manages={manages} />
         {/* The panel stays mounted, so an open editor keeps its input across tabs. */}
         {editing && manages ? (
           <CardEditor
@@ -480,13 +484,15 @@ function AgentView({
             {placed?.at === "card" ? (
               <div className="flex flex-col gap-3">
                 <PlacedOutcome placed={placed} at="card" />
-                {placed.outcome.kind === "notice" ? toRelease : null}
+                {placed.outcome.kind === "notice" || detail.draft?.failure
+                  ? toRelease
+                  : null}
               </div>
             ) : null}
           </>
         )}
         <VersionHistory
-          key={`${latestVersion(detail)?.id}:${agent.active_release_id}`}
+          key={`${shownVersion(detail)?.id}:${agent.active_release_id}`}
           detail={detail}
         />
       </TabsContent>
@@ -623,7 +629,7 @@ function AgentView({
   );
 
   // A card's earlier role stands in until the agent has a description.
-  const description = agent.description ?? latestVersion(detail)?.card.role;
+  const description = agent.description ?? shownVersion(detail)?.card.role;
   return (
     <Page
       // Below 1024 the two buttons leave the name too little room to keep

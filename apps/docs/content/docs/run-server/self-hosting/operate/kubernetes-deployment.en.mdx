@@ -5,7 +5,7 @@ description: Install on Kubernetes with the Helm chart, check health, and upgrad
 
 This page installs Werft on Kubernetes with the Helm chart. The chart source is in `deploy/helm/werft`, and every `main` merge and every `v*` tag publishes it to `oci://ghcr.io/jeongjaesoon/werft`. The defaults run on any Kubernetes (kind included). The AWS-only values (ALB Ingress, IRSA, ECR, External Secrets) are only in the chart's `values-aws.example.yaml`. How each component behaves and its environment variables are in [Kubernetes execution backend](/run-server/self-hosting/operate/kubernetes-backend), and backup is in [backup-restore.md § Kubernetes install](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/backup-restore.md#kubernetes-설치).
 
-**Current status:** there is no official release (`v*` tag) yet. The chart published on every `main` merge carries that run's image digests and worker runtime, so you [install from the published chart](#install-from-the-published-chart) without a repository checkout. The repository's `values.yaml` has empty digests, so when you install from a checkout path you must supply the digests yourself. Rendered as is, it fails.
+**Current status:** the first official release, `v0.1.0`, is published, and chart `0.1.0` went out with it. The chart published on every `main` merge carries that run's image digests and worker runtime, so you [install from the published chart](#install-from-the-published-chart) without a repository checkout. The repository's `values.yaml` has empty digests, so when you install from a checkout path you must supply the digests yourself. Rendered as is, it fails.
 
 The Docker single-server install (`local-docker` execution base, compose) stays supported. The order for installing the published images is in the [single-server install](/run-server/self-hosting/single-server), and the full operating procedure is in the repository's [single-server deployment document](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/server-deployment.md). This page is the second install path beside it.
 
@@ -46,7 +46,7 @@ The chart does not create a Git server either. The repository in the settings do
 | `DATABASE_URL` | api, scheduler, reconciler, slack, migrate, checkpoint GC |
 | `EGRESS_AUTHORIZER_TOKEN` | api, egress-proxy (the same value) |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | api, checkpoint GC. Only when `secrets.objectStoreKeys: true`. When `false`, requests are signed with the default AWS credential chain (IRSA) |
-| the names in `secrets.catalogEnv` (default `ANTHROPIC_API_KEY`) | api only. The provider and repository credentials the settings document points to with `value_env`. slack does not receive them |
+| the names in `secrets.catalogEnv` (default `ANTHROPIC_API_KEY`) | api only. The alternative of handing the provider and repository credentials the settings document points to with `value_env` as environment variables. The default way to give the model key is the console after install, under **Settings > Workspace settings > Model connections > Add connection**; then empty the list with `secrets.catalogEnv: []` and keep this key out of the Secret. With the default list, a Secret without that key leaves the Pod unable to start. slack does not receive them |
 | `PLATFORM_SECRET_KEY` | api, slack. Required. A 64-character hex master key. It seals credentials saved from the console. If the Secret lacks it, the Pod does not start |
 
 ## Install order

@@ -5,6 +5,7 @@ import {
   DEFAULT_PULL_REQUEST_SETTINGS,
   GITHUB_CEILING_NONE,
   openPullRequestResponseSchema,
+  openPullRequestResultSchema,
   type PullRequest,
   type SessionScope,
 } from "@werft-ai/contracts";
@@ -19,7 +20,9 @@ import {
   type GitHubSessionContext,
   type PullRequestReceipt,
   type PullRequestSource,
+  type PullRequestStore,
   repositoryBinding,
+  type ScheduleOutcome,
   type SessionCatalog,
 } from "@werft-ai/platform";
 import { releasePolicy } from "@werft-ai/platform/testing/github";
@@ -58,9 +61,11 @@ function app(
     authMode?: "none";
     release?: GitHubSessionContext["release"];
     policy?: GitHubSessionContext["policy"];
+    schedule?: ScheduleOutcome;
   } = {},
 ) {
   const receipts: PullRequestReceipt[] = [];
+  const scheduleCalls: Array<Parameters<PullRequestStore["schedule"]>[0]> = [];
   const gateReceipts: GitHubGateReceipt[] = [];
   let recorded: PullRequest | null = null;
   const source: PullRequestSource = {
@@ -72,8 +77,11 @@ function app(
     state: options.state ?? "pushed",
     targetBranch: `agent/${SESSION}`,
     gitCommit: "a".repeat(40),
+    prState: null,
+    prError: null,
+    prErrorDetails: null,
   };
-  const fail = (call: "lookup" | "comment") => {
+  const fail = (call: "lookup" | "comment" | "compare") => {
     if (options.failing === call) {
       throw new ForgeCredentialError("GitHub failed (502)");
     }
@@ -96,6 +104,14 @@ function app(
     findPullRequestForBranch: async () => {
       fail("lookup");
       return null;
+    },
+    findPullRequestsForBranch: async () => {
+      fail("lookup");
+      return [];
+    },
+    isAncestor: async () => {
+      fail("compare");
+      return false;
     },
     createPullRequest: async (input) => ({
       number: 5,
@@ -200,6 +216,12 @@ function app(
     consoleOrigin: null,
     logger: { warn: () => {} },
     store: {
+      failHeadMoved: async () => {},
+      schedule: async (input) => {
+        scheduleCalls.push(input);
+        if (options.schedule === undefined) throw new Error("not used");
+        return options.schedule;
+      },
       findSource: async (ownerId, sessionId, pushRequestId) =>
         ownerId === "owner-a" && sessionId === SESSION && pushRequestId === PUSH
           ? source
@@ -207,7 +229,7 @@ function app(
       findPullRequest: async () => recorded,
       findBranchPullRequest: async () => null,
       recordReceipt: async (input) => {
-        receipts.push(input);
+        receipts.push(input as PullRequestReceipt);
         return "44444444-4444-4444-8444-444444444444";
       },
       recordStateChange: async () => {
@@ -256,7 +278,7 @@ function app(
     },
     registerRoutes: (router) => registerPullRequestRoutes(router, service),
   });
-  return { api, receipts, gateReceipts };
+  return { api, receipts, gateReceipts, scheduleCalls };
 }
 
 function post(
@@ -301,6 +323,82 @@ describe("pull request routes", () => {
     expect(
       openPullRequestResponseSchema.parse(await again.json()).created,
     ).toBe(false);
+  });
+
+  describe("?schedule=true", () => {
+    const SCHEDULED: ScheduleOutcome = {
+      kind: "scheduled",
+      pushRequestId: PUSH,
+      pushIntentId: null,
+      receiptId: "66666666-6666-4666-8666-666666666666",
+    };
+
+    test("without the query a push that is not finished is still 409 not_pushed", async () => {
+      const target = app({ state: "approved", schedule: SCHEDULED });
+      expect(await errorOf(post(target, "", { title: "T" }))).toMatchObject({
+        status: 409,
+        code: "PUSH_NOT_PUSHED",
+      });
+      expect(target.scheduleCalls).toEqual([]);
+    });
+
+    test("with the query it answers 202 scheduled and holds the content", async () => {
+      const target = app({ state: "approved", schedule: SCHEDULED });
+      const response = await post(target, "?schedule=true", { title: "T" });
+      expect(response.status).toBe(202);
+      expect(openPullRequestResultSchema.parse(await response.json())).toEqual({
+        status: "scheduled",
+        push_request_id: PUSH,
+        push_intent_id: null,
+        receipt_id: SCHEDULED.receiptId,
+      });
+      expect(target.scheduleCalls).toMatchObject([
+        {
+          sessionId: SESSION,
+          ref: { pushRequestId: PUSH },
+          content: { title: "T" },
+        },
+      ]);
+    });
+
+    test("a request past scheduling is answered through the open path (200/201)", async () => {
+      const target = app({
+        schedule: { kind: "open_now", pushRequestId: PUSH },
+      });
+      const response = await post(target, "?schedule=true", { title: "T" });
+      expect(response.status).toBe(201);
+      expect(
+        openPullRequestResponseSchema.parse(await response.json()),
+      ).toMatchObject({ created: true });
+    });
+
+    test("a superseded request is 409 PUSH_REQUEST_RESOLVED with the later id", async () => {
+      const LATER = "33333333-3333-4333-8333-333333333333";
+      const target = app({
+        schedule: {
+          kind: "refused",
+          refusal: "superseded",
+          details: { push_request_id: LATER },
+        },
+      });
+      expect(await errorOf(post(target, "?schedule=true", {}))).toMatchObject({
+        status: 409,
+        code: "PUSH_REQUEST_RESOLVED",
+        details: { refusal: "superseded", push_request_id: LATER },
+      });
+    });
+
+    test("only the string true is accepted", async () => {
+      const target = app({ schedule: SCHEDULED });
+      for (const query of [
+        "?schedule=false",
+        "?schedule=1",
+        "?schedule=true&x=1",
+      ]) {
+        expect((await post(target, query, {})).status).toBe(400);
+      }
+      expect(target.scheduleCalls).toEqual([]);
+    });
   });
 
   test("comments with 201, edits the marked one with 200", async () => {

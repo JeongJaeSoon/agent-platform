@@ -38,6 +38,16 @@ export type ForgePullRequest = {
   closedAt: string | null;
 };
 
+/**
+ * A list entry with what the drain compares: the body (it may hold the
+ * platform's marker, which anyone can write) and the repository the head
+ * branch lives in (`owner/name`, lower case; null when the fork was deleted).
+ */
+export type ForgePullRequestWithBody = ForgePullRequest & {
+  body: string;
+  headRepository: string | null;
+};
+
 /** One pull request read by number, with the figures its list entry lacks. */
 export type ForgePullRequestDetail = ForgePullRequest & {
   title: string;

@@ -1409,13 +1409,13 @@ export interface paths {
         put?: never;
         /**
          * Open a pull request from a pushed request
-         * @description Opens a pull request on the request's repository's forge (GitHub or GHES) from the request's branch (`agent/<session-id>` or `agent/<session-id>-<branch>`) into that catalog entry's `branch`. Only a `pushed` request opens one, and only while the catalog entry is still the one the request pinned. The platform calls GitHub with its own credential: an installation token of the catalog's GitHub App, scoped to this repository with `contents: read` and `pull_requests: write`.
+         * @description Opens a pull request on the request's repository's forge (GitHub or GHES) from the request's branch (`agent/<session-id>` or `agent/<session-id>-<branch>`) into that catalog entry's `branch`. Only a `pushed` request opens one (without `?schedule=true`; a request that is not pushed yet is refused with `PUSH_NOT_PUSHED`, as before; with `?schedule=true` the call is held until the push finishes for a push request made with the agent action flows on, and refused with `PUSH_NOT_PUSHED` for one made with them off (the legacy flow), and `PUSH_REQUEST_RESOLVED` answers a request a later one superseded), and only while the catalog entry is still the one the request pinned. The platform calls GitHub with its own credential: an installation token of the catalog's GitHub App, scoped to this repository with `contents: read` and `pull_requests: write`.
          *
          *     The content is the structured fields `summary`, `changes`, `rationale`, `testing`, `notes` and `related`, or the legacy `body` text, never both. The platform lays the fields out on the repository's pull request template when its default branch has one (`.github/`, the repository root or `docs/`, a `pull_request_template.md` or the one file of a `PULL_REQUEST_TEMPLATE/` directory; read at the default branch's commit as it is when the request is handled, never from the pull request's own branch), under the template's headings or at its `<!-- werft:slot summary -->` lines, keeping the template's own text, comments and checkboxes; otherwise on its default template, a heading per field that has content, in Korean. A template that is over 16 KiB, not a plain UTF-8 file, ambiguous (several in a directory), unreadable, or written with HTML, tables, reference definitions or comments that share a row with text is passed over for the default template, and the pull request still opens; `body_source.kind` is `repository` with the template's `path`, or `platform` with `skipped` saying why, and the receipt's `template` records the commit, path and blob read. The template's own mentions, closing keywords and references are broken like the fields', a line that looks like a secret is replaced like theirs, and it cannot pass for the platform's tail. On either layout, `related` items become `Closes #N` (an issue of the pull request's own repository, when `closes` is true) or `Refs owner/repo#N`, written by the platform from the catalog, and an item whose `repository_id` the session's catalog does not have is left out (`body_source.related_dropped` counts them). A legacy `body` is used as written. `body_source` says which one the platform wrote, and is null when the pull request was already open and its body was left alone.
          *
          *     `title` (default `Agent session <session-id>`) and the text are cleaned before GitHub sees them: `@` mentions, cross-repository references (`owner/repo#N`), closing keywords (`Closes #N` and the like) and HTML comments are broken with a zero-width space, a line that looks like a secret is replaced by `[REDACTED]`, an engine's own signature line (Claude Code's `Generated with` link) is removed, and the body is cut to GitHub's limit, the last fields first. The body ends with a line naming the session and the commit. The platform never approves, merges or asks for reviews.
          *
-         *     Safe to retry: a request opens at most one pull request. When one is already recorded, or GitHub already has an open one for the branch, it is answered with `created: false` (200). Every attempt, refused ones included, leaves an `open_pull_request` receipt; `receipt_id` names this one, and a refusal's `error.details.receipt_id` names it.
+         *     Safe to retry: a request opens at most one pull request. When one is already recorded, or GitHub already has an open one for the branch on the pushed commit, it is answered with `created: false` (200). An open one on another commit is not adopted: `PUSH_REQUEST_RESOLVED` with `refusal: head_moved` (`expected_sha`, `actual_sha`), or `BACKEND_UNAVAILABLE` when GitHub only lags behind the push. A pull request this call created on a moved head ends the stage for good: later calls answer the same `head_moved` without asking GitHub. Every attempt, refused ones included, leaves an `open_pull_request` receipt; `receipt_id` names this one, and a refusal's `error.details.receipt_id` names it.
          *
          *     A verified credential that holds `sessions:approve` opens one, as for a push decision. One that may only submit to the session (an agent's key without `sessions:approve`, or the key that started the session) opens one too, since the request was already pushed. The token is issued through the agent's GitHub settings: with GitHub off for the agent, or the repository outside its release, the call is refused with `GITHUB_REFUSED`. Worker credentials are not accepted on `/v1` (401).
          *
@@ -2256,7 +2256,7 @@ export interface paths {
         put?: never;
         /**
          * Create an agent and its first card version
-         * @description Nothing is released or activated. The creator administers the agent. `managing_team_id` is required (400 BAD_REQUEST with a `details.issues` entry at `managing_team_id` when absent): an owner or admin names any live team (404 when there is none by that id), anyone else only a team they are in (403 FORBIDDEN, `details.reason_code` `team_not_allowed`). A slug already used in the workspace answers 409 ALREADY_EXISTS. API keys are refused.
+         * @description Without `runtime_profile_id` nothing is released or activated. With it the save makes the first release on that profile and activates it, as `PATCH /v1/agents/{id}` does; `model_source` defaults to `profile`, which runs the profile's default model. The agent and its card are kept when the release is refused: `release.status` is then `failed` with the reason, and the agent's `draft` holds the request until a new save. The creator administers the agent. `managing_team_id` is required (400 BAD_REQUEST with a `details.issues` entry at `managing_team_id` when absent): an owner or admin names any live team (404 when there is none by that id), anyone else only a team they are in (403 FORBIDDEN, `details.reason_code` `team_not_allowed`). A slug already used in the workspace answers 409 ALREADY_EXISTS. API keys are refused.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -2309,8 +2309,8 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Rename or describe an agent, or add a card version
-         * @description `name` and `description` change the agent itself: no version is made, and `description: null` clears it. Neither reaches a run. A `card` becomes a new version; existing versions never change. A card equal to one the agent already has adds nothing.
+         * Rename or describe an agent, or save its card and profile
+         * @description `name` and `description` change the agent itself: no version is made, and `description: null` clears it. Neither reaches a run. A `card` becomes a new version; existing versions never change, and a card equal to one the agent already has reuses it. A card, `runtime_profile_id` or `model_source` changes what the agent does: unless it equals what the agent runs (`release.status: unchanged`, nothing released), the save makes a release of it and activates it (`applied`). `runtime_profile_id` alone saves the card the agent runs now on that profile; without a card or profile the agent's current ones are used. `model_source: profile` runs the profile's default model and writes it into the card; `fixed` keeps the card's model; absent, the current source is kept while the card's model is the one running. A refused release (`failed`, with its `reason`) keeps the card version and leaves the request as the agent's `draft`; a save a newer one replaced answers `superseded` and changes nothing.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -3585,6 +3585,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/installation-profiles/{profile_id}/rollout/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retry one agent of a profile rollout
+         * @description The operator (`profile.installation.manage`, the workspace owner), signed in. A new version of a profile moves the agents that follow it onto the version; one the move failed for stays on its release, with the reason in `installation.rollout.failed_agents` of `GET /v1/profiles` and in `profile_rollout` of the agent. A failed agent is never tried again by itself; this call is the one way to do it. The agent is judged afresh: its current release, whether it still follows, and the profile's newest version. `retried: false` when none of its steps for this version was failed (retried already, say).
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        post: operations["retryProfileRollout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/installation/settings/export": {
         parameters: {
             query?: never;
@@ -3673,6 +3695,28 @@ export interface paths {
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
         post: operations["setSettingsConnectionCredential"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/installation/settings/connections/{id}/convert": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move a connection's key from the deployment to a stored value
+         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. For a connection whose key comes from the operator's deployment (an env or Secrets Manager reference): the person types the key, it is sealed under the same id, and the row is stored from then on. The server does not read the referenced value. Ceilings made before keep running on the stored key and their pins do not change. A settings document that still names the old entry leaves the row as it is. A connection that already keeps its own value is 409 `not_external`, a disabled one 409 `disabled`, one that another connection is or was exactly 409 `alias_taken`, the secret store off 503. Writes a `set_settings_credential` receipt naming the last four characters and which reference it replaced.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        post: operations["convertSettingsConnection"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4367,6 +4411,10 @@ export interface components {
             }[];
             body?: string;
         };
+        OpenPullRequestQuery: {
+            /** @constant */
+            schedule?: "true";
+        };
         CommentPullRequestRequest: {
             body: string;
             marker?: string;
@@ -4725,6 +4773,9 @@ export interface components {
                     source: "user" | "correction";
                 }[];
             };
+            runtime_profile_id?: string;
+            /** @enum {string} */
+            model_source?: "fixed" | "profile";
         };
         UpdateAgentRequest: {
             name?: string;
@@ -4767,6 +4818,11 @@ export interface components {
                     source: "user" | "correction";
                 }[];
             };
+            runtime_profile_id?: string;
+            /** @enum {string} */
+            model_source?: "fixed" | "profile";
+            /** @constant */
+            follow_latest_profile?: true;
         };
         CreateAgentReleaseRequest: {
             /** Format: uuid */
@@ -4849,6 +4905,10 @@ export interface components {
             github_app_repositories?: "listed" | "installed";
             previous_id?: string;
         };
+        RetryProfileRolloutRequest: {
+            /** Format: uuid */
+            agent_id: string;
+        };
         SetSessionShareRequest: {
             /** @enum {string} */
             scope: "private" | "people" | "team" | "workspace";
@@ -4914,7 +4974,7 @@ export interface components {
         ApiErrorResponse: {
             error: {
                 /** @enum {string} */
-                code: "BAD_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "BOOTSTRAP_DONE" | "NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "REQUEST_TIMEOUT" | "UNSUPPORTED_CAPABILITY" | "RATE_LIMITED" | "STORAGE_LIMIT_EXCEEDED" | "BUDGET_EXCEEDED" | "INTERNAL_ERROR" | "REVISION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "REQUEST_EXPIRED" | "REQUEST_STALE" | "SESSION_PAUSED" | "SESSION_RESUMING" | "SESSION_CLOSED" | "SESSION_CLOSING" | "SESSION_STOPPED" | "RECOVERY_REQUIRED" | "CHECKPOINT_UNAVAILABLE" | "PAUSE_COMMITTING" | "PAUSE_CANCELLED" | "CONTROL_SUPERSEDED" | "TURN_NOT_STARTED" | "BACKEND_UNAVAILABLE" | "LAUNCH_FAILED" | "CATALOG_MISMATCH" | "TAKEOVER_REQUIRED" | "SLACK_NOT_INSTALLED" | "LINK_TEAM_MISMATCH" | "LINK_TAKEN" | "LINK_EXISTS" | "AGENT_IDENTITY_TAKEN" | "CONFIG_TOKEN_INVALID" | "SLACK_APP_CREATING" | "SLACK_APP_GONE" | "AGENT_NOT_ACTIVE" | "SLACK_INSTALL_STATE_INVALID" | "SLACK_INSTALL_DENIED" | "SLACK_INSTALL_REJECTED" | "SLACK_INSTALL_CONFLICT" | "SLACK_LINK_NOT_CONFIGURED" | "GITHUB_LINK_NOT_CONFIGURED" | "INVITE_EXPIRED" | "INVITE_USED" | "LAST_OWNER" | "OWNER_PROTECTED" | "SELF_PROTECTED" | "MEMBER_DISABLED" | "ACCOUNT_DISABLED" | "SCOPE_NOT_GRANTABLE" | "RELEASE_PROFILE_MISMATCH" | "CREDENTIAL_UNBOUND" | "CREDENTIAL_REF_IN_USE" | "LOGIN_LINK_REQUIRED" | "PROFILE_DIGEST_MISMATCH" | "PROFILE_BLOCKED" | "ALREADY_EXISTS" | "NOT_READY" | "CURSOR_EXPIRED" | "LEASE_EXPIRED" | "STALE_EPOCH" | "PUSH_SOURCE_MISSING" | "PUSH_REQUEST_OPEN" | "PUSH_REQUEST_RESOLVED" | "PUSH_REQUEST_DECIDED" | "CHECKPOINT_MOVED" | "PUSH_NOT_PUSHED" | "PULL_REQUEST_MISSING" | "PULL_REQUEST_MERGED" | "GITHUB_REFUSED" | "GITHUB_APP_CONFLICT" | "GITHUB_UNAVAILABLE" | "INSTALLATION_SUSPENDED" | "PENDING_REQUESTS_OPEN" | "PERMISSION_WAIT_ABOVE_PROFILE" | "TEAM_MANAGES_AGENTS";
+                code: "BAD_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "BOOTSTRAP_DONE" | "NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "REQUEST_TIMEOUT" | "UNSUPPORTED_CAPABILITY" | "RATE_LIMITED" | "STORAGE_LIMIT_EXCEEDED" | "BUDGET_EXCEEDED" | "WORKSPACE_QUOTA_EXCEEDED" | "INTERNAL_ERROR" | "REVISION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "REQUEST_EXPIRED" | "REQUEST_STALE" | "SESSION_PAUSED" | "SESSION_RESUMING" | "SESSION_CLOSED" | "SESSION_CLOSING" | "SESSION_STOPPED" | "RECOVERY_REQUIRED" | "CHECKPOINT_UNAVAILABLE" | "PAUSE_COMMITTING" | "PAUSE_CANCELLED" | "CONTROL_SUPERSEDED" | "TURN_NOT_STARTED" | "BACKEND_UNAVAILABLE" | "LAUNCH_FAILED" | "CATALOG_MISMATCH" | "TAKEOVER_REQUIRED" | "SLACK_NOT_INSTALLED" | "LINK_TEAM_MISMATCH" | "LINK_TAKEN" | "LINK_EXISTS" | "AGENT_IDENTITY_TAKEN" | "CONFIG_TOKEN_INVALID" | "SLACK_APP_CREATING" | "SLACK_APP_GONE" | "AGENT_NOT_ACTIVE" | "SLACK_INSTALL_STATE_INVALID" | "SLACK_INSTALL_DENIED" | "SLACK_INSTALL_REJECTED" | "SLACK_INSTALL_CONFLICT" | "SLACK_LINK_NOT_CONFIGURED" | "GITHUB_LINK_NOT_CONFIGURED" | "INVITE_EXPIRED" | "INVITE_USED" | "LAST_OWNER" | "OWNER_PROTECTED" | "SELF_PROTECTED" | "MEMBER_DISABLED" | "ACCOUNT_DISABLED" | "SCOPE_NOT_GRANTABLE" | "RELEASE_PROFILE_MISMATCH" | "CREDENTIAL_UNBOUND" | "CREDENTIAL_REF_IN_USE" | "LOGIN_LINK_REQUIRED" | "PROFILE_DIGEST_MISMATCH" | "PROFILE_BLOCKED" | "ALREADY_EXISTS" | "NOT_READY" | "CURSOR_EXPIRED" | "LEASE_EXPIRED" | "STALE_EPOCH" | "PUSH_SOURCE_MISSING" | "PUSH_REQUEST_OPEN" | "PUSH_REQUEST_RESOLVED" | "PUSH_REQUEST_DECIDED" | "CHECKPOINT_MOVED" | "PUSH_NOT_PUSHED" | "PULL_REQUEST_MISSING" | "PULL_REQUEST_MERGED" | "GITHUB_REFUSED" | "GITHUB_APP_CONFLICT" | "GITHUB_UNAVAILABLE" | "INSTALLATION_SUSPENDED" | "PENDING_REQUESTS_OPEN" | "PERMISSION_WAIT_ABOVE_PROFILE" | "TEAM_MANAGES_AGENTS";
                 message: string;
                 retryable: boolean;
                 request_id: string;
@@ -5267,6 +5327,14 @@ export interface components {
             created_at: string;
             /** Format: date-time */
             updated_at: string;
+            /** @description The current attempt's workspace limit classification, recorded by the worker as a system event. Hard is storage enforcement, soft is best effort, unknown is unverified. Absent when no classification was recorded or on older servers; absence means unknown on both axes. This is not usage or an exceedance count. */
+            workspace_limit_mode?: {
+                /** @enum {string} */
+                bytes: "hard" | "soft" | "unknown";
+                /** @enum {string} */
+                inodes: "hard" | "soft" | "unknown";
+                reason: string;
+            };
             execution: {
                 /** @enum {string} */
                 backend: "local_docker" | "kubernetes" | "lambda_microvm";
@@ -6061,9 +6129,42 @@ export interface components {
             resolution_receipt_id: string | null;
             finished_at: string | null;
             push_receipt_id: string | null;
+            /**
+             * @default direct
+             * @enum {string}
+             */
+            origin: "direct" | "intent";
+            /**
+             * @default legacy
+             * @enum {string}
+             */
+            flow: "legacy" | "actions";
+            /** @default null */
+            pr_state: ("due" | "opening" | "opened" | "closed_unrecorded" | "uncertain" | "failed" | "cancelled") | null;
+            /** @default null */
+            pr_error: string | null;
+            /** @default null */
+            pr_number: number | null;
+            /** @default null */
+            pr_url: string | null;
         };
         ListPushRequestsResponse: {
             items: components["schemas"]["PushRequest"][];
+            /** @default [] */
+            intents: {
+                /** Format: uuid */
+                id: string;
+                /** Format: uuid */
+                session_id: string;
+                repository_id: string;
+                target_branch: string;
+                /** @enum {string} */
+                status: "deferred" | "pinned" | "requested" | "failed" | "cancelled";
+                refusal_code: ("turn_ended_without_checkpoint" | "turn_finalized_without_pin" | "superseded_by_turn" | "session_closed" | "rejected_before" | "request_open" | "github_disabled" | "over_workspace_ceiling" | "repository_not_allowed" | "checkpoint_unavailable" | "source_missing" | "attribution_mismatch" | "uncommitted_changes" | "pinned_source_invalid") | null;
+                push_request_id: string | null;
+                /** Format: date-time */
+                created_at: string;
+            }[];
         };
         OpenPullRequestResponse: {
             pull_request: {
@@ -6090,6 +6191,14 @@ export interface components {
                 skipped?: string;
                 related_dropped?: number;
             } | null;
+            /** Format: uuid */
+            receipt_id: string;
+        };
+        ScheduledPullRequestResponse: {
+            /** @constant */
+            status: "scheduled";
+            push_request_id: string | null;
+            push_intent_id: string | null;
             /** Format: uuid */
             receipt_id: string;
         };
@@ -6712,7 +6821,7 @@ export interface components {
             result: unknown | null;
             error: {
                 /** @enum {string} */
-                code: "BAD_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "BOOTSTRAP_DONE" | "NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "REQUEST_TIMEOUT" | "UNSUPPORTED_CAPABILITY" | "RATE_LIMITED" | "STORAGE_LIMIT_EXCEEDED" | "BUDGET_EXCEEDED" | "INTERNAL_ERROR" | "REVISION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "REQUEST_EXPIRED" | "REQUEST_STALE" | "SESSION_PAUSED" | "SESSION_RESUMING" | "SESSION_CLOSED" | "SESSION_CLOSING" | "SESSION_STOPPED" | "RECOVERY_REQUIRED" | "CHECKPOINT_UNAVAILABLE" | "PAUSE_COMMITTING" | "PAUSE_CANCELLED" | "CONTROL_SUPERSEDED" | "TURN_NOT_STARTED" | "BACKEND_UNAVAILABLE" | "LAUNCH_FAILED" | "CATALOG_MISMATCH" | "TAKEOVER_REQUIRED" | "SLACK_NOT_INSTALLED" | "LINK_TEAM_MISMATCH" | "LINK_TAKEN" | "LINK_EXISTS" | "AGENT_IDENTITY_TAKEN" | "CONFIG_TOKEN_INVALID" | "SLACK_APP_CREATING" | "SLACK_APP_GONE" | "AGENT_NOT_ACTIVE" | "SLACK_INSTALL_STATE_INVALID" | "SLACK_INSTALL_DENIED" | "SLACK_INSTALL_REJECTED" | "SLACK_INSTALL_CONFLICT" | "SLACK_LINK_NOT_CONFIGURED" | "GITHUB_LINK_NOT_CONFIGURED" | "INVITE_EXPIRED" | "INVITE_USED" | "LAST_OWNER" | "OWNER_PROTECTED" | "SELF_PROTECTED" | "MEMBER_DISABLED" | "ACCOUNT_DISABLED" | "SCOPE_NOT_GRANTABLE" | "RELEASE_PROFILE_MISMATCH" | "CREDENTIAL_UNBOUND" | "CREDENTIAL_REF_IN_USE" | "LOGIN_LINK_REQUIRED" | "PROFILE_DIGEST_MISMATCH" | "PROFILE_BLOCKED" | "ALREADY_EXISTS" | "NOT_READY" | "CURSOR_EXPIRED" | "LEASE_EXPIRED" | "STALE_EPOCH" | "PUSH_SOURCE_MISSING" | "PUSH_REQUEST_OPEN" | "PUSH_REQUEST_RESOLVED" | "PUSH_REQUEST_DECIDED" | "CHECKPOINT_MOVED" | "PUSH_NOT_PUSHED" | "PULL_REQUEST_MISSING" | "PULL_REQUEST_MERGED" | "GITHUB_REFUSED" | "GITHUB_APP_CONFLICT" | "GITHUB_UNAVAILABLE" | "INSTALLATION_SUSPENDED" | "PENDING_REQUESTS_OPEN" | "PERMISSION_WAIT_ABOVE_PROFILE" | "TEAM_MANAGES_AGENTS";
+                code: "BAD_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "BOOTSTRAP_DONE" | "NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "REQUEST_TIMEOUT" | "UNSUPPORTED_CAPABILITY" | "RATE_LIMITED" | "STORAGE_LIMIT_EXCEEDED" | "BUDGET_EXCEEDED" | "WORKSPACE_QUOTA_EXCEEDED" | "INTERNAL_ERROR" | "REVISION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "REQUEST_EXPIRED" | "REQUEST_STALE" | "SESSION_PAUSED" | "SESSION_RESUMING" | "SESSION_CLOSED" | "SESSION_CLOSING" | "SESSION_STOPPED" | "RECOVERY_REQUIRED" | "CHECKPOINT_UNAVAILABLE" | "PAUSE_COMMITTING" | "PAUSE_CANCELLED" | "CONTROL_SUPERSEDED" | "TURN_NOT_STARTED" | "BACKEND_UNAVAILABLE" | "LAUNCH_FAILED" | "CATALOG_MISMATCH" | "TAKEOVER_REQUIRED" | "SLACK_NOT_INSTALLED" | "LINK_TEAM_MISMATCH" | "LINK_TAKEN" | "LINK_EXISTS" | "AGENT_IDENTITY_TAKEN" | "CONFIG_TOKEN_INVALID" | "SLACK_APP_CREATING" | "SLACK_APP_GONE" | "AGENT_NOT_ACTIVE" | "SLACK_INSTALL_STATE_INVALID" | "SLACK_INSTALL_DENIED" | "SLACK_INSTALL_REJECTED" | "SLACK_INSTALL_CONFLICT" | "SLACK_LINK_NOT_CONFIGURED" | "GITHUB_LINK_NOT_CONFIGURED" | "INVITE_EXPIRED" | "INVITE_USED" | "LAST_OWNER" | "OWNER_PROTECTED" | "SELF_PROTECTED" | "MEMBER_DISABLED" | "ACCOUNT_DISABLED" | "SCOPE_NOT_GRANTABLE" | "RELEASE_PROFILE_MISMATCH" | "CREDENTIAL_UNBOUND" | "CREDENTIAL_REF_IN_USE" | "LOGIN_LINK_REQUIRED" | "PROFILE_DIGEST_MISMATCH" | "PROFILE_BLOCKED" | "ALREADY_EXISTS" | "NOT_READY" | "CURSOR_EXPIRED" | "LEASE_EXPIRED" | "STALE_EPOCH" | "PUSH_SOURCE_MISSING" | "PUSH_REQUEST_OPEN" | "PUSH_REQUEST_RESOLVED" | "PUSH_REQUEST_DECIDED" | "CHECKPOINT_MOVED" | "PUSH_NOT_PUSHED" | "PULL_REQUEST_MISSING" | "PULL_REQUEST_MERGED" | "GITHUB_REFUSED" | "GITHUB_APP_CONFLICT" | "GITHUB_UNAVAILABLE" | "INSTALLATION_SUSPENDED" | "PENDING_REQUESTS_OPEN" | "PERMISSION_WAIT_ABOVE_PROFILE" | "TEAM_MANAGES_AGENTS";
                 message: string;
             } | null;
             /** Format: date-time */
@@ -8051,6 +8160,19 @@ export interface components {
                     blocked_at?: string | null;
                     /** @enum {string} */
                     github_app_repositories?: "listed" | "installed";
+                    rollout?: {
+                        total: number;
+                        applied: number;
+                        pending: number;
+                        failed: number;
+                        failed_agents: {
+                            /** Format: uuid */
+                            agent_id: string;
+                            name: string;
+                            reason: string;
+                        }[];
+                        fixed_model_agents: number;
+                    };
                 };
             }[];
         };
@@ -8119,9 +8241,25 @@ export interface components {
                     blocked_at?: string | null;
                     /** @enum {string} */
                     github_app_repositories?: "listed" | "installed";
+                    rollout?: {
+                        total: number;
+                        applied: number;
+                        pending: number;
+                        failed: number;
+                        failed_agents: {
+                            /** Format: uuid */
+                            agent_id: string;
+                            name: string;
+                            reason: string;
+                        }[];
+                        fixed_model_agents: number;
+                    };
                 };
             };
             receipt_id: string | null;
+        };
+        RetryProfileRolloutResponse: {
+            retried: boolean;
         };
         ListAchievementCategoriesResponse: {
             items: {
@@ -8621,6 +8759,268 @@ export interface components {
                 activated_at: string | null;
                 deactivated_at: string | null;
             } | null;
+            behavior_revision: number;
+            /** @enum {string} */
+            model_source: "fixed" | "profile";
+            draft: {
+                /** Format: uuid */
+                version_id: string;
+                runtime_profile_id: string;
+                /** @enum {string} */
+                model_source: "fixed" | "profile";
+                failure: string | null;
+            } | null;
+            effective_behavior: {
+                applied: {
+                    runtime_profile_id: string;
+                    model: string;
+                    /** @enum {string} */
+                    model_source: "fixed" | "profile";
+                    title_model: string | null;
+                    agent_instructions: string | null;
+                } | null;
+                draft: {
+                    runtime_profile_id: string;
+                    model: string;
+                    /** @enum {string} */
+                    model_source: "fixed" | "profile";
+                    title_model: string | null;
+                    agent_instructions: string | null;
+                } | null;
+            };
+            /** @enum {string} */
+            profile_tracking?: "follow" | "pinned";
+            profile_rollout?: {
+                /** @enum {string} */
+                status: "pending" | "failed";
+                reason: string | null;
+                target_profile_id: string;
+            } | null;
+        };
+        SaveAgentResponse: {
+            agent: {
+                /** Format: uuid */
+                id: string;
+                /** Format: uuid */
+                workspace_id: string;
+                slug: string;
+                name: string;
+                description: string | null;
+                managing_team_id: string | null;
+                managing_team_name: string | null;
+                /** @enum {string} */
+                status: "active" | "paused" | "archived";
+                active_release_id: string | null;
+                activation_revision: number;
+                created_by: string | null;
+                /** Format: date-time */
+                created_at: string;
+                /** Format: date-time */
+                updated_at: string;
+            };
+            versions: {
+                /** Format: uuid */
+                id: string;
+                /** Format: uuid */
+                agent_id: string;
+                version_no: number;
+                card: {
+                    role?: string;
+                    instructions?: string;
+                    agent_instructions?: string;
+                    /**
+                     * @default ko
+                     * @enum {string}
+                     */
+                    language: "ko" | "en";
+                    model: string;
+                    capabilities: {
+                        tools: string[] | null;
+                        mcp: {
+                            server: string;
+                        }[] | null;
+                        /** @default [] */
+                        forbidden: string[];
+                        tool_policy?: {
+                            default?: {
+                                /** @enum {string} */
+                                builtin?: "allow" | "ask" | "deny";
+                                /** @enum {string} */
+                                mcp?: "allow" | "ask" | "deny";
+                            };
+                            per_tool?: {
+                                [key: string]: "allow" | "ask" | "deny";
+                            };
+                        };
+                        credential_refs?: string[];
+                    };
+                    /** @default [] */
+                    rules: {
+                        id: string;
+                        text: string;
+                        /** @enum {string} */
+                        source: "user" | "correction";
+                    }[];
+                };
+                content_sha256: string;
+                created_by: string | null;
+                /** Format: date-time */
+                created_at: string;
+            }[];
+            releases: {
+                id: string;
+                /** Format: uuid */
+                agent_id: string;
+                /** Format: uuid */
+                version_id: string;
+                card_sha256: string;
+                runtime_profile_id: string;
+                repository_id: string | null;
+                profile_digest: string;
+                runtime_config_snapshot: {
+                    [key: string]: unknown;
+                };
+                effective_tools: {
+                    tools: string[];
+                    mcp: string[];
+                };
+                policy_pins: {
+                    tools?: {
+                        default: {
+                            /** @enum {string} */
+                            builtin: "allow" | "ask" | "deny";
+                            /** @enum {string} */
+                            mcp: "allow" | "ask" | "deny";
+                        };
+                        per_tool: {
+                            [key: string]: "allow" | "ask" | "deny";
+                        };
+                    };
+                    github?: {
+                        repositories: string[];
+                        push_approval: boolean;
+                        features: {
+                            workflows: boolean;
+                            actions: boolean;
+                            checks: boolean;
+                            issues: boolean;
+                            review: boolean;
+                        };
+                        actions_allow: {
+                            workflow: string;
+                            ref?: string;
+                        }[];
+                    };
+                };
+                created_by: string | null;
+                /** Format: date-time */
+                created_at: string;
+                approved_by: string | null;
+                approved_at: string | null;
+                note: string | null;
+                label: string;
+                activated_at: string | null;
+                deactivated_at: string | null;
+            }[];
+            active_release: {
+                id: string;
+                /** Format: uuid */
+                agent_id: string;
+                /** Format: uuid */
+                version_id: string;
+                card_sha256: string;
+                runtime_profile_id: string;
+                repository_id: string | null;
+                profile_digest: string;
+                runtime_config_snapshot: {
+                    [key: string]: unknown;
+                };
+                effective_tools: {
+                    tools: string[];
+                    mcp: string[];
+                };
+                policy_pins: {
+                    tools?: {
+                        default: {
+                            /** @enum {string} */
+                            builtin: "allow" | "ask" | "deny";
+                            /** @enum {string} */
+                            mcp: "allow" | "ask" | "deny";
+                        };
+                        per_tool: {
+                            [key: string]: "allow" | "ask" | "deny";
+                        };
+                    };
+                    github?: {
+                        repositories: string[];
+                        push_approval: boolean;
+                        features: {
+                            workflows: boolean;
+                            actions: boolean;
+                            checks: boolean;
+                            issues: boolean;
+                            review: boolean;
+                        };
+                        actions_allow: {
+                            workflow: string;
+                            ref?: string;
+                        }[];
+                    };
+                };
+                created_by: string | null;
+                /** Format: date-time */
+                created_at: string;
+                approved_by: string | null;
+                approved_at: string | null;
+                note: string | null;
+                label: string;
+                activated_at: string | null;
+                deactivated_at: string | null;
+            } | null;
+            behavior_revision: number;
+            /** @enum {string} */
+            model_source: "fixed" | "profile";
+            draft: {
+                /** Format: uuid */
+                version_id: string;
+                runtime_profile_id: string;
+                /** @enum {string} */
+                model_source: "fixed" | "profile";
+                failure: string | null;
+            } | null;
+            effective_behavior: {
+                applied: {
+                    runtime_profile_id: string;
+                    model: string;
+                    /** @enum {string} */
+                    model_source: "fixed" | "profile";
+                    title_model: string | null;
+                    agent_instructions: string | null;
+                } | null;
+                draft: {
+                    runtime_profile_id: string;
+                    model: string;
+                    /** @enum {string} */
+                    model_source: "fixed" | "profile";
+                    title_model: string | null;
+                    agent_instructions: string | null;
+                } | null;
+            };
+            /** @enum {string} */
+            profile_tracking?: "follow" | "pinned";
+            profile_rollout?: {
+                /** @enum {string} */
+                status: "pending" | "failed";
+                reason: string | null;
+                target_profile_id: string;
+            } | null;
+            release: {
+                /** @enum {string} */
+                status: "applied" | "failed" | "unchanged" | "superseded";
+                reason: string | null;
+                release_id: string | null;
+                version_id: string | null;
+            };
         };
         CreateAgentReleaseResponse: {
             release: {
@@ -19239,7 +19639,9 @@ export interface operations {
     };
     openPullRequest: {
         parameters: {
-            query?: never;
+            query?: {
+                schedule?: "true";
+            };
             header?: {
                 /** @description Required with a cookie session: the literal `werft-web`. */
                 "X-Requested-With"?: "werft-web";
@@ -19291,7 +19693,17 @@ export interface operations {
                     "application/json": components["schemas"]["OpenPullRequestResponse"];
                 };
             };
-            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
+            /** @description Only with `?schedule=true` and a push that is not finished: `status: "scheduled"`. The platform keeps the content of the first call and opens the pull request once the push is done (a repeated call answers `scheduled` again and changes nothing). */
+            202: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduledPullRequestResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema; a query parameter or the page cursor is invalid. Fix the request before retrying. */
             400: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -19371,6 +19783,7 @@ export interface operations {
             };
             /**
              * @description - `PUSH_NOT_PUSHED`: The push request has not been pushed (`state` is not `pushed`); a pull request opens only from a pushed branch.
+             *     - `PUSH_REQUEST_RESOLVED`: The push request was already approved or rejected.
              *     - `CATALOG_MISMATCH`: The catalog no longer allows what the request depends on: the session's (profile, repository) pair, or the repository entry a push request pinned. Here: the catalog entry for the repository changed after the push request pinned it.
              *     - `GITHUB_REFUSED`: The platform refused the GitHub work before asking GitHub, or GitHub refused the token it asked for. `error.details.reason_code` says why and `error.details.receipt_id` names the receipt of the refusal. A refusal the workspace or the agent's release decided (`github_disabled`, `repository_not_allowed`, `feature_off`, `workflow_not_allowed`, `agent_ref_refused`, `run_ref_unprovable`) is 403; one an owner fixes outside the release (`over_workspace_ceiling`, `app_required`, `app_permission_missing`, `github_host_unsupported`, `no_reviewer_app`, `github_settings_unsupported`) is 409.
              */
@@ -19383,7 +19796,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"] & {
                         error?: {
                             /** @enum {string} */
-                            code?: "PUSH_NOT_PUSHED" | "CATALOG_MISMATCH" | "GITHUB_REFUSED";
+                            code?: "PUSH_NOT_PUSHED" | "PUSH_REQUEST_RESOLVED" | "CATALOG_MISMATCH" | "GITHUB_REFUSED";
                         };
                     };
                 };
@@ -24685,7 +25098,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AgentDetail"];
+                    "application/json": components["schemas"]["SaveAgentResponse"];
                 };
             };
             /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
@@ -25001,7 +25414,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AgentDetail"];
+                    "application/json": components["schemas"]["SaveAgentResponse"];
                 };
             };
             /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
@@ -25075,6 +25488,21 @@ export interface operations {
                         error?: {
                             /** @enum {string} */
                             code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision. */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REVISION_CONFLICT";
                         };
                     };
                 };
@@ -34717,6 +35145,123 @@ export interface operations {
             };
         };
     };
+    retryProfileRollout: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
+            };
+            path: {
+                profile_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "agent_id": "019a0000-0000-7000-8000-0000000000a1"
+                 *     }
+                 */
+                "application/json": components["schemas"]["RetryProfileRolloutRequest"];
+            };
+        };
+        responses: {
+            /** @description Whether a failed step was put back to wait. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "retried": true
+                     *     }
+                     */
+                    "application/json": components["schemas"]["RetryProfileRolloutResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
     exportInstallationSettings: {
         parameters: {
             query?: never;
@@ -35276,6 +35821,154 @@ export interface operations {
                     /**
                      * @example {
                      *       "id": "anthropic-console",
+                     *       "receipt_id": "019a0000-0000-7000-8000-0000000000f3"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["SettingsChangeResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision. */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REVISION_CONFLICT";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    convertSettingsConnection: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "value": "example-key"
+                 *     }
+                 */
+                "application/json": components["schemas"]["SetSettingsCredentialRequest"];
+            };
+        };
+        responses: {
+            /** @description The entry's id and the change's receipt. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "id": "anthropic-main",
                      *       "receipt_id": "019a0000-0000-7000-8000-0000000000f3"
                      *     }
                      */
