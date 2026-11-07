@@ -1,4 +1,7 @@
 import { posix } from "node:path";
+import type { WorkspaceLimitMode } from "@werft-ai/contracts";
+
+export type { WorkspaceLimitMode } from "@werft-ai/contracts";
 
 export type LimitMode = "hard" | "soft" | "unknown";
 export type MountInfo = {
@@ -20,11 +23,6 @@ export type WorkspaceLimitEvidence = {
   localQuota?: "enforced" | "off";
   // Reserved for worker.workspace.enforcedByStorage; no Kubernetes declaration is wired yet.
   enforcedByStorage?: boolean;
-};
-export type WorkspaceLimitMode = {
-  bytes: LimitMode;
-  inodes: LimitMode;
-  reason: string;
 };
 
 export function workspaceMount(

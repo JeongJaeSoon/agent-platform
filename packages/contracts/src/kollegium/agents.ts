@@ -865,6 +865,20 @@ export const effectiveBehaviorSchema = z
   })
   .strict();
 
+export const profileTrackingSchema = z.enum(["follow", "pinned"]);
+
+/**
+ * An agent's open step of a profile rollout: `pending` waits for the
+ * scheduler, `failed` stays until a person retries it (`reason` says why).
+ */
+export const profileRolloutStepSchema = z
+  .object({
+    status: z.enum(["pending", "failed"]),
+    reason: z.string().min(1).max(128).nullable(),
+    target_profile_id: z.string().min(1).max(200),
+  })
+  .strict();
+
 export const agentDetailSchema = z
   .object({
     agent: agentSchema,
@@ -877,6 +891,14 @@ export const agentDetailSchema = z
     model_source: modelSourceSchema,
     draft: agentDraftSchema.nullable(),
     effective_behavior: effectiveBehaviorSchema,
+    /**
+     * Optional so a reader ahead of its server reads an agent without it.
+     * `pinned`: a profile rollout leaves this agent on the profile version it
+     * runs; `follow`: it moves to a new version of its profile.
+     */
+    profile_tracking: profileTrackingSchema.optional(),
+    /** The profile rollout step still open for this agent, if any. */
+    profile_rollout: profileRolloutStepSchema.nullable().optional(),
   })
   .strict();
 
@@ -1067,11 +1089,22 @@ export const updateAgentRequestSchema = z
      * else `fixed`. `profile` runs the profile's default model.
      */
     model_source: modelSourceSchema.optional(),
+    /**
+     * The agent follows its profile again and runs the newest version of it,
+     * the way a profile rollout does. Alone: it names no other field.
+     */
+    follow_latest_profile: z.literal(true).optional(),
   })
   .strict()
   .refine(
     (patch) => Object.keys(patch).length > 0,
     "at least one field is required",
+  )
+  .refine(
+    (patch) =>
+      patch.follow_latest_profile === undefined ||
+      Object.keys(patch).length === 1,
+    "follow_latest_profile goes alone",
   );
 
 /** One-line hiring: a small model fills the card, a person edits it. */
@@ -1151,6 +1184,8 @@ export type DraftAgentRequest = z.infer<typeof draftAgentRequestSchema>;
 export type DraftAgentResponse = z.infer<typeof draftAgentResponseSchema>;
 export type AgentDetail = z.infer<typeof agentDetailSchema>;
 export type AgentDraft = z.infer<typeof agentDraftSchema>;
+export type ProfileTracking = z.infer<typeof profileTrackingSchema>;
+export type ProfileRolloutStep = z.infer<typeof profileRolloutStepSchema>;
 export type BehaviorValues = z.infer<typeof behaviorValuesSchema>;
 export type EffectiveBehavior = z.infer<typeof effectiveBehaviorSchema>;
 export type ReleaseStatus = z.infer<typeof releaseStatusSchema>;

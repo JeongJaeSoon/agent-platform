@@ -231,6 +231,7 @@ function setup(
   const service = createInstallationProfileService({
     authorization,
     store,
+    rollouts: { retryFailed: async () => false },
     catalog,
     connections: () => catalog.workspace_profiles.connections,
     allowUnattended: options.allowUnattended ?? false,

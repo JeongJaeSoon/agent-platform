@@ -47,6 +47,8 @@ export function saveFailureText(t: Translate, reason: string | null): string {
       return t("agent.save.reason.release_refused");
     case "profile_unknown":
       return t("agent.save.reason.profile_unknown");
+    case "retries_exhausted":
+      return t("agent.save.reason.retries_exhausted");
     case "blocked":
     case "base_blocked":
       return t("agent.save.reason.blocked");

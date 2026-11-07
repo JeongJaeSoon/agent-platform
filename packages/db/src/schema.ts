@@ -2424,6 +2424,8 @@ export const pushIntents = pgTable(
       sql`(${table.status} NOT IN ('pinned','requested') OR ${table.pinnedRevision} IS NOT NULL) AND ((${table.status} = 'requested') = (${table.pushRequestId} IS NOT NULL)) AND ((${table.status} IN ('failed','cancelled')) = (${table.refusalCode} IS NOT NULL))`,
     ),
     // One intent per turn and target: the same call again is the same row.
+    // One target per turn and repository is enforced by `createDeferred`
+    // under the session row lock, not by this index.
     uniqueIndex("push_intents_turn_target_idx").on(
       table.turnId,
       table.repositoryId,
@@ -4934,6 +4936,20 @@ export const settingsGeneration = pgTable(
     generation: bigint({ mode: "number" }).notNull().default(0),
   },
   (table) => [check("settings_generation_single_check", sql`${table.id} = 1`)],
+);
+
+// One row once the one-time profile fill has run for real. The sweep holds
+// back while neither this row nor any rollout exists, so an install that
+// deploys the writer before the fill is not rolled out over the fill's head.
+export const profileFill = pgTable(
+  "profile_fill",
+  {
+    id: integer().primaryKey().default(1),
+    completedAt: timestamp("completed_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [check("profile_fill_single_check", sql`${table.id} = 1`)],
 );
 
 // The commit attribution each claim of a session asked for (author, the

@@ -1,0 +1,2 @@
+ALTER TABLE "push_intents" DROP CONSTRAINT "push_intents_refusal_check";--> statement-breakpoint
+ALTER TABLE "push_intents" ADD CONSTRAINT "push_intents_refusal_check" CHECK ("push_intents"."refusal_code" IS NULL OR "push_intents"."refusal_code" IN ('turn_ended_without_checkpoint','turn_finalized_without_pin','superseded_by_turn','session_closed','rejected_before','request_open','github_disabled','over_workspace_ceiling','repository_not_allowed','checkpoint_unavailable','source_missing','attribution_mismatch','uncommitted_changes','pinned_source_invalid'));

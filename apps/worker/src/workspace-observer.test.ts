@@ -14,9 +14,80 @@ const complete: WorkspaceMeasurement = {
 };
 const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
 
+test("classification is replayed to a host that claims after sampling and never invented on failure", async () => {
+  let fails = true;
+  const observer = new WorkspaceObserver(
+    { root: "/workspace" },
+    { info: () => {}, warn: () => {}, error: () => {} },
+    async () => {
+      if (fails) throw new Error("unavailable");
+      return complete;
+    },
+  );
+  const modes: unknown[] = [];
+  try {
+    observer.onClassified((mode) => modes.push(mode));
+    await observer.measureNow();
+    expect(modes).toEqual([]);
+    fails = false;
+    await observer.measureNow();
+    await observer.measureNow();
+    expect(modes).toEqual([
+      {
+        bytes: "unknown",
+        inodes: "unknown",
+        reason: "filesystem_evidence_unavailable",
+      },
+    ]);
+    observer.onClassified((mode) => modes.push(mode));
+    expect(modes).toHaveLength(2);
+    expect(modes[1]).toEqual(modes[0]);
+  } finally {
+    observer.stop();
+  }
+});
+
 test("interval targets at most ten percent duty with a thirty second floor", () => {
   expect(measurementInterval(300)).toBe(30_000);
   expect(measurementInterval(8000)).toBe(80_000);
+});
+
+test("fresh baselines coalesce and a scan never notifies a later turn's watcher", async () => {
+  let calls = 0;
+  let finish: ((usage: WorkspaceMeasurement) => void) | undefined;
+  const observer = new WorkspaceObserver(
+    { root: "/workspace" },
+    { info: () => {}, warn: () => {}, error: () => {} },
+    async () => {
+      calls++;
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
+    },
+  );
+  const old: number[] = [];
+  const next: number[] = [];
+  try {
+    const unwatch = observer.watch((usage) => old.push(usage.bytes));
+    const first = observer.measureNow();
+    const shared = observer.measureNow();
+    await tick();
+    expect(calls).toBe(1);
+    unwatch();
+    observer.watch((usage) => next.push(usage.bytes));
+    finish?.(complete);
+    await Promise.all([first, shared]);
+    expect(old).toEqual([100]);
+    expect(next).toEqual([]);
+    const fresh = observer.measureNow();
+    await tick();
+    expect(calls).toBe(2);
+    finish?.({ ...complete, bytes: 200 });
+    await fresh;
+    expect(next).toEqual([200]);
+  } finally {
+    observer.stop();
+  }
 });
 
 test("classification waits for the first successful measurement after an exception", async () => {

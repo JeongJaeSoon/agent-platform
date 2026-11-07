@@ -110,4 +110,29 @@ describe("the rollout runner", () => {
     await createProfileRolloutRunner({ ...base, sweep: true }).runOnce();
     expect(swept).toBe(1);
   });
+
+  test("a sweep held back for the one-time fill warns once per hold, and again after it clears and returns", async () => {
+    const answers = [3, 3, 0, 2];
+    const warnings: unknown[] = [];
+    const rollouts = {
+      async claim() {
+        return [];
+      },
+      async sweep() {
+        return { rollouts: 0, items: 0, held: answers.shift() ?? 0 };
+      },
+    } as unknown as ProfileRolloutStore;
+    const runner = createProfileRolloutRunner({
+      rollouts,
+      agentStore: { get: async () => null },
+      agents: { rolloutRelease: async () => ({ status: "applied" as const }) },
+      logger: {
+        info: () => {},
+        warn: (_message, fields) => warnings.push(fields),
+      },
+      sweep: true,
+    });
+    for (let pass = 0; pass < 4; pass++) await runner.runOnce();
+    expect(warnings).toEqual([{ agents: 3 }, { agents: 2 }]);
+  });
 });

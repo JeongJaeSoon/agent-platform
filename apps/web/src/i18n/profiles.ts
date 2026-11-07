@@ -277,6 +277,22 @@ export const profilesKo = {
   "profiles.detail.agents.agent": "에이전트",
   "profiles.detail.agents.release": "활성 릴리스",
   "profiles.detail.agents.open": "{name}의 릴리스 보기",
+  "profiles.rollout.title": "새 버전 적용 현황",
+  "profiles.rollout.description":
+    "이 프로필을 따라가는 에이전트에 새 버전이 적용된 정도입니다.",
+  "profiles.rollout.progress": "{total}개 중 {applied}개 적용",
+  "profiles.rollout.pending": "{count}개는 적용을 기다리는 중입니다.",
+  "profiles.rollout.failedTitle": "적용하지 못한 에이전트 {count}개",
+  "profiles.rollout.failedAgents": "적용하지 못한 에이전트",
+  "profiles.rollout.agent": "에이전트",
+  "profiles.rollout.reason": "이유",
+  "profiles.rollout.retry": "다시 시도",
+  "profiles.rollout.retryFor": "{name} 다시 시도",
+  "profiles.rollout.retried": "다시 적용하도록 올렸습니다: {name}",
+  "profiles.rollout.notRetried":
+    "다시 시도할 항목이 없습니다. 이미 처리되었을 수 있습니다.",
+  "profiles.rollout.fixedModel":
+    "고른 모델을 쓰는 에이전트 {count}개는 기본 모델이 바뀌어도 그대로 유지됩니다.",
   "profiles.tools.legend": "차단할 내장 도구",
   "profiles.tools.hint":
     "체크한 도구는 이 프로필의 세션에서 돌지 않습니다. 내장 도구만 다룹니다. MCP 도구는 에이전트의 MCP 설정이 정합니다.",
@@ -612,6 +628,22 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
   "profiles.detail.agents.agent": "Agent",
   "profiles.detail.agents.release": "Active release",
   "profiles.detail.agents.open": "Open the release of {name}",
+  "profiles.rollout.title": "New version rollout",
+  "profiles.rollout.description":
+    "How far the new version has reached the agents that follow this profile.",
+  "profiles.rollout.progress": "{applied} of {total} applied",
+  "profiles.rollout.pending": "{count} are waiting to be applied.",
+  "profiles.rollout.failedTitle": "{count} agents could not be updated",
+  "profiles.rollout.failedAgents": "Agents that could not be updated",
+  "profiles.rollout.agent": "Agent",
+  "profiles.rollout.reason": "Reason",
+  "profiles.rollout.retry": "Try again",
+  "profiles.rollout.retryFor": "Try {name} again",
+  "profiles.rollout.retried": "{name} was queued to be applied again.",
+  "profiles.rollout.notRetried":
+    "There was nothing to retry. It may already have been handled.",
+  "profiles.rollout.fixedModel":
+    "{count} agents with a chosen model keep it when the default model changes.",
   "profiles.tools.legend": "Built-in tools to block",
   "profiles.tools.hint":
     "A ticked tool does not run in this profile's sessions. Only built-in tools are listed here; an agent's MCP settings decide its MCP tools.",
@@ -955,6 +987,22 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "profiles.detail.agents.agent": "エージェント",
   "profiles.detail.agents.release": "有効なリリース",
   "profiles.detail.agents.open": "{name}のリリースを表示",
+  "profiles.rollout.title": "新バージョンの適用状況",
+  "profiles.rollout.description":
+    "このプロファイルに追従するエージェントに新しいバージョンが行き渡った状況です。",
+  "profiles.rollout.progress": "{total}件中{applied}件を適用",
+  "profiles.rollout.pending": "{count}件は適用待ちです。",
+  "profiles.rollout.failedTitle": "適用できなかったエージェント{count}件",
+  "profiles.rollout.failedAgents": "適用できなかったエージェント",
+  "profiles.rollout.agent": "エージェント",
+  "profiles.rollout.reason": "理由",
+  "profiles.rollout.retry": "再試行",
+  "profiles.rollout.retryFor": "{name}を再試行",
+  "profiles.rollout.retried": "{name}をもう一度適用するよう戻しました。",
+  "profiles.rollout.notRetried":
+    "再試行する項目がありません。すでに処理済みの可能性があります。",
+  "profiles.rollout.fixedModel":
+    "モデルを選んでいるエージェント{count}件は、既定モデルが変わってもそのままです。",
   "profiles.tools.legend": "ブロックする組み込みツール",
   "profiles.tools.hint":
     "チェックしたツールはこのプロファイルのセッションで動きません。扱うのは組み込みツールだけです。MCP ツールはエージェントの MCP 設定が決めます。",

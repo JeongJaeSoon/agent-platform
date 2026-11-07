@@ -30,7 +30,13 @@ export type CreatePushIntentInput = {
 export type PushIntentWrite =
   | { outcome: "created" | "existing"; intent: PushIntent }
   /** The turn is no longer running: finalize already ended it. */
-  | { outcome: "turn_not_running" };
+  | { outcome: "turn_not_running" }
+  /**
+   * The turn already has an intent for another target of the same
+   * repository. Every intent of a turn pins the same turn-end checkpoint, so
+   * a second target would push the same commit again.
+   */
+  | { outcome: "turn_target_taken"; targetBranch: string };
 
 /** A pinned intent the runner holds under a lease. */
 export type PushIntentJob = {
@@ -69,7 +75,8 @@ export interface PushIntentStore {
   /**
    * Writes a `deferred` intent for the turn, under the session row lock and
    * only while the turn still runs. The same turn, repository and target
-   * again return the same row (`existing`), whatever its status.
+   * again return the same row (`existing`), whatever its status. Another
+   * target of that turn and repository is `turn_target_taken`.
    */
   createDeferred(input: CreatePushIntentInput): Promise<PushIntentWrite>;
   list(ownerId: string, sessionId: string): Promise<PushIntent[]>;

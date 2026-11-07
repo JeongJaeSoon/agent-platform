@@ -928,6 +928,9 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       (condition ?? "").split(" && ").every((term) => {
         const prefix = term.match(/^startsWith\(github\.ref, '([^']+)'\)$/);
         if (prefix) return run.ref.startsWith(prefix[1] ?? "");
+        // The release jobs of a main run: they run only when release-detect
+        // found a new version heading, which no row below models.
+        if (term === "needs.release-detect.outputs.tag != ''") return false;
         const equal = term.match(/^github\.(event_name|ref) == '([^']+)'$/);
         if (!equal) throw new Error(`unexpected term: ${term}`);
         return (equal[1] === "ref" ? run.ref : run.event) === equal[2];
@@ -940,10 +943,12 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       expect(writers.sort()).toEqual([
         "chart-publish",
         "chart-publish-main",
+        "chart-publish-release",
         "index",
         "index-main",
         "promote",
         "promote-main",
+        "promote-release",
         "publish",
         "publish-main",
       ]);
@@ -973,6 +978,23 @@ describe("compose and workflow agree with the Dockerfiles", () => {
           `type=gha,scope=images-${expression("matrix.app")}-${expression("matrix.arch")}`,
         );
       }
+    });
+
+    test("only the build job writes the layer cache, and never for a pull request", () => {
+      for (const name of ["publish", "publish-main"]) {
+        const build = jobs[name]?.steps.find((step) =>
+          step.uses?.startsWith("docker/build-push-action@"),
+        );
+        expect(build?.with?.["cache-to"]).toBeUndefined();
+      }
+      const build = jobs.build?.steps.find((step) =>
+        step.uses?.startsWith("docker/build-push-action@"),
+      );
+      expect(build?.with?.["cache-to"]).toBe(
+        expression(
+          "github.event_name != 'pull_request' && format('type=gha,scope=images-{0}-{1},mode=max', matrix.app, matrix.arch) || ''",
+        ),
+      );
     });
 
     test("nothing of one arch overwrites the other's", () => {
@@ -1102,7 +1124,12 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       const packageStep = index("chart-package.ts published chart-out");
       const read = index("docker manifest inspect");
       const install = index("deploy/kind/up.sh");
-      const upload = steps.findIndex((step) => step.with?.name === "chart");
+      // The suffix is empty on the main and pushed-tag paths, `-release` on
+      // the release by merge, so its artifacts do not meet main's.
+      const suffix = expression("env.ARTIFACT_SUFFIX");
+      const upload = steps.findIndex(
+        (step) => step.with?.name === `chart${suffix}`,
+      );
       expect(packageStep).toBeGreaterThan(-1);
       expect(read).toBeGreaterThan(packageStep);
       expect(install).toBeGreaterThan(read);
@@ -1110,7 +1137,7 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       expect(steps[install]?.run).toContain("CHART_PACKAGE=");
       expect(
         steps.flatMap((step) => step.with?.name ?? []).slice(0, 1),
-      ).toEqual(["image-digests-published"]);
+      ).toEqual([`image-digests-published${suffix}`]);
       expect(runsOf(jobs.chart)).not.toContain("docker login");
       expect(runsOf(jobs["chart-publish"])).toContain("chart-push.sh");
     });
@@ -1164,15 +1191,37 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       expect(runsOf(jobs.build)).toContain(
         'image-licenses.sh "$APP" "$' + "{NAME}:sha-$" + '{GITHUB_SHA::12}"',
       );
-      // Shared steps: the tag path stays strict by the ref, not by the job.
+      // Shared steps: the tag path stays strict by the ref, not by the job,
+      // and the release by merge (RELEASE_REF set, run ref main) is strict too.
       expect(
         jobs.sources?.steps.flatMap((step) => step.env?.SOURCES_MODE ?? []),
       ).toEqual([
-        expression("github.ref == 'refs/heads/main' && 'main' || 'release'"),
+        expression(
+          "env.RELEASE_REF == '' && github.ref == 'refs/heads/main' && 'main' || 'release'",
+        ),
       ]);
       expect(runsOf(jobs.sources)).toContain(
-        'image-sources.sh debian-sources unverified-sources "$SOURCES_MODE"',
+        'image-sources.sh debian-sources unverified-sources "$SOURCES_MODE" held-sources-prior held-sources',
       );
+      // A failed attempt hands its answers on, and the next one takes them
+      // only from its own run and its own job.
+      for (const name of ["sources", "sources-main"]) {
+        const steps = jobs[name]?.steps ?? [];
+        const upload = steps.find((step) =>
+          String(step.with?.name).startsWith("held-sources-"),
+        );
+        expect(upload?.if).toBe("always()");
+        expect(upload?.with?.name).toBe(
+          `held-sources-${expression("github.job")}-${expression("github.run_attempt")}`,
+        );
+        const download = steps.find((step) =>
+          String(step.with?.pattern).startsWith("held-sources-"),
+        );
+        expect(download?.if).toBe("github.run_attempt > 1");
+        expect(download?.with?.pattern).toBe(
+          `held-sources-${expression("github.job")}-*`,
+        );
+      }
       expect(
         jobs.publish?.steps.flatMap((step) => step.with?.push ?? []),
       ).toEqual([true]);
@@ -1733,6 +1782,86 @@ exit "$FAKE_EXIT"
     test("an unknown mode is refused", () => {
       expect(run("relaese", 0).code).toBe(2);
     });
+
+    test("earlier attempts' held files are joined and passed on, and this attempt's goes out", () => {
+      const directory = mkdtempSync(join(tmpdir(), "image-sources-prior-"));
+      mkdirSync(join(directory, "bin"));
+      mkdirSync(join(directory, "lists"));
+      mkdirSync(join(directory, "prior/held-sources-sources-1"), {
+        recursive: true,
+      });
+      mkdirSync(join(directory, "prior/held-sources-sources-2"));
+      // Copies what it was handed as --prior and writes a held set of its own
+      // before failing, as the real check does.
+      writeFileSync(
+        join(directory, "bin/bun"),
+        `#!/usr/bin/env bash
+echo "$*" >"$FAKE/check"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --prior) cp "$2" "$FAKE/prior-seen"; shift ;;
+    --held-out) echo "acl 2.3.2-2" >"$2"; shift ;;
+  esac
+  shift
+done
+printf '%b' "$FAKE_STDERR" >&2
+exit 3
+`,
+        { mode: 0o755 },
+      );
+      writeFileSync(
+        join(directory, "prior/held-sources-sources-1/held.txt"),
+        "acl 2.3.2-2\n",
+      );
+      writeFileSync(
+        join(directory, "prior/held-sources-sources-2/held.txt"),
+        "gh 1\n",
+      );
+      for (const { app, arch } of lists) {
+        writeFileSync(
+          join(directory, "lists", `${app}-${arch}.md`),
+          `| acl | 2.3.2-2 | acl |  | ${shared} |\n`,
+        );
+      }
+      const result = Bun.spawnSync(
+        [
+          "bash",
+          join(root, ".github/scripts/image-sources.sh"),
+          "lists",
+          "results",
+          "release",
+          "prior",
+          "held",
+        ],
+        {
+          cwd: directory,
+          env: {
+            PATH: `${join(directory, "bin")}:${process.env.PATH ?? ""}`,
+            FAKE: directory,
+            FAKE_EXIT: "3",
+            FAKE_STDERR: unreachable,
+          },
+        },
+      );
+      // Strict as ever: the sources still unanswered stop a release.
+      expect(result.exitCode).toBe(1);
+      const check = readFileSync(join(directory, "check"), "utf8");
+      expect(check).toContain("--snapshot-check 1800 --prior ");
+      expect(check).toContain(`--held-out held/held.txt `);
+      expect(
+        readFileSync(join(directory, "prior-seen"), "utf8").split("\n").sort(),
+      ).toEqual(["", "acl 2.3.2-2", "gh 1"]);
+      // The failed check's own set is where the workflow uploads from.
+      expect(readFileSync(join(directory, "held/held.txt"), "utf8")).toBe(
+        "acl 2.3.2-2\n",
+      );
+    });
+
+    test("with no earlier attempt the check gets no prior file", () => {
+      const { check } = run("release", 0);
+      expect(check).not.toContain("--prior");
+      expect(check).not.toContain("--held-out");
+    });
   });
 
   describe("image-index.sh", () => {
@@ -2028,6 +2157,21 @@ esac
         `sha-${sha.slice(0, 12)}`,
       ]);
       expect(store.tagged().filter((tag) => tag.includes("main-"))).toEqual([]);
+    });
+
+    test("a main run that releases promotes under the release tag, and main's own ref still writes nothing else", () => {
+      const store = registry();
+      const run = store.promote({ RELEASE_REF: "refs/tags/v1.2.3" });
+      expect(run.code).toBe(0);
+      expect(store.record("worker").tags).toEqual([
+        "v1.2.3",
+        `sha-${sha.slice(0, 12)}`,
+      ]);
+      expect(store.tagged().filter((tag) => tag.includes("main-"))).toEqual([]);
+      const other = registry();
+      const refused = other.promote({ RELEASE_REF: "refs/heads/feature" });
+      expect(refused.code).toBe(1);
+      expect(other.creates()).toBe("");
     });
 
     test("any other ref writes nothing", () => {

@@ -342,6 +342,11 @@ export function useSessionEvents(id: string, enabled: boolean) {
       onEvent: (frame) => {
         const { payload } = frame;
         for (const part of EVENT_STALES[payload.event] ?? []) stale.add(part);
+        if (
+          payload.event === "system" &&
+          payload.data.subtype === "workspace_limit_mode"
+        )
+          stale.add("detail");
         if (stale.size > 0 && flush === undefined) {
           flush = setTimeout(() => {
             flush = undefined;

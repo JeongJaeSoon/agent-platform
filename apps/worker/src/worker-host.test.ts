@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import {
   type ClaimPrincipal,
   type FinalizeRequest,
@@ -36,6 +38,9 @@ import {
   type WorkerLogger,
 } from "./worker-host.ts";
 import { noWorkspace, type WorkspacePreparer } from "./workspace.ts";
+import type { WorkspaceLimitMode } from "./workspace-limit-mode.ts";
+import type { WorkspaceMeasurement } from "./workspace-meter.ts";
+import { WorkspaceObserver } from "./workspace-observer.ts";
 
 const SESSION_ID = "11111111-1111-4111-8111-111111111111";
 
@@ -98,6 +103,7 @@ function harness(
     sleep?: (ms: number) => Promise<void>;
     timeouts?: Partial<WorkerTimeouts>;
     workspace?: WorkspacePreparer;
+    workspaceQuota?: WorkerHostOptions["workspaceQuota"];
     wrap?: (run: AgentRun) => AgentRun;
   } = {},
 ) {
@@ -135,6 +141,9 @@ function harness(
     runtimes,
     timeouts: { ...timeouts, ...overrides.timeouts },
     workspace: overrides.workspace ?? noWorkspace,
+    ...(overrides.workspaceQuota === undefined
+      ? {}
+      : { workspaceQuota: overrides.workspaceQuota }),
     ...(overrides.engines === undefined ? {} : { engines: overrides.engines }),
     ...(overrides.imageRuntime === undefined
       ? {}
@@ -155,6 +164,311 @@ function harness(
     workspaces,
   };
 }
+
+describe("WorkerHost workspace quota", () => {
+  const usage = (bytes: number): WorkspaceMeasurement => ({
+    bytes,
+    inodes: 1,
+    complete: true,
+    errors: 0,
+    durationMs: 1,
+  });
+  const mode: WorkspaceLimitMode = {
+    bytes: "soft",
+    inodes: "unknown",
+    reason: "test",
+  };
+
+  function quotaHarness(
+    enforce?: "warn" | "fail" | "off",
+    baseline = 50,
+    overrides: Parameters<typeof harness>[1] = {},
+  ) {
+    let listener:
+      | ((usage: WorkspaceMeasurement, mode: WorkspaceLimitMode) => void)
+      | undefined;
+    let stale: typeof listener;
+    const observer = {
+      onClassified: (callback: (mode: WorkspaceLimitMode) => void) =>
+        callback(mode),
+      measureNow: async () => usage(baseline),
+      nudge: () => {},
+      watch(callback: NonNullable<typeof listener>) {
+        listener = callback;
+        stale = callback;
+        return () => {
+          listener = undefined;
+        };
+      },
+    };
+    const gateway = new FakeWorkerGateway();
+    const claim = gateway.bootstrapClaim.bind(gateway);
+    gateway.bootstrapClaim = async (request) => ({
+      ...(await claim(request)),
+      ...(enforce === undefined ? {} : { workspace_enforce: enforce }),
+    });
+    const result = harness(
+      [
+        { type: "await-input" },
+        { type: "delay", delayMs: 100 },
+        { type: "emit", message: resultMessage(uuidForTurn(1)) },
+        { type: "await-input" },
+        { type: "delay", delayMs: 100 },
+        { type: "emit", message: resultMessage(uuidForTurn(2)) },
+        { type: "await-input" },
+      ],
+      {
+        ...overrides,
+        gateway,
+        workspaceQuota: { observer, limits: { bytes: 100, inodes: 10 } },
+      },
+    );
+    return {
+      ...result,
+      snapshot: () => stale,
+      emit: (bytes: number) => listener?.(usage(bytes), mode),
+      late: (bytes: number) => stale?.(usage(bytes), mode),
+    };
+  }
+
+  test("fail ends only the growing turn and keeps the session available", async () => {
+    const h = quotaHarness("fail");
+    h.gateway.enqueue("write a large file");
+    const running = h.host.runLoop();
+    await waitFor(() => h.runtime.inputs.length === 1, "the input");
+    h.emit(101);
+    const summary = await running;
+    expect(summary.turns).toEqual([
+      { turnId: "1", status: "failed", reason: "workspace_quota_exceeded" },
+    ]);
+    expect(summary.outcome).toBe("idle");
+    expect(h.gateway.finalized[0]?.terminal.reason).toBe(
+      "workspace_quota_exceeded",
+    );
+    h.late(999);
+    expect(h.gateway.finalized).toHaveLength(1);
+  });
+
+  test("classification is durably published even when enforcement is off", async () => {
+    const h = quotaHarness("off");
+    h.gateway.enqueue("observe");
+    await h.host.runLoop();
+    const classifications = h.gateway.events.filter(
+      (event) =>
+        event.event === "system" &&
+        event.data.subtype === "workspace_limit_mode",
+    );
+    expect(classifications).toHaveLength(1);
+    expect(classifications[0]?.data).toMatchObject({
+      type: "system",
+      subtype: "workspace_limit_mode",
+      ...mode,
+    });
+  });
+
+  test.each([undefined, "warn", "off"] as const)(
+    "%s policy preserves a normal turn",
+    async (policy) => {
+      const h = quotaHarness(policy);
+      h.gateway.enqueue("write a large file");
+      const running = h.host.runLoop();
+      await waitFor(() => h.runtime.inputs.length === 1, "the input");
+      h.emit(101);
+      expect((await running).turns[0]?.status).toBe("completed");
+    },
+  );
+
+  test("a cleanup turn runs on the same engine after a quota failure", async () => {
+    const h = quotaHarness("fail", 200);
+    h.gateway.enqueue("grow the exceeded workspace");
+    h.gateway.enqueue("remove files");
+    const running = h.host.runLoop();
+    await waitFor(() => h.runtime.inputs.length === 1, "the growing input");
+    h.emit(201);
+    await waitFor(() => h.runtime.inputs.length === 2, "the cleanup input");
+    h.emit(150);
+    expect((await running).turns.map((turn) => turn.status)).toEqual([
+      "failed",
+      "completed",
+    ]);
+    expect(h.launched).toHaveLength(1);
+  });
+
+  test("fail permits an already exceeded session to run cleanup", async () => {
+    const h = quotaHarness("fail", 200);
+    h.gateway.enqueue("delete files");
+    const running = h.host.runLoop();
+    await waitFor(() => h.runtime.inputs.length === 1, "the cleanup input");
+    h.emit(200);
+    h.emit(150);
+    expect((await running).turns[0]?.status).toBe("completed");
+  });
+
+  test("quota cannot replace an unknown outcome when interrupt is unanswered", async () => {
+    const h = quotaHarness("fail", 50, {
+      timeouts: { interruptGraceMs: 10 },
+      wrap: (run) =>
+        Object.assign(Object.create(run) as AgentRun, {
+          interrupt: async () => {},
+        }),
+    });
+    h.gateway.enqueue("write a large file");
+    const running = h.host.runLoop();
+    await waitFor(() => h.runtime.inputs.length === 1, "the input");
+    h.emit(101);
+    expect((await running).turns[0]?.status).toBe("outcome_unknown");
+    expect(h.gateway.finalized[0]?.terminal.reason).toBe(
+      "workspace_quota_interrupt_unanswered",
+    );
+  });
+
+  test("a sample started for the previous turn cannot fail the next turn", async () => {
+    const h = quotaHarness("fail");
+    h.gateway.enqueue("first turn");
+    h.gateway.enqueue("next turn");
+    const running = h.host.runLoop();
+    await waitFor(() => h.runtime.inputs.length === 1, "the first input");
+    const previous = h.snapshot();
+    await waitFor(() => h.runtime.inputs.length === 2, "the next input");
+    previous?.(usage(999), mode);
+    expect((await running).turns.map((turn) => turn.status)).toEqual([
+      "completed",
+      "completed",
+    ]);
+  });
+
+  test("a deadline already in progress takes priority over quota", async () => {
+    const h = quotaHarness("fail", 50, {
+      timeouts: { maxTurnMs: 10, interruptGraceMs: 30, drainTimeoutMs: 200 },
+      wrap: (run) =>
+        Object.assign(Object.create(run) as AgentRun, {
+          interrupt: async () => {},
+        }),
+    });
+    h.gateway.enqueue("long turn");
+    const running = h.host.runLoop();
+    await waitFor(() => h.runtime.inputs.length === 1, "the input");
+    await Bun.sleep(15);
+    h.emit(999);
+    expect((await running).turns[0]?.reason).toBe("turn_timeout");
+  });
+
+  test("a user's interrupt takes priority over a later quota sample", async () => {
+    const h = quotaHarness("fail", 50, {
+      checkpoints: {
+        restorePlan: async () => ({ mode: "new" }),
+        capture: async (preparation) =>
+          preparation.status === "ready"
+            ? {
+                revision: 0,
+                manifest_ref: "manifests/1.json",
+                manifest_sha256: "c".repeat(64),
+              }
+            : null,
+      },
+    });
+    h.gateway.enqueue("long turn");
+    const running = h.host.runLoop();
+    await waitFor(() => h.runtime.inputs.length === 1, "the input");
+    h.gateway.control = {
+      kind: "interrupt",
+      control_id: "interrupt-quota-test",
+      target_turn_id: "1",
+      issued_at: new Date().toISOString(),
+    };
+    await waitFor(
+      () =>
+        h.gateway.events.some(
+          (event) =>
+            event.event === "status" && event.data.phase === "interrupting",
+        ),
+      "the interrupt",
+    );
+    h.emit(999);
+    expect((await running).turns[0]?.status).toBe("interrupted");
+  });
+
+  test("ownership loss forbids quota finalization", async () => {
+    const h = quotaHarness("fail", 50, {
+      timeouts: { heartbeatIntervalMs: 5 },
+    });
+    h.gateway.enqueue("long turn");
+    const running = h.host.runLoop();
+    await waitFor(() => h.runtime.inputs.length === 1, "the input");
+    h.gateway.heartbeatFailure = "STALE_EPOCH";
+    const summary = await running;
+    h.late(999);
+    expect(summary.outcome).toBe("lease_lost");
+    expect(h.gateway.finalized).toHaveLength(0);
+  });
+
+  test("a live scanner fails a growing turn and preserves workspace data for cleanup", async () => {
+    const root = await mkdtemp(join(import.meta.dir, ".workspace-quota-test-"));
+    const observer = new WorkspaceObserver({ root }, silent);
+    try {
+      await writeFile(join(root, "keep"), "preserved");
+      const before = await observer.measureNow();
+      if (before === undefined)
+        throw new Error("The baseline was not measured");
+      const gateway = new FakeWorkerGateway();
+      const claim = gateway.bootstrapClaim.bind(gateway);
+      gateway.bootstrapClaim = async (request) => ({
+        ...(await claim(request)),
+        workspace_enforce: "fail",
+      });
+      const { host, runtime } = harness(
+        [
+          { type: "await-input" },
+          { type: "delay", delayMs: 10_000 },
+          { type: "await-input" },
+        ],
+        {
+          gateway,
+          workspaceQuota: {
+            observer,
+            limits: { bytes: before.bytes + 4096, inodes: 100 },
+          },
+        },
+      );
+      gateway.enqueue("grow the workspace");
+      const running = host.runLoop();
+      await waitFor(() => runtime.inputs.length === 1, "the live input");
+      await writeFile(join(root, "large"), Buffer.alloc(64 * 1024, 1));
+      const after = await observer.measureNow();
+      const summary = await running;
+      expect(summary.turns[0]).toMatchObject({
+        status: "failed",
+        reason: "workspace_quota_exceeded",
+      });
+      expect(summary.outcome).toBe("idle");
+      const classification = gateway.events.find(
+        (event) =>
+          event.event === "system" &&
+          event.data.subtype === "workspace_limit_mode",
+      );
+      expect(classification?.data).toMatchObject({
+        type: "system",
+        subtype: "workspace_limit_mode",
+      });
+      expect(await readFile(join(root, "keep"), "utf8")).toBe("preserved");
+      expect((await readFile(join(root, "large"))).length).toBe(64 * 1024);
+      console.log(
+        JSON.stringify({
+          workspace_quota: "VERIFIED",
+          workspace_limit_mode: classification?.data,
+          before: before.bytes,
+          after: after?.bytes,
+          terminal: summary.turns[0],
+          session: summary.outcome,
+          preserved_bytes: 64 * 1024,
+        }),
+      );
+    } finally {
+      observer.stop();
+      await rm(root, { recursive: true });
+    }
+  });
+});
 
 describe("WorkerHost turn loop", () => {
   test("runs two turns in order and finalizes each one", async () => {

@@ -18,11 +18,14 @@ set -euo pipefail
 staged="$1"
 published="$2"
 short="${GITHUB_SHA::12}"
-case "$GITHUB_REF" in
-  refs/tags/v*) tags=("$GITHUB_REF_NAME" "sha-${short}") ;;
+# RELEASE_REF is set by the release jobs of a main run, which promote main's
+# digests under the release tag; the ref the run was started by is main there.
+ref="${RELEASE_REF:-$GITHUB_REF}"
+case "$ref" in
+  refs/tags/v*) tags=("${ref#refs/tags/}" "sha-${short}") ;;
   refs/heads/main) tags=("main-${short}") ;;
   *)
-    echo "::error::nothing is promoted from ${GITHUB_REF}"
+    echo "::error::nothing is promoted from ${ref}"
     exit 1
     ;;
 esac

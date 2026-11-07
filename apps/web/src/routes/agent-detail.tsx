@@ -79,6 +79,7 @@ import {
   PlacedOutcome,
   TakesFocus,
 } from "./agent-detail/placement.tsx";
+import { ProfileFollow } from "./agent-detail/profile-follow.tsx";
 import { Releases } from "./agent-detail/releases.tsx";
 import { VersionHistory } from "./agent-detail/version-history.tsx";
 import { shownVersion } from "./agent-detail/versions.tsx";
@@ -442,6 +443,7 @@ function AgentView({
       </div>
       <TabsContent {...tabPanel("overview")}>
         <AgentGlance detail={detail} />
+        <ProfileFollow detail={detail} manages={manages} />
         <AgentReadiness detail={detail} toRelease={toRelease} />
         <AgentRecentSessions agentId={detail.agent.id} />
       </TabsContent>

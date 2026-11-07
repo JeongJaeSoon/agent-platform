@@ -526,7 +526,9 @@ describe("images.yml release job", () => {
     const writers = Object.entries(jobs)
       .filter(([, job]) => job.permissions?.contents === "write")
       .map(([name]) => name);
-    expect(writers).toEqual(["release"]);
+    // `release-tag` and `release-publish` are the release by merge's: the same
+    // gate comes from release-approve, which they reach through the chart.
+    expect(writers).toEqual(["release", "release-tag", "release-publish"]);
     expect(jobs.release?.needs).toBe("chart-publish");
     expect(jobs.release?.if).toBe(jobs.publish?.if);
     expect(jobs.release?.permissions).toEqual({ contents: "write" });
@@ -537,8 +539,9 @@ describe("images.yml release job", () => {
     expect(runs.join("\n")).toContain(
       "release-manifest.ts published chart-out release-manifest.json",
     );
+    // The tag is the ref's, or RELEASE_REF's when a main run releases.
     expect(runs.join("\n")).toContain(
-      'release-publish.sh "$GITHUB_REF_NAME" release-manifest.json',
+      'ref="${RELEASE_REF:-$GITHUB_REF}"\n.github/scripts/release-publish.sh "${ref#refs/tags/}" release-manifest.json',
     );
   });
 
