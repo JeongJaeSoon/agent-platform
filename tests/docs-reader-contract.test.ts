@@ -6,9 +6,13 @@ import remarkMdx from "remark-mdx";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
 
-const root = join(import.meta.dir, "../apps/docs/content/docs/run-server/self-hosting");
+const root = join(
+  import.meta.dir,
+  "../apps/docs/content/docs/run-server/self-hosting",
+);
 const held = /\/(session-data-flow|monitoring-datadog)(\.(en|ja))?\.mdx$/;
-const internal = /검증 카드|검사자(?:가|는|의|\s)|카드는 보지 못|\b94S-\d+\b|\b(?:NOW|LATER|DROP)\s*[:：]|\b(?:NOT VERIFIED|VERIFIED)\b|\brun_[a-f0-9]{8,}\b|\btask_[a-f0-9]{8,}\b/u;
+const internal =
+  /검증 카드|검사자(?:가|는|의|\s)|카드는 보지 못|\b94S-\d+\b|\b(?:NOW|LATER|DROP)\s*[:：]|\b(?:NOT VERIFIED|VERIFIED)\b|\brun_[a-f0-9]{8,}\b|\btask_[a-f0-9]{8,}\b/u;
 
 interface Node {
   type: string;
@@ -18,12 +22,16 @@ interface Node {
 }
 
 function violations(text: string): string[] {
-  const tree = unified().use(remarkParse).use(remarkGfm).use(remarkMdx)
+  const tree = unified()
+    .use(remarkParse)
+    .use(remarkGfm)
+    .use(remarkMdx)
     .parse(text.replace(/^---\n[\s\S]*?\n---\n/, "")) as Node;
   const found: string[] = [];
   function visit(node: Node) {
     if (node.type === "code") return;
-    if (node.type === "delete" || node.name === "del") found.push("deleted prose");
+    if (node.type === "delete" || node.name === "del")
+      found.push("deleted prose");
     if (node.value && internal.test(node.value)) found.push(node.value);
     for (const child of node.children ?? []) visit(child);
   }
@@ -45,14 +53,26 @@ describe("self-hosting reader contract", () => {
   });
 
   test("normal owner, run and public issue contexts remain valid", () => {
-    expect(violations("owner 권한으로 같은 run을 재실행한다. [JeongJaeSoon/werft#1288](https://github.com/JeongJaeSoon/werft/pull/1288)"))
-      .toEqual([]);
+    expect(
+      violations(
+        "owner 권한으로 같은 run을 재실행한다. [JeongJaeSoon/werft#1288](https://github.com/JeongJaeSoon/werft/pull/1288)",
+      ),
+    ).toEqual([]);
     expect(violations("```sh\necho VERIFIED\n```\n")).toEqual([]);
-    expect(violations("`.quota-verified` 파일과 a verified commit은 정상 문맥이다.")).toEqual([]);
+    expect(
+      violations("`.quota-verified` 파일과 a verified commit은 정상 문맥이다."),
+    ).toEqual([]);
   });
 
   test("inline code does not hide internal history", () => {
-    for (const sample of ["검증 카드", "`94S-1435`", "`VERIFIED`", "NOW: 수정", "~~옛 설명~~", "<del>옛 설명</del>"]) {
+    for (const sample of [
+      "검증 카드",
+      "`94S-1435`",
+      "`VERIFIED`",
+      "NOW: 수정",
+      "~~옛 설명~~",
+      "<del>옛 설명</del>",
+    ]) {
       expect(violations(sample).length).toBeGreaterThan(0);
     }
   });

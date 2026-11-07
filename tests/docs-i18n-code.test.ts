@@ -1,22 +1,17 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import destinations from "./fixtures/self-hosting-language-status.json";
 
 const docsRoot = join(import.meta.dir, "..", "apps/docs/content/docs");
 
-const OPERATE = [
-  "capacity",
-  "configuration",
-  "database",
-  "execution",
-  "images-and-supply-chain",
-  "kubernetes-deployment",
-  "kubernetes-backend",
-  "metrics",
-  "monitoring-datadog",
-  "sdk-sample",
-  "session-data-flow",
-].map((name) => `run-server/self-hosting/operate/${name}`);
+const SELF_HOSTING = [
+  ...new Set(
+    Object.values(destinations)
+      .filter((entry) => !("integrated" in entry))
+      .flatMap((entry) => entry.paths),
+  ),
+];
 
 // CI runs only the Korean api-guide, so a translation whose commands drift
 // from it would document a flow nobody runs. Translating prose is free; the
@@ -43,24 +38,17 @@ function fencedBlocks(text: string): string[] {
 
 function pageBlocks(name: string, locale?: string): string[] {
   const file = locale ? `${name}.${locale}.mdx` : `${name}.mdx`;
-  return fencedBlocks(readFileSync(join(docsRoot, file), "utf8"));
+  const source = existsSync(join(docsRoot, file)) ? file : `${name}.mdx`;
+  return fencedBlocks(readFileSync(join(docsRoot, source), "utf8"));
 }
 
 describe("translated pages keep the Korean code blocks", () => {
   for (const page of [
     "reference/api-guide",
     "reference/examples",
-    ...OPERATE,
+    ...SELF_HOSTING,
   ]) {
     const source = pageBlocks(page);
-
-    // These pages have no code; the per-language comparison still catches a
-    // block added to only one of them.
-    const noCode = /\/(kubernetes-backend|sdk-sample)$/.test(page);
-    test(`${page}: the Korean page has ${noCode ? "no" : "some"} code blocks`, () => {
-      if (noCode) expect(source).toEqual([]);
-      else expect(source.length).toBeGreaterThan(0);
-    });
 
     for (const locale of ["en", "ja"]) {
       test(`${page}.${locale} matches ${page}`, () => {
@@ -68,6 +56,54 @@ describe("translated pages keep the Korean code blocks", () => {
       });
     }
   }
+
+  test("P01–P33 and the held pages have explicit language states", () => {
+    for (const id of [
+      ...Array.from(
+        { length: 33 },
+        (_, i) => `P${String(i + 1).padStart(2, "0")}`,
+      ),
+      "H01",
+      "H02",
+    ]) {
+      expect(Object.hasOwn(destinations, id)).toBe(true);
+    }
+    for (const entry of Object.values(destinations)) {
+      for (const path of entry.paths) {
+        expect(existsSync(join(docsRoot, `${path}.mdx`))).toBe(true);
+        for (const locale of ["en", "ja"] as const) {
+          const translated = existsSync(
+            join(docsRoot, `${path}.${locale}.mdx`),
+          );
+          if (entry.locales[locale] === "fallback")
+            expect(translated).toBe(false);
+          if (entry.locales[locale] === "unchanged")
+            expect(translated).toBe(true);
+        }
+      }
+    }
+  });
+
+  test("old guide pages use Korean fallback too", () => {
+    for (const file of new Bun.Glob(
+      "run-server/self-hosting/operate/*.mdx",
+    ).scanSync(docsRoot)) {
+      if (
+        /\.(en|ja)\.mdx$|\/(session-data-flow|monitoring-datadog)\.mdx$/.test(
+          file,
+        )
+      )
+        continue;
+      expect(fencedBlocks(readFileSync(join(docsRoot, file), "utf8"))).toEqual(
+        [],
+      );
+      for (const locale of ["en", "ja"]) {
+        expect(
+          existsSync(join(docsRoot, file.replace(/\.mdx$/, `.${locale}.mdx`))),
+        ).toBe(false);
+      }
+    }
+  });
 
   test("the extractor rejects fences it cannot compare", () => {
     expect(() => fencedBlocks("~~~sh\necho a\n~~~\n")).toThrow();
