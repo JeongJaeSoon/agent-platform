@@ -21,6 +21,13 @@
 #   scripts/test-ops.sh reseed <backup-dir>     localstack: put a backup's objects back into an emptied
 #                                              LocalStack (after a restart), then start
 #   scripts/test-ops.sh reset --yes             delete the installation and ALL its data; deploy again after
+#   scripts/test-ops.sh manifest <release-manifest.json> <settings-document>
+#                                              print the deploy manifest of a GitHub Release's manifest
+#
+# From the release bundle (werft-test-ops-<tag>.tar.gz, no checkout, no host
+# bun) preflight, deploy, start, stop, status, key, reset and manifest run; the
+# helper runs in the release's own control-host image. upgrade, backup,
+# reseed and restore-drill need the checkout at the release's source_commit.
 #
 # The object store is $TEST_OPS_OBJECT_STORE at deploy: localstack (the
 # default; in memory, lost on any restart) or s3 (AWS S3). Deploy records it
@@ -39,11 +46,42 @@
 # the host the API refuses to start until reseed or reset
 # (docs/operator/test-ops.md).
 set -euo pipefail
+
+# A release bundle is a tree that carries BUNDLE and is not a git work tree of
+# its own; a checkout never takes this path, whatever files it holds. The bundle
+# must be what its SHA256SUMS lists and nothing else before any of it runs: the
+# libraries sourced below and the helper image both come from the bundle.
+# SHA256SUMS catches damage and stray files, not a forged bundle, so fetch it
+# from the GitHub Release (docs/operator/test-ops.md).
+check_bundle_files() {
+  local root="$1" listed actual
+  [ -r "${root}/release-manifest.json" ] && [ -r "${root}/SHA256SUMS" ] \
+    || { echo "error: the bundle is incomplete: release-manifest.json or SHA256SUMS is missing" >&2; exit 1; }
+  (cd "$root" && if command -v sha256sum >/dev/null 2>&1; then sha256sum -c --quiet SHA256SUMS; else shasum -a 256 -c --quiet SHA256SUMS; fi) >&2 \
+    || { echo "error: a bundle file differs from SHA256SUMS (above); download the bundle again" >&2; exit 1; }
+  listed="$(awk '{print $2}' "${root}/SHA256SUMS" | sort)"
+  actual="$(cd "$root" && find . ! -type d ! -path ./SHA256SUMS | sed 's|^\./||' | sort)"
+  [ "$listed" = "$actual" ] \
+    || { echo "error: the bundle holds files SHA256SUMS does not list, or lacks listed ones; download it again" >&2; exit 1; }
+}
+BUNDLE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+MODE=checkout
+if [ -e "${BUNDLE_ROOT}/BUNDLE" ] \
+  && [ "$(git -C "$BUNDLE_ROOT" rev-parse --show-toplevel 2>/dev/null || true)" != "$(cd "$BUNDLE_ROOT" && pwd -P)" ]; then
+  MODE=bundle
+  check_bundle_files "$BUNDLE_ROOT"
+fi
+
 source "$(dirname "${BASH_SOURCE[0]}")/lib/backup-lib.sh"
 
 ENV_FILE="${TEST_OPS_ENV_FILE:-/etc/werft/test-ops.env}"
 STATE_DIR="${TEST_OPS_STATE_DIR:-/var/lib/werft/test-ops}"
 PROJECT="${TEST_OPS_PROJECT:-werft-test-ops}"
+# A failed first deploy leaves no current.json, so `stop` has nothing to read. Compose
+# finds a project by its labels, but some versions refuse to run with no compose file
+# and, given a model, remove only the networks a service of it uses: one placeholder
+# service puts core's `default` network in the model. Nothing is pulled or created.
+DOWN_BY_NAME="echo '{\"services\":{\"x\":{\"image\":\"alpine:3\"}},\"networks\":{\"default\":{}}}' | docker compose --project-name ${PROJECT} -f - down --remove-orphans"
 CURRENT="${STATE_DIR}/current.json"
 # The manifest of an upgrade that stopped the installation and did not finish.
 PENDING="${STATE_DIR}/pending.json"
@@ -57,6 +95,7 @@ PREVIOUS_WORKER="${STATE_DIR}/previous-worker"
 # Each worker image's runtime combination, by digest.
 RUNTIMES_DIR="${STATE_DIR}/worker-runtimes"
 HELPER="${REPO_ROOT}/scripts/lib/test-ops.ts"
+RELEASE_MANIFEST="${REPO_ROOT}/release-manifest.json"
 MIN_ENGINE_MAJOR=28
 # 2.24.6: the restore drill's overlay over an include (compose.restore.yml).
 MIN_COMPOSE=2.24.6
@@ -64,7 +103,7 @@ WAIT_TIMEOUT_SEC=600
 EXIT_REFUSED=3
 
 usage() {
-  sed -n '2,40p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
+  sed -n '2,47p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
   exit "$EXIT_USAGE"
 }
 
@@ -128,8 +167,19 @@ case "$VERB" in
     [ -n "$BACKUP_DIR" ] || usage
     case "$PORT_BASE" in ''|*[!0-9]*) usage ;; esac
     ;;
+  manifest)
+    [ $# -eq 2 ] || usage
+    MANIFEST="$1"
+    SETTINGS_FILE="$2"
+    ;;
   *) usage ;;
 esac
+if [ "$MODE" = bundle ]; then
+  case "$VERB" in
+    upgrade|backup|reseed|restore-drill)
+      die "$VERB is not in the release bundle: its gate and restore tools need the checkout. git clone the repository, git checkout the release's source_commit, bun install --frozen-lockfile, and run scripts/test-ops.sh from there with the same env file and state directory (docs/operator/test-ops.md)" ;;
+  esac
+fi
 [ -z "$APPROVED" ] || [ -r "$APPROVED" ] || die "approval file $APPROVED not found"
 case "$PROJECT" in
   ""|[!a-z0-9]*|*[!a-z0-9_-]*) die "TEST_OPS_PROJECT must match [a-z0-9][a-z0-9_-]*: '$PROJECT'" ;;
@@ -179,7 +229,7 @@ check_env_file() {
 load_manifest() {
   local file="$1" out name value
   [ -r "$file" ] || die "manifest $file not found"
-  out="$(bun_script "$HELPER" manifest "$file" ${2:+"$2"})" || die "manifest $file refused (above)"
+  out="$(run_helper manifest "$file" ${2:+"$2"})" || die "manifest $file refused (above)"
   while IFS='=' read -r name value; do
     case "$name" in
       SOURCE_COMMIT|API_IMAGE|WORKER_IMAGE|EGRESS_PROXY_IMAGE|SETTINGS_DIGEST) printf -v "$name" '%s' "$value" ;;
@@ -265,7 +315,7 @@ render() {
   errors="$(mktemp)"
   RENDER="$(ops_compose config --format json 2>"$errors")" || status=$?
   if [ "$status" != 0 ]; then
-    bun_script "$HELPER" render-refusal "$errors" >&2 || true
+    run_helper render-refusal "$errors" >&2 || true
     rm -f "$errors"
     die "compose refused the installation's settings (above)"
   fi
@@ -284,12 +334,55 @@ rendered() {
   printf '%s' "$RENDER" | jq -r --arg s "$1" --arg n "$2" '.services[$s].environment[$n] // empty'
 }
 
+# The released control-host image of the bundle's own release manifest. It
+# holds the sources and dependencies scripts/lib/test-ops.ts imports, so the
+# bundle needs no host bun. Only probe-store reaches the network (the bucket).
+bundle_helper() {
+  local network=none args=() mounts=() arg document image
+  [ "${1:-}" != --net ] || { network=bridge; shift; }
+  for arg in "$@"; do
+    if [ -f "$arg" ]; then
+      arg="$(cd "$(dirname "$arg")" && pwd -P)/$(basename "$arg")"
+      mounts+=(-v "${arg}:${arg}:ro")
+    fi
+    args+=("$arg")
+  done
+  # check-render reads the settings document the render names.
+  if [ -n "${RENDER:-}" ]; then
+    document="$(printf '%s' "$RENDER" | jq -r '.services.migrate.volumes[]? | select(.target == "/settings/installation.json") | .source')"
+    if [ -n "$document" ] && [ -f "$document" ]; then mounts+=(-v "${document}:${document}:ro"); fi
+  fi
+  image="$(jq -r '.images["control-host"] | "\(.image)@\(.digest)"' "$RELEASE_MANIFEST")"
+  docker run --rm -i --network "$network" --user "$(id -u):$(id -g)" -e HOME=/tmp \
+    --read-only --tmpfs /tmp -v "${HELPER}:/app/scripts/lib/test-ops.ts:ro" \
+    ${mounts[@]+"${mounts[@]}"} --entrypoint bun "$image" run /app/scripts/lib/test-ops.ts "${args[@]}"
+}
+
+# `run_helper <command> [args]`: scripts/lib/test-ops.ts with no stdin.
+run_helper() {
+  if [ "$MODE" = bundle ]; then
+    local out status=0
+    out="$(mktemp)"
+    bundle_helper "$@" </dev/null >"$out" 2> >(cat >&2) || status=$?
+    cat "$out"
+    rm -f "$out"
+    return "$status"
+  fi
+  bun_script "$HELPER" "$@"
+}
+
 # `with_render <command> [args]`: scripts/lib/test-ops.ts with the render on
 # stdin. stdout goes through a file, as bun_script explains.
 with_render() {
   local out status=0
   out="$(mktemp)"
-  printf '%s' "$RENDER" | bun run "$HELPER" "$@" >"$out" 2> >(cat >&2) || status=$?
+  if [ "$MODE" = bundle ]; then
+    local net=""
+    [ "$1" != probe-store ] || net=--net
+    printf '%s' "$RENDER" | bundle_helper ${net:+"$net"} "$@" >"$out" 2> >(cat >&2) || status=$?
+  else
+    printf '%s' "$RENDER" | bun run "$HELPER" "$@" >"$out" 2> >(cat >&2) || status=$?
+  fi
   cat "$out"
   rm -f "$out"
   return "$status"
@@ -320,13 +413,34 @@ version_at_least() {
   done
 }
 
+# The loaded manifest names this release's commit and exactly its three images.
+# A checkout has git for this.
+check_bundle() {
+  local image app name want
+  [ "$(jq -r .commit "$RELEASE_MANIFEST")" = "$SOURCE_COMMIT" ] \
+    || die "the manifest's source_commit is $SOURCE_COMMIT, this bundle is $(jq -r .commit "$RELEASE_MANIFEST")"
+  for app in control-host:API_IMAGE worker:WORKER_IMAGE egress-proxy:EGRESS_PROXY_IMAGE; do
+    want="$(jq -r --arg a "${app%%:*}" '.images[$a] | "\(.image)@\(.digest)"' "$RELEASE_MANIFEST")"
+    name="${app#*:}"
+    image="${!name}"
+    [ "$image" = "$want" ] || die "the manifest's ${name} is $image, this bundle's release names $want"
+  done
+}
+
 # The loaded manifest against this host. The workspace quota itself is the
 # scheduler's own probe at startup (deploy and upgrade wait for it).
 preflight() {
   local head engine compose_version running_port=""
-  require_tools docker jq bun git curl
-  head="$(git -C "$REPO_ROOT" rev-parse HEAD)"
-  if [ "$VERB" = start ]; then
+  if [ "$MODE" = bundle ]; then
+    require_tools docker jq curl
+    check_bundle
+  else
+    require_tools docker jq bun git curl
+    head="$(git -C "$REPO_ROOT" rev-parse HEAD)"
+  fi
+  if [ "$MODE" = bundle ]; then
+    :
+  elif [ "$VERB" = start ]; then
     # Start recreates containers from the compose files, and those live in
     # infra/: another commit is fine while they are the release's own.
     [ "$head" = "$SOURCE_COMMIT" ] || git -C "$REPO_ROOT" diff --quiet "$SOURCE_COMMIT" "$head" -- infra 2>/dev/null \
@@ -335,7 +449,7 @@ preflight() {
     [ "$head" = "$SOURCE_COMMIT" ] \
       || die "the checkout is at $head, the manifest's source_commit is $SOURCE_COMMIT; check that commit out first"
   fi
-  [ -z "$(git -C "$REPO_ROOT" status --porcelain --untracked-files=no)" ] \
+  [ "$MODE" = bundle ] || [ -z "$(git -C "$REPO_ROOT" status --porcelain --untracked-files=no)" ] \
     || die "the checkout has local changes; the compose files must be the release's"
   engine="$(docker version --format '{{.Server.Version}}' 2>/dev/null)" || die "cannot reach the Docker daemon"
   version_at_least "$engine" "${MIN_ENGINE_MAJOR}.0.0" \
@@ -370,9 +484,10 @@ readyz() { curl -sS --max-time 3 "$API_URL/readyz" 2>/dev/null || true; }
 # workspace quota probes.
 start_apps() {
   if ! ops_compose up -d --wait --wait-timeout "$WAIT_TIMEOUT_SEC" "$@" api scheduler reconciler; then
-    log "the installation did not become healthy; last scheduler and api log lines:"
-    ops_compose logs --no-color --tail 30 scheduler api >&2 || true
-    die "start failed; the scheduler's quota or network preflight is the usual cause (docs/operator/test-ops.md)"
+    log "the installation did not become healthy; last log lines of the services that fail first:"
+    ops_compose logs --no-color --tail 30 migrate egress-proxy scheduler api >&2 || true
+    # A first deploy that fails leaves no current.json, so `stop` has nothing to take down.
+    die "start failed (log lines above; for the scheduler, its quota or network preflight is the usual cause, docs/operator/test-ops.md). Containers that started stay up; take them down with: ${DOWN_BY_NAME} (never -v; the volumes stay)"
   fi
   log "readyz: $(readyz)"
 }
@@ -813,6 +928,27 @@ restore_drill() {
   [ "$KEEP" = 0 ] || log "restore-drill: kept project $DRILL; tear it down with docker compose -p $DRILL -f infra/compose.yml down -v"
   return "$status"
 }
+
+# The deploy manifest of a GitHub Release's release-manifest.json plus the
+# digest of the settings document. Needs neither the env file nor a host.
+make_manifest() {
+  [ -r "$MANIFEST" ] || die "release manifest $MANIFEST not found"
+  [ -f "$SETTINGS_FILE" ] || die "settings document $SETTINGS_FILE not found"
+  jq -e --arg digest "sha256:$(sha256_file "$SETTINGS_FILE")" '{
+    source_commit: .commit,
+    images: {
+      control_host: (.images["control-host"] | "\(.image)@\(.digest)"),
+      worker: (.images.worker | "\(.image)@\(.digest)"),
+      egress_proxy: (.images["egress-proxy"] | "\(.image)@\(.digest)")
+    },
+    settings_digest: $digest
+  }' "$MANIFEST" || die "$MANIFEST is not a release manifest"
+}
+if [ "$VERB" = manifest ]; then
+  require_tools jq
+  make_manifest
+  exit 0
+fi
 
 check_env_file
 # Deploy takes TEST_OPS_OBJECT_STORE (localstack by default) and records it;

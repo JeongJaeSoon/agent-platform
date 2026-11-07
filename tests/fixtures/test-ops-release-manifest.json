@@ -1,0 +1,38 @@
+{
+  "schema": 1,
+  "tag": "v0.0.0-bundle-fixture",
+  "commit": "0123456789abcdef0123456789abcdef01234567",
+  "images": {
+    "control-host": {
+      "image": "ghcr.io/example/werft-control-host",
+      "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "platforms": {
+        "amd64": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "arm64": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+      }
+    },
+    "worker": {
+      "image": "ghcr.io/example/werft-worker",
+      "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "platforms": {
+        "amd64": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "arm64": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+      }
+    },
+    "egress-proxy": {
+      "image": "ghcr.io/example/werft-egress-proxy",
+      "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "platforms": {
+        "amd64": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "arm64": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+      }
+    }
+  },
+  "workerRuntime": {},
+  "chart": {
+    "name": "werft",
+    "version": "0.0.0",
+    "appVersion": "v0.0.0-bundle-fixture",
+    "ref": "oci://ghcr.io/example/charts/werft"
+  }
+}
