@@ -541,8 +541,11 @@ describe("images.yml release job", () => {
     );
     // The tag is the ref's, or RELEASE_REF's when a main run releases.
     expect(runs.join("\n")).toContain(
-      'ref="${RELEASE_REF:-$GITHUB_REF}"\n.github/scripts/release-publish.sh "${ref#refs/tags/}" release-manifest.json',
+      'ref="${RELEASE_REF:-$GITHUB_REF}"\ntag="${ref#refs/tags/}"\n.github/scripts/release-publish.sh "$tag" release-manifest.json',
     );
+    // The auto release job shares these steps, so the bundle is built and
+    // attached there too, after the approval chain (release-tag).
+    expect(jobs["release-publish"]?.steps).toEqual(jobs.release?.steps);
   });
 
   test("the bundle is built before it is attached, and only the release job attaches it", () => {
@@ -552,8 +555,9 @@ describe("images.yml release job", () => {
     expect(text.indexOf("test-ops-bundle.sh")).toBeLessThan(
       text.indexOf("release-publish.sh"),
     );
+    expect(text).toContain("werft-test-ops-$" + "{tag}.tar.gz.sha256");
     expect(text).toContain(
-      "werft-test-ops-$" + "{GITHUB_REF_NAME}.tar.gz.sha256",
+      '"$' + '{ref#refs/tags/}" release-manifest.json bundle-out',
     );
     // Every other run builds and checks it, and uploads nothing.
     const other = jobs["test-ops-bundle"];
