@@ -124,6 +124,8 @@ ready 본문과 200, docs 200을 확인한다. 30번 안에 ready가 되지 않�
 
 ## 자주 막히는 곳
 
+첫날에는 설치 직후·1시간 뒤·업무 종료 전에 `kubectl -n werft get job,deploy,pods,pvc`와 api·scheduler·reconciler 로그, 각 `--health`, 디스크·inode·PVC 여유를 확인한다. 백업 실패 알림·checkpoint GC 일정·key 폐기 연락 경로·provider 비용 한도를 점검한다. release와 namespace가 예시와 다르면 모든 명령을 해당 설치 값으로 바꾼다.
+
 NetworkPolicy를 강제하지 않는 CNI에는 worker 격리가 없다. Secret 키 누락, 잘못된 installationId, S3 보호 설정 오류, image pull 실패를 Pod와 Job 로그에서 구분한다. fixture chart의 render 성공은 게시 chart의 설치 성공과 다르다.
 
 ## 되돌리기

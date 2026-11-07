@@ -42,6 +42,8 @@ kubectl -n werft exec <worker-pod> -- df -i /workspace
 
 ## transcript와 결과물
 
+EBS 같은 zonal PVC는 AZ에 묶인다. 노드를 교체하거나 Kubernetes를 올린 뒤 worker가 같은 AZ의 사용 가능한 노드에서 PVC에 다시 붙는지 설치 환경에서 확인한다. 이 EKS 재연결은 로컬 kind 시험으로 확인되지 않는다.
+
 Kubernetes의 `worker.workspace.quotaMb`를 바꾸면 기존 PVC의 `werft.workspace-size` annotation과 달라 그 세션의 launch가 거절된다. 진행 중인 세션이 없을 때 새 세션용 값을 바꾼다. 크기를 바꾸겠다고 기존 PVC를 지우지 않는다.
 
 ## transcript 상한
