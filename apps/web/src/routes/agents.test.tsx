@@ -2675,6 +2675,32 @@ describe("릴리스 되돌리기", () => {
     expect(screen.queryByText(/되돌렸습니다/) === null).toBe(true);
   });
 
+  test("응답이 사라진 뒤 상세 읽기가 계속 실패해도 확인하지 못했다는 안내는 화면에 남는다", async () => {
+    const server = agentServer();
+    await releasedTwice(server);
+    const activate = server.routes[ACTIVATE] as Answer;
+    const read = server.routes[DETAIL_READ] as Answer;
+    let lost = false;
+    renderAt(RELEASE_TAB, {
+      ...meOk,
+      ...server.routes,
+      [ACTIVATE]: async (request) => {
+        await activate(request);
+        lost = true;
+        throw new TypeError("Failed to fetch");
+      },
+      [DETAIL_READ]: (request) => {
+        if (!lost) return read(request);
+        throw new TypeError("Failed to fetch");
+      },
+    });
+    await confirmRollback(await setupUser());
+    expect(
+      await screen.findByText(/되돌렸는지 확인하지 못했습니다/),
+    ).toBeDefined();
+    expect(screen.queryByText(/되돌렸습니다/) === null).toBe(true);
+  });
+
   test("응답이 사라지고 상태도 다시 읽지 못하면 되돌렸는지 확인하지 못했다고 말한다", async () => {
     const server = agentServer();
     await releasedTwice(server);

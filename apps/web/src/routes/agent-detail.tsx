@@ -145,10 +145,16 @@ function AgentDetailPage({ id }: { readonly id: string }) {
   if (detail.isPending) return <StatusScreen kind="loading" />;
   if (detail.error) {
     if (isApiError(detail.error, "FORBIDDEN")) return <OutsideAgent id={id} />;
-    return isApiError(detail.error, "NOT_FOUND") ? (
-      <AgentNotFound />
-    ) : (
-      <LoadFailure error={detail.error} onRetry={() => void detail.refetch()} />
+    if (isApiError(detail.error, "NOT_FOUND")) return <AgentNotFound />;
+    // A rollback whose outcome could not be read leaves its notice here too.
+    return (
+      <>
+        <PlacedOutcome placed={placed} at={placed?.at ?? "page"} />
+        <LoadFailure
+          error={detail.error}
+          onRetry={() => void detail.refetch()}
+        />
+      </>
     );
   }
   return (
