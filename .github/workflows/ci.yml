@@ -338,6 +338,7 @@ jobs:
               - tests/integration-jobs.
               - tests/local-sh.
               - tests/preview-reap.
+              - tests/release-auto.
               - tests/sdk-release.
               - tests/supply-chain.
               - tests/test-files.

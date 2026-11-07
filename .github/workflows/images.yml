@@ -8,7 +8,9 @@ name: Images
 # its digests are what the release manifest pins. Registry CD
 # beyond the push is D5. After the promotion the chart follows, with that run's
 # digests in its values, under the same two events and the same single approval. A tag
-# then gets a GitHub Release carrying the manifest (`release`).
+# then gets a GitHub Release carrying the manifest (`release`). A merge that
+# turns CHANGELOG.md's `## 미출시` into `## vX.Y.Z` releases from its own main
+# push run instead (the `release-*` jobs): one approval, the tag made last.
 #
 # Every build also checks what the image ships against THIRD_PARTY_NOTICES.md
 # and scans it for known vulnerabilities. The `supply-chain` job is
@@ -407,7 +409,7 @@ jobs:
           path: held-sources-prior
       - name: snapshot.debian.org holds what the images list
         env:
-          SOURCES_MODE: ${{ github.ref == 'refs/heads/main' && 'main' || 'release' }}
+          SOURCES_MODE: ${{ env.RELEASE_REF == '' && github.ref == 'refs/heads/main' && 'main' || 'release' }}
         run: .github/scripts/image-sources.sh debian-sources unverified-sources "$SOURCES_MODE" held-sources-prior held-sources
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
@@ -417,7 +419,7 @@ jobs:
           if-no-files-found: ignore
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: unverified-sources
+          name: unverified-sources${{ env.ARTIFACT_SUFFIX }}
           path: unverified-sources/*.json
           if-no-files-found: error
 
@@ -573,7 +575,7 @@ jobs:
           chmod +x bin/kind bin/kubectl
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: image-digests-published
+          name: image-digests-published${{ env.ARTIFACT_SUFFIX }}
           path: published
       - name: Package the chart with this run's images
         run: bun .github/scripts/chart-package.ts published chart-out
@@ -607,7 +609,7 @@ jobs:
         run: .github/scripts/assert-no-docker-hub-images.sh docker
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: chart
+          name: chart${{ env.ARTIFACT_SUFFIX }}
           path: chart-out/
           if-no-files-found: error
 
@@ -631,7 +633,7 @@ jobs:
       - *helm-tool
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: chart
+          name: chart${{ env.ARTIFACT_SUFFIX }}
           path: chart-out
       - name: Push the chart and read it back without a login
         env:
@@ -657,18 +659,18 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: write
-    steps:
+    steps: &release-steps
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: ./.github/actions/bun-setup
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: image-digests-published
+          name: image-digests-published${{ env.ARTIFACT_SUFFIX }}
           path: published
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: chart
+          name: chart${{ env.ARTIFACT_SUFFIX }}
           path: chart-out
       - name: Write the manifest
         run: bun .github/scripts/release-manifest.ts published chart-out release-manifest.json
@@ -676,7 +678,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: .github/scripts/release-publish.sh "$GITHUB_REF_NAME" release-manifest.json
+        run: |
+          ref="${RELEASE_REF:-$GITHUB_REF}"
+          .github/scripts/release-publish.sh "${ref#refs/tags/}" release-manifest.json
       - name: Show the manifest
         run: |
           {
@@ -694,6 +698,198 @@ jobs:
       contents: read
       packages: write
     steps: *chart-publish-steps
+
+  # A release by merge. A pull request that turns CHANGELOG.md's `## 미출시`
+  # into `## vX.Y.Z` releases that version from the push that merges it, in
+  # this run, with one approval and no tag before it:
+  #   release-detect   reads the one new version heading of this push; no new
+  #                    heading, no other release job runs
+  #   release-gate     main's whole chain and ci.yml are green on this commit
+  #   sources-release  every Debian source is verified (main only warns)
+  #   release-approve  the `release` environment: the only approval, the same
+  #                    environment a pushed tag waits for at `publish`
+  #   promote-release  vX and sha-<12> on the digests main already built,
+  #                    smoked and scanned: what was scanned is what ships
+  #   chart-release, chart-publish-release, release-tag, release-publish
+  #                    the pushed-tag chain's tail, with the tag made last
+  # `RELEASE_REF` stands in for GITHUB_REF in the scripts of these jobs, and
+  # ARTIFACT_SUFFIX keeps their artifacts apart from main's in the same run.
+  # A tag a person pushes runs its own chain above, unchanged.
+  release-detect:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      tag: ${{ steps.detect.outputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: detect
+        env:
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: .github/scripts/release-auto.sh detect
+
+  release-gate:
+    needs: [release-detect, chart-publish-main]
+    if: needs.release-detect.outputs.tag != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 100
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: ci.yml is green on this commit
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: .github/scripts/release-auto.sh ci
+      - name: The version is still free
+        env:
+          TAG: ${{ needs.release-detect.outputs.tag }}
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: .github/scripts/release-auto.sh free
+
+  sources-release:
+    needs: [release-detect, publish-main]
+    if: needs.release-detect.outputs.tag != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      RELEASE_REF: refs/tags/${{ needs.release-detect.outputs.tag }}
+      ARTIFACT_SUFFIX: -release
+    steps: *sources-steps
+
+  release-approve:
+    needs: [release-detect, release-gate, sources-release]
+    if: needs.release-detect.outputs.tag != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: release
+    steps:
+      - name: Approved
+        env:
+          TAG: ${{ needs.release-detect.outputs.tag }}
+        run: echo "release ${TAG} of ${GITHUB_SHA} is approved; no tag exists yet"
+
+  # Shares `images-promote` with the pushed-tag chain: both write vX and sha-<12>,
+  # and the check-then-write in image-promote.sh is only safe one at a time.
+  promote-release:
+    needs: [release-detect, release-approve, index-main]
+    if: needs.release-detect.outputs.tag != ''
+    concurrency:
+      group: images-promote
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    env:
+      RELEASE_REF: refs/tags/${{ needs.release-detect.outputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Inside the promote lock: a tag or Release made during the approval wait
+      # must stop the run before any vX image is published.
+      - name: The version is still free
+        env:
+          TAG: ${{ needs.release-detect.outputs.tag }}
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: .github/scripts/release-auto.sh free
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: staged-digests
+          path: staged-main
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: unverified-sources-release
+          path: unverified-release
+      - name: Stage main's digests as the release's
+        run: .github/scripts/release-stage.sh staged-main unverified-release staged
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          driver-opts: image=${{ env.BUILDKIT_IMAGE }}
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Promote the staged digests under the release tag
+        run: .github/scripts/image-promote.sh staged digests
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: image-digests-published-release
+          path: digests/*.json
+          if-no-files-found: error
+
+  chart-release:
+    needs: [release-detect, promote-release]
+    if: needs.release-detect.outputs.tag != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      RELEASE_REF: refs/tags/${{ needs.release-detect.outputs.tag }}
+      ARTIFACT_SUFFIX: -release
+    steps: *chart-steps
+
+  chart-publish-release:
+    needs: [release-detect, chart-release]
+    if: needs.release-detect.outputs.tag != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    env:
+      ARTIFACT_SUFFIX: -release
+    steps: *chart-publish-steps
+
+  # The tag comes last, after the approval and after everything it names has
+  # been published, so a rejected or failed release leaves no tag behind.
+  # A GITHUB_TOKEN tag starts no run of its own: nothing else publishes.
+  release-tag:
+    needs: [release-detect, chart-publish-release]
+    if: needs.release-detect.outputs.tag != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Annotated tag at the approved commit
+        env:
+          TAG: ${{ needs.release-detect.outputs.tag }}
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: .github/scripts/release-auto.sh tag
+
+  release-publish:
+    needs: [release-detect, release-tag]
+    if: needs.release-detect.outputs.tag != ''
+    concurrency:
+      group: images-release
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      RELEASE_REF: refs/tags/${{ needs.release-detect.outputs.tag }}
+      ARTIFACT_SUFFIX: -release
+    steps: *release-steps
 
   # The daily run's failed verdict as an issue: nobody watches a scheduled
   # run, and a PR's findings are already in its own checks. A manual run
