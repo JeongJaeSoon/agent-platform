@@ -9,6 +9,7 @@ import {
 import { focusManager, onlineManager } from "@tanstack/react-query";
 import type { ApiError } from "@werft-ai/client";
 import {
+  type AgentDetail,
   agentDetailSchema,
   CREDENTIAL_REVOKE_NOTICE,
   type ProfileSummary,
@@ -1953,6 +1954,24 @@ describe("새 에이전트: 첫 릴리스", () => {
     expect(document.body.textContent).not.toContain("ws_acme_strict_v2");
     expect(screen.queryByLabelText("저장소")).toBeNull();
   });
+
+  test("이름 없는 설치 프로필도 id 대신 종류와 모델로 보인다", async () => {
+    const server = agentServer();
+    renderAt("/agents/new", {
+      ...meOk,
+      ...server.routes,
+      "GET /v1/profiles": () =>
+        json(200, {
+          items: [catalogProfile("imported-ceiling-7", CARD.model, ["Read"])],
+        }),
+    });
+    const user = await setupUser();
+    await toJobStep(user);
+    await pickModel(user);
+    await profileSelect();
+    expect(document.body.textContent).toContain(`설치 프로필 · ${CARD.model}`);
+    expect(document.body.textContent).not.toContain("imported-ceiling-7");
+  });
 });
 
 describe("에이전트 상세", () => {
@@ -2454,8 +2473,13 @@ describe("릴리스 되돌리기", () => {
 
   test("확인 창은 따라가기 값을 켜짐 유지로 확정해 보이고, 저장소 설정은 되돌리지 않는다고 알린다", async () => {
     const server = agentServer();
-    await releasedTwice(server);
-    renderAt(RELEASE_TAB, { ...meOk, ...server.routes });
+    // The rollback target runs on the newest version of a named lineage.
+    await onProfiles(server, "ws_strict_v2", "ws_strict_v2");
+    renderAt(RELEASE_TAB, {
+      ...meOk,
+      ...server.routes,
+      ...catalog(strict(1), strict(2)),
+    });
     const user = await setupUser();
     const dialog = await openConfirm(user);
     expect(dialog.getByText(/켜짐 유지/)).toBeDefined();
@@ -2556,6 +2580,125 @@ describe("릴리스 되돌리기", () => {
     const order = api.calls.map((c) => `${c.method} ${c.path}`);
     const at = order.indexOf(`POST /v1/agents/${AGENT_ID}/activate`);
     expect(order.slice(at + 1)).toContain(`GET /v1/agents/${AGENT_ID}`);
+  });
+
+  const ACTIVATE = `POST /v1/agents/${AGENT_ID}/activate`;
+  const DETAIL_READ = `GET /v1/agents/${AGENT_ID}`;
+  type Answer = (request: Request) => Response | Promise<Response>;
+
+  async function confirmRollback(user: User) {
+    await user.click(await rollbackButton());
+    await user.click(
+      within(await screen.findByRole("dialog")).getByRole("button", {
+        name: "되돌리기",
+      }),
+    );
+  }
+
+  test("진행 중이던 상세 읽기가 있어도 결과 줄은 되돌린 뒤 새로 읽은 값으로 만든다", async () => {
+    const server = agentServer({
+      afterActivate: () => ({ tracking: "pinned" }),
+    });
+    await releasedTwice(server);
+    const read = server.routes[DETAIL_READ] as Answer;
+    let hold = false;
+    let open: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    const { services } = renderAt(RELEASE_TAB, {
+      ...meOk,
+      ...server.routes,
+      // The held read answers with the state from before the rollback.
+      [DETAIL_READ]: async (request) => {
+        const answer = await read(request);
+        if (hold) {
+          hold = false;
+          await gate;
+        }
+        return answer;
+      },
+    });
+    const user = await setupUser();
+    await rollbackButton();
+    // The agent detail is the cached query whose answer lists releases.
+    const detail = services.queryClient
+      .getQueryCache()
+      .findAll()
+      .find((query) =>
+        Array.isArray((query.state.data as AgentDetail)?.releases),
+      );
+    if (!detail) throw new Error("the agent detail is not cached");
+    hold = true;
+    void services.queryClient.refetchQueries({
+      queryKey: detail.queryKey,
+      exact: true,
+    });
+    await confirmRollback(user);
+    const line = await screen.findByText(/되돌렸습니다/);
+    expect(line.textContent).toContain("꺼짐으로 바뀜");
+    open();
+  });
+
+  test("응답이 사라져도 서버가 되돌렸으면 다시 읽어 되돌렸다고 말한다", async () => {
+    const server = agentServer({
+      afterActivate: () => ({ tracking: "pinned" }),
+    });
+    await releasedTwice(server);
+    const activate = server.routes[ACTIVATE] as Answer;
+    renderAt(RELEASE_TAB, {
+      ...meOk,
+      ...server.routes,
+      [ACTIVATE]: async (request) => {
+        await activate(request);
+        throw new TypeError("Failed to fetch");
+      },
+    });
+    await confirmRollback(await setupUser());
+    const line = await screen.findByText(/되돌렸습니다/);
+    expect(line.textContent).toContain("꺼짐으로 바뀜");
+    expect(screen.queryByText(/되돌리지 않았습니다/) === null).toBe(true);
+  });
+
+  test("응답이 사라지고 서버도 되돌리지 않았으면 되돌리지 않았다고 말한다", async () => {
+    const server = agentServer();
+    await releasedTwice(server);
+    renderAt(RELEASE_TAB, {
+      ...meOk,
+      ...server.routes,
+      [ACTIVATE]: () => {
+        throw new TypeError("Failed to fetch");
+      },
+    });
+    await confirmRollback(await setupUser());
+    expect(await screen.findByText(/되돌리지 않았습니다/)).toBeDefined();
+    expect(screen.queryByText(/되돌렸습니다/) === null).toBe(true);
+  });
+
+  test("응답이 사라지고 상태도 다시 읽지 못하면 되돌렸는지 확인하지 못했다고 말한다", async () => {
+    const server = agentServer();
+    await releasedTwice(server);
+    const activate = server.routes[ACTIVATE] as Answer;
+    const read = server.routes[DETAIL_READ] as Answer;
+    let failNextRead = false;
+    renderAt(RELEASE_TAB, {
+      ...meOk,
+      ...server.routes,
+      [ACTIVATE]: async (request) => {
+        await activate(request);
+        failNextRead = true;
+        throw new TypeError("Failed to fetch");
+      },
+      [DETAIL_READ]: (request) => {
+        if (!failNextRead) return read(request);
+        failNextRead = false;
+        throw new TypeError("Failed to fetch");
+      },
+    });
+    await confirmRollback(await setupUser());
+    expect(await screen.findByText(/확인하지 못했습니다/)).toBeDefined();
+    expect(screen.queryByText(/되돌리지 않았습니다/) === null).toBe(true);
+    expect(screen.queryByText(/되돌렸습니다/) === null).toBe(true);
   });
 
   test("되돌린 뒤 다시 읽지 못하면 확인하지 못했다고 하고 값을 지어내지 않는다", async () => {

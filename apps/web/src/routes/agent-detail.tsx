@@ -325,6 +325,16 @@ function AgentView({
       : t("agent.noActive");
   };
 
+  // A read in flight began before the rollback and would answer with the old
+  // values, so it is dropped first. Null when the read fails.
+  const readAfterRollback = async () => {
+    const options = agentQuery(client, agent.id);
+    await queryClient.cancelQueries({ queryKey: options.queryKey });
+    return queryClient
+      .fetchQuery({ ...options, staleTime: 0, retry: false })
+      .catch(() => null);
+  };
+
   const activate = useMutation<
     ActivateAgentResponse,
     ApiError,
@@ -354,13 +364,7 @@ function AgentView({
       if (result.receipt_id === null) {
         onOutcome({ kind: "notice", text: t("agent.alreadyActive") });
       } else {
-        const after = await queryClient
-          .fetchQuery({
-            ...agentQuery(client, agent.id),
-            staleTime: 0,
-            retry: false,
-          })
-          .catch(() => null);
+        const after = await readAfterRollback();
         onOutcome({
           kind: "notice",
           text: after
@@ -378,7 +382,39 @@ function AgentView({
         queryKey: queryKeysOf(client).agents,
       });
     },
-    onError: (error, { expected, seenActive }) => {
+    onError: async (error, { release, expected, seenActive, before }) => {
+      // The server may have committed before the answer was lost, so the
+      // outcome is read, never assumed.
+      if (error.code === "NETWORK_ERROR") {
+        const after = await readAfterRollback();
+        const done = after?.agent.active_release_id === release.id;
+        onOutcome(
+          after === null
+            ? {
+                kind: "error",
+                text: t("agent.rollback.unknown", {
+                  release: releaseLabel(release.id),
+                }),
+              }
+            : done
+              ? {
+                  kind: "notice",
+                  text: rolledBackText(t, {
+                    release: releaseLabel(release.id),
+                    before,
+                    after,
+                  }),
+                }
+              : {
+                  kind: "error",
+                  text: `${agentRefusal(t, error, role)} ${t("agent.rollback.kept")}`,
+                },
+        );
+        await queryClient.invalidateQueries({
+          queryKey: queryKeysOf(client).agents,
+        });
+        return;
+      }
       // Someone else moved the pointer since this page loaded. Retrying with
       // a fresh revision would silently undo their choice, so stop and let
       // the person look at what changed first.

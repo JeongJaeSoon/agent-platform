@@ -138,6 +138,43 @@ describe("rollbackPreview", () => {
     ).toBe(false);
   });
 
+  const installed = (
+    id: string,
+    name: string | null,
+    version: number,
+    previousId: string | null,
+  ) =>
+    ({
+      ...profile(id, version),
+      source: "operator",
+      workspace: undefined,
+      installation: { name, version, state: "usable", previous_id: previousId },
+    }) as unknown as ProfileSummary;
+  const follows = {
+    profile_tracking: "follow",
+    model_source: "fixed",
+  } as const;
+
+  test("이름이 달라진 다음 설치 판이 가리키는 이전 판은 최신으로 확정하지 않는다", () => {
+    const profiles = [
+      installed("inst_a_v1", "alpha", 1, null),
+      installed("inst_b_v1", "beta", 1, "inst_a_v1"),
+    ];
+    expect(
+      rollbackPreview(follows, release("inst_a_v1"), profiles).tracking,
+    ).toBe("undetermined");
+    expect(
+      rollbackPreview(follows, release("inst_b_v1"), profiles).tracking,
+    ).toBe("keepOn");
+  });
+
+  test("이름 없는 설치 프로필은 계보를 알 수 없어 최신으로 확정하지 않는다", () => {
+    const profiles = [installed("inst_x", null, 1, null)];
+    expect(rollbackPreview(follows, release("inst_x"), profiles).tracking).toBe(
+      "undetermined",
+    );
+  });
+
   test("프로필은 이름으로 알리고 id를 내놓지 않는다", () => {
     const preview = rollbackPreview(
       { profile_tracking: "follow", model_source: "fixed" },

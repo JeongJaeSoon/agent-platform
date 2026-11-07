@@ -231,6 +231,8 @@ export const agentsKo = {
   "agent.rollback.mayRefuse":
     "차단된 프로필이거나, 프로필 내용이 달라졌거나, 자격 증명이 연결되지 않았으면 거절되고 지금 설정이 유지됩니다.",
   "agent.rollback.kept": "되돌리지 않았습니다. 지금 설정이 유지됩니다.",
+  "agent.rollback.unknown":
+    "{release}(으)로 되돌렸는지 확인하지 못했습니다. 서버에 닿지 못했고 상태도 다시 읽지 못했습니다. 릴리스 목록에서 활성 릴리스를 확인하세요.",
   "agent.rolledBack": "{release}(으)로 되돌렸습니다.",
   "agent.rolledBack.reenable":
     "다시 따라가게 하려면 프로필 칸에서 '최신으로 올리기'를 누르세요.",
@@ -341,7 +343,7 @@ export const agentsKo = {
   "agent.newSession.blocked.paused":
     "일시정지된 에이전트라 세션을 시작할 수 없습니다.",
   "agent.newSession.blocked.noRelease":
-    "활성 릴리스가 없어 세션을 시작할 수 없습니다. 릴리스를 활성화하면 시작할 수 있습니다.",
+    "활성 릴리스가 없어 세션을 시작할 수 없습니다. 상세 설정에서 프로필을 골라 저장하면 시작할 수 있습니다.",
   "agent.newSession.blocked.outsider":
     "담당 팀 구성원과 관리자만 이 에이전트로 세션을 시작할 수 있습니다.",
   "agent.newSession.blocked.profile":
@@ -708,6 +710,8 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.rollback.mayRefuse":
     "A blocked profile, a profile whose content changed, or credentials that are not connected refuse the rollback and the current settings stay.",
   "agent.rollback.kept": "Nothing was rolled back. The current settings stay.",
+  "agent.rollback.unknown":
+    "Could not confirm whether it was rolled back to {release}. The server was not reached and the state could not be read again. Check the active release in the list.",
   "agent.rolledBack": "Rolled back to {release}.",
   "agent.rolledBack.reenable":
     "To follow the profile again, use 'Bring to latest' in the profile section.",
@@ -818,7 +822,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.newSession.blocked.paused":
     "This agent is paused, so no session can start.",
   "agent.newSession.blocked.noRelease":
-    "This agent has no active release, so no session can start. Activate a release to start one.",
+    "This agent has no active release, so no session can start. Choose a profile in Settings and save to start one.",
   "agent.newSession.blocked.outsider":
     "Only the responsible team's members and the agent's admins can start a session with it.",
   "agent.newSession.blocked.profile":
@@ -1179,6 +1183,8 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.rollback.mayRefuse":
     "ブロックされたプロファイル、内容が変わったプロファイル、資格情報が未接続の場合は拒否され、現在の設定が維持されます。",
   "agent.rollback.kept": "戻していません。現在の設定が維持されます。",
+  "agent.rollback.unknown":
+    "{release}に戻したか確認できませんでした。サーバーに届かず、状態も再読み込みできませんでした。一覧で有効なリリースを確認してください。",
   "agent.rolledBack": "{release}に戻しました。",
   "agent.rolledBack.reenable":
     "再び追従させるには、プロファイル欄の「最新にする」を押してください。",
@@ -1286,7 +1292,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.newSession.blocked.paused":
     "一時停止中のエージェントのため、セッションを開始できません。",
   "agent.newSession.blocked.noRelease":
-    "有効なリリースがないため、セッションを開始できません。リリースを有効化すると開始できます。",
+    "有効なリリースがないため、セッションを開始できません。「詳細設定」でプロファイルを選んで保存すると開始できます。",
   "agent.newSession.blocked.outsider":
     "このエージェントでセッションを開始できるのは、担当チームのメンバーと管理者だけです。",
   "agent.newSession.blocked.profile":

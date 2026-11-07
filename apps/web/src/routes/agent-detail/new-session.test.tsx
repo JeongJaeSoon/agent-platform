@@ -361,7 +361,7 @@ describe("이 에이전트로 새 세션", () => {
     test("릴리스가 없다", async () => {
       renderAt(DETAIL, { ...meAs(me()), ...agentServer().routes });
       await expectBlocked(
-        "활성 릴리스가 없어 세션을 시작할 수 없습니다. 릴리스를 활성화하면 시작할 수 있습니다.",
+        "활성 릴리스가 없어 세션을 시작할 수 없습니다. 상세 설정에서 프로필을 골라 저장하면 시작할 수 있습니다.",
       );
     });
 

@@ -33,7 +33,13 @@ function runsNewest(
   const own = profiles.find((profile) => profile.id === profileId);
   if (own === undefined) return null;
   const key = lineage(own);
-  if (key === null) return true;
+  // Nothing ties a nameless profile to other versions, so the web cannot say
+  // it is the newest.
+  if (key === null) return null;
+  // A later installation version names its predecessor even when its name
+  // or version number differs from it.
+  if (profiles.some((other) => other.installation?.previous_id === own.id))
+    return false;
   return !profiles.some(
     (other) => lineage(other) === key && versionOf(other) > versionOf(own),
   );
